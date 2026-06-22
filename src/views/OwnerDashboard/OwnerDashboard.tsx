@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useDatabase } from '../../context/DatabaseContext';
-import { Users, Award, Heart, Printer, ArrowRight, Clock, LogOut, Search, CreditCard, Tablet, Globe } from 'lucide-react';
+import { Users, Award, Heart, Printer, ArrowRight, Clock, LogOut, Search, CreditCard, Tablet, Globe, Star } from 'lucide-react';
 
 const formatInterval = (minutes: number, lang: string = 'ko') => {
   const minsNum = typeof minutes === 'number' && !isNaN(minutes) ? minutes : 60;
@@ -44,7 +44,9 @@ export const OwnerDashboard: React.FC = () => {
     giftCardTransactions,
     processSplitPayment,
     processRefund,
-    registerStripeConnect
+    registerStripeConnect,
+    reviews,
+    updateStoreMiniHome
   } = useDatabase();
   
   // 상태 관리
@@ -78,7 +80,7 @@ export const OwnerDashboard: React.FC = () => {
   // 고객 정보 조회 관련 상태
   const [customerSearchQuery, setCustomerSearchQuery] = useState<string>('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
-  const [activeSubTab, setActiveSubTab] = useState<'home' | 'customers' | 'analytics'>('home');
+  const [activeSubTab, setActiveSubTab] = useState<'home' | 'customers' | 'analytics' | 'minihome'>('home');
 
   // 스탬프 직접 관리 관련 상태
   const [ownerStampQty, setOwnerStampQty] = useState<number>(1);
@@ -150,6 +152,7 @@ export const OwnerDashboard: React.FC = () => {
     tabOverview: language === 'ko' ? '📊 오버뷰' : '📊 Overview',
     tabCustomer: language === 'ko' ? '🔍 고객' : '🔍 Customer',
     tabSettlement: language === 'ko' ? '📈 정산' : '📈 Settlement',
+    tabMiniHome: language === 'ko' ? '🏠 미니홈피 관리' : '🏠 Mini-Home Settings',
     lockNow: language === 'ko' ? '🔒 즉시 잠금' : '🔒 Lock Now',
     
     // Overview metrics
@@ -358,8 +361,8 @@ export const OwnerDashboard: React.FC = () => {
   };
 
   // 탭 클릭 제어 및 자동 잠금 로직
-  const handleTabClick = (tab: 'home' | 'customers' | 'analytics') => {
-    if (tab === 'home') {
+  const handleTabClick = (tab: 'home' | 'customers' | 'analytics' | 'minihome') => {
+    if (tab === 'home' || tab === 'minihome') {
       setIsTabsUnlocked(false);
       setDashboardPasswordInput('');
       setDashboardPasswordError(null);
@@ -1302,6 +1305,13 @@ export const OwnerDashboard: React.FC = () => {
           >
             {t.tabSettlement}
           </button>
+          <button 
+            onClick={() => handleTabClick('minihome')}
+            className={`imin-chip ${activeSubTab === 'minihome' ? 'active' : ''}`}
+            style={{ cursor: 'pointer' }}
+          >
+            {t.tabMiniHome}
+          </button>
         </div>
 
         {isTabsUnlocked && (activeSubTab === 'customers' || activeSubTab === 'analytics') && (
@@ -1842,6 +1852,238 @@ export const OwnerDashboard: React.FC = () => {
 
       </div>
       </>
+      )}
+
+      {activeSubTab === 'minihome' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '0 4px 40px 4px' }}>
+          
+          {/* 1. 기본 정보 수정 카드 */}
+          <div className="imin-card" style={{ padding: '24px' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 800, borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '16px', color: 'var(--text-primary)', textAlign: 'left' }}>
+              🏠 {language === 'ko' ? '미니홈피 기본 정보 설정' : 'Mini-Home General Settings'}
+            </h3>
+            
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              updateStoreMiniHome(selectedStoreId, {
+                description: formData.get('description') as string,
+                address: formData.get('address') as string,
+                phone: formData.get('phone') as string,
+                hours: formData.get('hours') as string,
+                thumbnailUrl: formData.get('thumbnailUrl') as string,
+                bannerUrl: formData.get('bannerUrl') as string,
+              });
+            }} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div style={{ textAlign: 'left' }}>
+                  <label className="imin-input-label">{language === 'ko' ? '매장 썸네일 이미지 URL' : 'Store Thumbnail URL'}</label>
+                  <input 
+                    name="thumbnailUrl"
+                    defaultValue={selectedStore.thumbnailUrl || ''} 
+                    className="imin-input" 
+                    placeholder="https://example.com/thumb.jpg"
+                    style={{ marginTop: '6px' }}
+                  />
+                </div>
+                <div style={{ textAlign: 'left' }}>
+                  <label className="imin-input-label">{language === 'ko' ? '매장 대표 배너 이미지 URL' : 'Store Banner URL'}</label>
+                  <input 
+                    name="bannerUrl"
+                    defaultValue={selectedStore.bannerUrl || ''} 
+                    className="imin-input" 
+                    placeholder="https://example.com/banner.jpg"
+                    style={{ marginTop: '6px' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ textAlign: 'left' }}>
+                <label className="imin-input-label">{language === 'ko' ? '매장 한 줄 소개' : 'Store Description'}</label>
+                <textarea 
+                  name="description"
+                  defaultValue={selectedStore.description || ''} 
+                  className="imin-input" 
+                  rows={2}
+                  placeholder={language === 'ko' ? '매장 소개 글을 써주세요.' : 'Enter store description.'}
+                  style={{ marginTop: '6px', resize: 'none' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                <div style={{ textAlign: 'left' }}>
+                  <label className="imin-input-label">{language === 'ko' ? '매장 연락처' : 'Phone Number'}</label>
+                  <input 
+                    name="phone"
+                    defaultValue={selectedStore.phone || ''} 
+                    className="imin-input" 
+                    placeholder="02-123-4567"
+                    style={{ marginTop: '6px' }}
+                  />
+                </div>
+                <div style={{ textAlign: 'left' }}>
+                  <label className="imin-input-label">{language === 'ko' ? '매장 영업 시간' : 'Business Hours'}</label>
+                  <input 
+                    name="hours"
+                    defaultValue={selectedStore.hours || ''} 
+                    className="imin-input" 
+                    placeholder="09:00 ~ 21:00"
+                    style={{ marginTop: '6px' }}
+                  />
+                </div>
+                <div style={{ textAlign: 'left' }}>
+                  <label className="imin-input-label">{language === 'ko' ? '매장 상세 주소' : 'Store Address'}</label>
+                  <input 
+                    name="address"
+                    defaultValue={selectedStore.address || ''} 
+                    className="imin-input" 
+                    placeholder={language === 'ko' ? '강남구 역삼동...' : 'Store address'}
+                    style={{ marginTop: '6px' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button type="submit" className="imin-btn imin-btn-primary" style={{ width: 'auto', padding: '10px 24px' }}>
+                  {language === 'ko' ? '저장하기' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* 2. 메뉴 편집 카드 */}
+          <div className="imin-card" style={{ padding: '24px' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 800, borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '16px', color: 'var(--text-primary)', textAlign: 'left' }}>
+              🍽️ {language === 'ko' ? '대표 메뉴 관리' : 'Manage Signature Menu'}
+            </h3>
+            
+            {/* 메뉴 등록 폼 */}
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              const name = formData.get('menuName') as string;
+              const price = parseFloat(formData.get('menuPrice') as string);
+              const desc = formData.get('menuDesc') as string;
+              
+              if (!name || isNaN(price)) return;
+              
+              const currentMenu = selectedStore.menuItems || [];
+              const updatedMenu = [...currentMenu, { name, price, description: desc }];
+              
+              updateStoreMiniHome(selectedStoreId, { menuItems: updatedMenu });
+              e.currentTarget.reset();
+            }} style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', marginBottom: '20px', backgroundColor: 'var(--background-color)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+              <div style={{ flex: 2, textAlign: 'left' }}>
+                <label className="imin-input-label" style={{ fontSize: '11px' }}>{language === 'ko' ? '메뉴 이름' : 'Menu Item Name'}</label>
+                <input name="menuName" className="imin-input" placeholder={language === 'ko' ? '예: 아메리카노' : 'e.g. Latte'} style={{ marginTop: '4px', height: '36px' }} required />
+              </div>
+              <div style={{ flex: 1, textAlign: 'left' }}>
+                <label className="imin-input-label" style={{ fontSize: '11px' }}>{language === 'ko' ? '가격 ($)' : 'Price ($)'}</label>
+                <input name="menuPrice" type="number" step="0.01" className="imin-input" placeholder="4.50" style={{ marginTop: '4px', height: '36px' }} required />
+              </div>
+              <div style={{ flex: 2, textAlign: 'left' }}>
+                <label className="imin-input-label" style={{ fontSize: '11px' }}>{language === 'ko' ? '상세 설명 (선택)' : 'Description (Optional)'}</label>
+                <input name="menuDesc" className="imin-input" placeholder={language === 'ko' ? '예: 아이스 가능' : 'Details'} style={{ marginTop: '4px', height: '36px' }} />
+              </div>
+              <button type="submit" className="imin-btn imin-btn-primary" style={{ width: 'auto', padding: '0 20px', height: '36px', fontSize: '13px', fontWeight: 800 }}>
+                {language === 'ko' ? '추가' : 'Add'}
+              </button>
+            </form>
+
+            {/* 메뉴 목록 리스트 */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {selectedStore.menuItems && selectedStore.menuItems.length > 0 ? (
+                selectedStore.menuItems.map((item, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                    <div style={{ textAlign: 'left' }}>
+                      <span style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--text-primary)' }}>{item.name}</span>
+                      {item.description && (
+                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>{item.description}</span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 900, color: 'var(--primary-color)' }}>
+                        ${item.price.toFixed(2)}
+                      </span>
+                      <button 
+                        onClick={() => {
+                          const updatedMenu = (selectedStore.menuItems || []).filter((_, i) => i !== idx);
+                          updateStoreMiniHome(selectedStoreId, { menuItems: updatedMenu });
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--accent-red)',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {language === 'ko' ? '삭제' : 'Delete'}
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px', padding: '20px 0' }}>
+                  {language === 'ko' ? '등록된 대표 메뉴가 없습니다. 위의 폼에서 추가해 주세요.' : 'No signature menu items registered.'}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 3. 최근 고객 리뷰 대장 */}
+          <div className="imin-card" style={{ padding: '24px' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 800, borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '16px', color: 'var(--text-primary)', textAlign: 'left' }}>
+              💬 {language === 'ko' ? '우리 매장 고객 리뷰 피드' : 'Customer Reviews Feed'}
+            </h3>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {reviews.filter(r => r.storeId === selectedStoreId).length > 0 ? (
+                reviews.filter(r => r.storeId === selectedStoreId).map(review => (
+                  <div key={review.id} style={{ padding: '14px', border: '1px solid var(--border-color)', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: 'var(--primary-light)', color: 'var(--primary-color)', fontSize: '11px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {review.userName.charAt(0)}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.1 }}>{review.userName}</span>
+                          <span style={{ fontSize: '9px', color: 'var(--text-secondary)' }}>@{review.userNickname}</span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '2px' }}>
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <Star key={i} size={10} fill={i < review.rating ? '#ffb800' : 'none'} color={i < review.rating ? '#ffb800' : 'var(--border-color)'} />
+                        ))}
+                      </div>
+                    </div>
+                    
+                    <p style={{ fontSize: '12.5px', color: 'var(--text-primary)', margin: 0, textAlign: 'left', lineHeight: 1.45, whiteSpace: 'pre-line' }}>
+                      {review.comment}
+                    </p>
+
+                    {review.photoUrl && (
+                      <div style={{ width: '80px', height: '80px', borderRadius: '8px', overflow: 'hidden', backgroundColor: 'var(--border-color)', alignSelf: 'flex-start' }}>
+                        <img src={review.photoUrl} alt="Review attachment" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '9.5px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                      <span>{new Date(review.createdAt).toLocaleString()}</span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px', padding: '20px 0' }}>
+                  {language === 'ko' ? '아직 매장에 작성된 고객 리뷰가 없습니다.' : 'No customer reviews recorded yet.'}
+                </div>
+              )}
+            </div>
+          </div>
+
+        </div>
       )}
 
       {activeSubTab === 'customers' && (

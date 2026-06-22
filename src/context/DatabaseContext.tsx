@@ -130,6 +130,8 @@ const mergeStates = (stateA: any, stateB: any): any => {
   merged.nonProfits = mergeCollections(stateA.nonProfits, stateB.nonProfits, timeA, timeB);
   merged.adBanners = mergeCollections(stateA.adBanners, stateB.adBanners, timeA, timeB);
   merged.paymentRequests = mergeCollections(stateA.paymentRequests, stateB.paymentRequests, timeA, timeB);
+  merged.reviews = mergeCollections(stateA.reviews || [], stateB.reviews || [], timeA, timeB)
+    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   
   merged.categories = timeB > timeA ? (stateB.categories || []) : (stateA.categories || []);
   merged.donationsLedger = timeB > timeA ? (stateB.donationsLedger || []) : (stateA.donationsLedger || []);
@@ -172,7 +174,27 @@ export interface Store {
   stripeAccountId?: string;
   status?: 'active' | 'suspended';
   updatedAt?: string;
+  description?: string;
+  address?: string;
+  phone?: string;
+  hours?: string;
+  menuItems?: { name: string; price: number; description?: string }[];
+  thumbnailUrl?: string;
+  bannerUrl?: string;
 }
+
+export interface StoreReview {
+  id: string;
+  storeId: string;
+  userId: string;
+  userName: string;
+  userNickname: string;
+  rating: number; // 1-5
+  comment: string;
+  photoUrl?: string;
+  createdAt: string;
+}
+
 
 export interface StampCard {
   id: string;
@@ -331,6 +353,9 @@ interface DatabaseContextProps {
   adBanners: AdBanner[];
   giftCards: GiftCard[];
   giftCardTransactions: GiftCardTransaction[];
+  reviews: StoreReview[];
+  addReview: (storeId: string, rating: number, comment: string, photoUrl?: string) => void;
+  updateStoreMiniHome: (storeId: string, updates: Partial<Store>) => void;
   
   // 로그인 상태 및 디바이스
   currentUser: User | null;
@@ -449,6 +474,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     adBanners: AdBanner[];
     giftCards: GiftCard[];
     giftCardTransactions: GiftCardTransaction[];
+    reviews: StoreReview[];
     categories: string[];
     updatedAt?: string;
     resetAt?: string;
@@ -1011,10 +1037,123 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     ];
 
     const defaultStores: Store[] = [
-      { id: 'store_id_1', name: '스타벅스 강남점', category: 'Cafe (카페)', pointRewardPer7Stamps: 5, currency: 'USD', earningIntervalMinutes: 60, ownerId: 'owner_id_1' },
-      { id: 'store_id_2', name: '박준뷰티랩 신촌점', category: 'Salon (미용/헤어)', pointRewardPer7Stamps: 10, currency: 'USD', earningIntervalMinutes: 30, ownerId: 'owner_id_2' },
-      { id: 'store_id_unassigned_1', name: '러브레터 디저트카페', category: 'Cafe (카페)', pointRewardPer7Stamps: 4, currency: 'USD', earningIntervalMinutes: 10, ownerId: 'none' },
-      { id: 'store_id_unassigned_2', name: '본도시락 역삼점', category: 'Restaurant (식당)', pointRewardPer7Stamps: 6, currency: 'USD', earningIntervalMinutes: 0, ownerId: 'none' }
+      {
+        id: 'store_id_1',
+        name: '스타벅스 강남점',
+        category: 'Cafe (카페)',
+        pointRewardPer7Stamps: 5,
+        currency: 'USD',
+        earningIntervalMinutes: 60,
+        ownerId: 'owner_id_1',
+        description: '강남역 2번 출구 앞, 신선한 스페셜티 커피와 맛있는 디저트가 있는 아늑한 공간입니다.',
+        address: '서울시 강남구 강남대로 390',
+        phone: '02-123-4567',
+        hours: '07:00 ~ 22:00',
+        thumbnailUrl: 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=500',
+        bannerUrl: 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=1000',
+        menuItems: [
+          { name: '아메리카노', price: 4.5, description: '에스프레소에 뜨거운 물을 더한 대중적인 커피' },
+          { name: '카페라떼', price: 5.0, description: '에스프레소와 부드러운 우유의 조화' },
+          { name: '초콜릿 칩 쿠키', price: 3.0 },
+          { name: '블루베리 치즈케이크', price: 6.5 }
+        ]
+      },
+      {
+        id: 'store_id_2',
+        name: '박준뷰티랩 신촌점',
+        category: 'Salon (미용/헤어)',
+        pointRewardPer7Stamps: 10,
+        currency: 'USD',
+        earningIntervalMinutes: 30,
+        ownerId: 'owner_id_2',
+        description: '최신 트렌드 헤어 스타일과 전문 클리닉으로 최상의 아름다움을 선사하는 미용실입니다.',
+        address: '서울시 서대문구 신촌로 109',
+        phone: '02-765-4321',
+        hours: '10:00 ~ 20:00',
+        thumbnailUrl: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=500',
+        bannerUrl: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=1000',
+        menuItems: [
+          { name: '디자인 컷', price: 25.0, description: '고객맞춤형 스타일링 커트' },
+          { name: '컬러 염색', price: 80.0, description: '트렌디한 프리미엄 염색' },
+          { name: '헤어 클리닉', price: 120.0, description: '손상된 모발에 수분과 단백질 집중 공급' }
+        ]
+      },
+      {
+        id: 'store_id_unassigned_1',
+        name: '러브레터 디저트카페',
+        category: 'Cafe (카페)',
+        pointRewardPer7Stamps: 4,
+        currency: 'USD',
+        earningIntervalMinutes: 10,
+        ownerId: 'none',
+        description: '달콤한 조각 케이크와 수제 마카롱을 판매하는 분위기 좋은 디저트 전문점입니다.',
+        address: '서울시 마포구 와우산로 88',
+        phone: '02-333-7777',
+        hours: '11:00 ~ 21:00',
+        thumbnailUrl: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=500',
+        bannerUrl: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=1000',
+        menuItems: [
+          { name: '마카롱 세트 (4구)', price: 12.0 },
+          { name: '딸기 생크림 케이크', price: 7.5 },
+          { name: '밀크티', price: 6.0 }
+        ]
+      },
+      {
+        id: 'store_id_unassigned_2',
+        name: '본도시락 역삼점',
+        category: 'Restaurant (식당)',
+        pointRewardPer7Stamps: 6,
+        currency: 'USD',
+        earningIntervalMinutes: 0,
+        ownerId: 'none',
+        description: '바쁜 일상 속, 정성 가득한 한식 도시락으로 집밥 같은 따뜻함을 전해드립니다.',
+        address: '서울시 강남구 테헤란로 123',
+        phone: '02-555-8888',
+        hours: '09:00 ~ 21:00',
+        thumbnailUrl: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500',
+        bannerUrl: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=1000',
+        menuItems: [
+          { name: '바싹불고기 도시락', price: 11.5, description: '본도시락 베스트 메뉴' },
+          { name: '제육볶음 도시락', price: 10.0 },
+          { name: '버섯소불고기 도시락', price: 13.0 }
+        ]
+      }
+    ];
+
+    const defaultReviews: StoreReview[] = [
+      {
+        id: 'review_1',
+        storeId: 'store_id_1',
+        userId: 'user_id_jimin',
+        userName: '박지민',
+        userNickname: 'coffee_lover',
+        rating: 5,
+        comment: '커피 맛이 정말 깊고 깔끔해서 자주 방문해요! 넓고 쾌적한 매장과 친절한 직원분들 덕분에 항상 기분 좋은 시간을 보내고 가네요.',
+        photoUrl: 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=300',
+        createdAt: getSkewCorrectedIsoString()
+      },
+      {
+        id: 'review_2',
+        storeId: 'store_id_2',
+        userId: 'user_id_yujin',
+        userName: '최유진',
+        userNickname: 'bread_girl',
+        rating: 5,
+        comment: '머리 손상이 심해서 걱정했는데 클리닉 받고 나니 모발이 너무 부드러워졌어요! 디자이너님들이 꼼꼼하게 상담해 주시고 제 얼굴형에 어울리는 인생 컷 찾아주셨네요.',
+        photoUrl: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=300',
+        createdAt: getSkewCorrectedIsoString()
+      },
+      {
+        id: 'review_3',
+        storeId: 'store_id_unassigned_1',
+        userId: 'user_id_jimin',
+        userName: '박지민',
+        userNickname: 'coffee_lover',
+        rating: 4,
+        comment: '달콤한 디저트와 마카롱이 정말 일품입니다. 매장 인테리어가 아늑하고 너무 예뻐서 갈 때마다 인스타 감성 샷 잔뜩 찍고 와요.',
+        photoUrl: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=300',
+        createdAt: getSkewCorrectedIsoString()
+      }
     ];
 
     const defaultNPOs: NonProfit[] = [
@@ -1038,6 +1177,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       paymentRequests: [],
       giftCards: [],
       giftCardTransactions: [],
+      reviews: defaultReviews,
       adBanners: [
         {
           id: 'ad_default_duracell',
@@ -1151,6 +1291,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       giftsLedger: [],
       giftCards: [],
       giftCardTransactions: [],
+      reviews: [],
       adBanners: [],
       paymentRequests: [],
       ownerRequests: []
@@ -2655,6 +2796,43 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     );
   };
 
+  const updateStoreMiniHome = (storeId: string, updates: Partial<Store>) => {
+    if (!dbState) return;
+    const updatedStores = dbState.stores.map(s => 
+      s.id === storeId ? { ...s, ...updates, updatedAt: getSkewCorrectedIsoString() } : s
+    );
+    updateDbState({ ...dbState, stores: updatedStores });
+    playVoiceGuidance(
+      language === 'ko'
+        ? "매장 정보가 업데이트되었습니다."
+        : "Store information has been updated.",
+      language
+    );
+  };
+
+  const addReview = (storeId: string, rating: number, comment: string, photoUrl?: string) => {
+    if (!dbState) return;
+    const newReview: StoreReview = {
+      id: `review_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      storeId,
+      userId: currentUser?.id || 'guest',
+      userName: currentUser?.name || (language === 'ko' ? '방문자' : 'Guest'),
+      userNickname: currentUser?.nickname || 'guest',
+      rating,
+      comment,
+      photoUrl,
+      createdAt: getSkewCorrectedIsoString()
+    };
+    const updatedReviews = [newReview, ...(dbState.reviews || [])];
+    updateDbState({ ...dbState, reviews: updatedReviews });
+    playVoiceGuidance(
+      language === 'ko'
+        ? "리뷰가 등록되었습니다."
+        : "Review submitted successfully.",
+      language
+    );
+  };
+
   const deductStampsByOwner = (customerId: string, storeId: string, count: number) => {
     if (!dbState) return { success: false, message: 'DB Error' };
     const customer = dbState.users.find(u => u.id === customerId);
@@ -3821,6 +3999,9 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     
     suspendUser,
     deleteUser,
+    reviews: dbState?.reviews || [],
+    addReview,
+    updateStoreMiniHome,
     giftCards: dbState?.giftCards || [],
     giftCardTransactions: dbState?.giftCardTransactions || [],
     buyGiftCard,

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useDatabase } from '../../context/DatabaseContext';
 import { 
   Heart, Gift, Smartphone, Tablet, Coins, ArrowRight,
   TrendingUp, Users, Megaphone, Landmark, HeartHandshake, Receipt, Award, Database, Zap
@@ -138,6 +139,7 @@ const benefits_en = [
 ];
 
 export const LandingPage: React.FC = () => {
+  const { stores, reviews } = useDatabase();
   const [showImpactModal, setShowImpactModal] = useState<boolean>(false);
   // OS 언어 감지 및 기본 언어 세팅 (영어일 경우 en, 아니면 ko)
   const [lang, setLang] = useState<'ko' | 'en'>(() => {
@@ -147,6 +149,13 @@ export const LandingPage: React.FC = () => {
 
   const navigateTo = (hash: string) => {
     window.location.hash = hash;
+  };
+
+  const getStoreRatingInfo = (storeId: string) => {
+    const storeReviews = reviews.filter(r => r.storeId === storeId);
+    if (storeReviews.length === 0) return { avg: 5.0, count: 0 };
+    const sum = storeReviews.reduce((acc, r) => acc + r.rating, 0);
+    return { avg: parseFloat((sum / storeReviews.length).toFixed(1)), count: storeReviews.length };
   };
 
   const t = translations[lang];
@@ -440,6 +449,101 @@ export const LandingPage: React.FC = () => {
             {t.btnStore}
           </button>
         </div>
+
+      {/* Yelp-style Store Explorer Section */}
+      <section style={{
+        maxWidth: '800px',
+        margin: '0 auto 48px auto',
+        padding: '0 20px',
+        textAlign: 'left',
+        position: 'relative',
+        zIndex: 10
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h2 style={{ fontSize: '20px', fontWeight: 900, color: '#1f1f24', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+            <span>🏪</span> {lang === 'ko' ? '추천 착한 가맹점 미니홈피' : 'Explore Featured Stores'}
+          </h2>
+          <span style={{ fontSize: '12px', color: '#5f5ce6', fontWeight: 700 }}>
+            {lang === 'ko' ? `총 ${stores.filter(s => !s.name.includes('호점')).length}개 매장` : `${stores.filter(s => !s.name.includes('호점')).length} stores`}
+          </span>
+        </div>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr',
+          gap: '16px'
+        }}>
+          {stores.filter(s => !s.name.includes('호점')).map(store => {
+            const { avg, count } = getStoreRatingInfo(store.id);
+            return (
+              <div 
+                key={store.id}
+                onClick={() => navigateTo(`#/store-home/${store.id}`)}
+                style={{
+                  display: 'flex',
+                  backgroundColor: '#ffffff',
+                  borderRadius: '16px',
+                  border: '1px solid rgba(95, 92, 230, 0.1)',
+                  boxShadow: '0 4px 15px rgba(0,0,0,0.02)',
+                  overflow: 'hidden',
+                  cursor: 'pointer',
+                  transition: 'transform 0.2s, box-shadow 0.2s'
+                }}
+                className="landing-card-white"
+              >
+                {/* Store Thumbnail */}
+                <div style={{ width: '100px', height: '100px', flexShrink: 0, backgroundColor: '#f1f3f9' }}>
+                  <img 
+                    src={store.thumbnailUrl || 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=300'} 
+                    alt={store.name} 
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                </div>
+
+                {/* Store Text details */}
+                <div style={{ flex: 1, padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', overflow: 'hidden' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                      <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: '#1f1f24', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {store.name}
+                      </h3>
+                      <span style={{ 
+                        fontSize: '10px', 
+                        fontWeight: 700, 
+                        color: '#5f5ce6', 
+                        backgroundColor: 'rgba(95, 92, 230, 0.08)',
+                        padding: '2px 6px',
+                        borderRadius: '20px',
+                        flexShrink: 0
+                      }}>
+                        {store.category.split(' ')[0]}
+                      </span>
+                    </div>
+                    
+                    {/* Star Rating */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
+                      <span style={{ color: '#ffb800', fontSize: '13px' }}>★</span>
+                      <span style={{ fontSize: '12px', fontWeight: 800, color: '#1f1f24' }}>{avg.toFixed(1)}</span>
+                      <span style={{ fontSize: '11px', color: '#71717a' }}>({count})</span>
+                    </div>
+
+                    <p style={{ fontSize: '12.5px', color: '#52525b', margin: '6px 0 0 0', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                      {store.description || (lang === 'ko' ? '기분 좋은 서비스와 혜택을 드리는 가맹점입니다.' : 'A good store with nice service and stamp rewards.')}
+                    </p>
+                  </div>
+
+                  <div style={{ fontSize: '11px', color: '#71717a', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px' }}>
+                    <span>📍</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {store.address || (lang === 'ko' ? '서울시 강남구' : 'Seoul, Korea')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
         {/* Grid Container for Cards */}
         <div className="landing-grid" style={{

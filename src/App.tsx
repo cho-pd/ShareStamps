@@ -5,14 +5,18 @@ import { TabletKiosk } from './views/TabletKiosk/TabletKiosk';
 import { OwnerDashboard } from './views/OwnerDashboard/OwnerDashboard';
 import { SuperAdmin } from './views/SuperAdmin/SuperAdmin';
 import { LandingPage } from './views/LandingPage/LandingPage';
+import { StoreMiniHome } from './views/StoreMiniHome/StoreMiniHome';
 import { playVoiceGuidance } from './utils/voice';
 import { 
   Settings, Key, Tablet, Monitor, Lock, X
 } from 'lucide-react';
 
-const parseHashRoute = (): { route: 'customer' | 'store' | 'admin' | 'home'; mode: 'customer' | 'kiosk' | 'owner' | 'admin' | 'home' } => {
+const parseHashRoute = (): { route: 'customer' | 'store' | 'admin' | 'home' | 'store-home'; mode: 'customer' | 'kiosk' | 'owner' | 'admin' | 'home' | 'store-home' } => {
   const hash = window.location.hash.toLowerCase();
   
+  if (hash.includes('store-home') || hash.includes('/store-home')) {
+    return { route: 'store-home', mode: 'store-home' };
+  }
   if (hash.includes('/admin') || hash.includes('/hq') || hash === '#admin' || hash === '#hq') {
     return { route: 'admin', mode: 'admin' };
   }
@@ -76,8 +80,8 @@ const MainAppContent: React.FC = () => {
   
   // 라우트 상태 및 시뮬레이터 모드 상태
   const initialRouteInfo = parseHashRoute();
-  const [route, setRoute] = useState<'customer' | 'store' | 'admin' | 'home'>(initialRouteInfo.route);
-  const [simulatorMode, setSimulatorMode] = useState<'kiosk' | 'customer' | 'owner' | 'admin' | 'home'>(() => {
+  const [route, setRoute] = useState<'customer' | 'store' | 'admin' | 'home' | 'store-home'>(initialRouteInfo.route);
+  const [simulatorMode, setSimulatorMode] = useState<'kiosk' | 'customer' | 'owner' | 'admin' | 'home' | 'store-home'>(() => {
     if (initialRouteInfo.route === 'store' && !currentOwner) {
       return 'owner';
     }
@@ -221,6 +225,23 @@ const MainAppContent: React.FC = () => {
             {/* 노치 높이만큼 상단 패딩 부여 */}
             <div className="phone-notch-spacer" style={{ height: '24px', backgroundColor: '#ffffff' }} />
             <CustomerPWA />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 2-3. 매장 미니홈피 단독 라우트 뷰
+  if (route === 'store-home') {
+    return (
+      <div className="customer-pwa-container">
+        {/* 모바일 폰 프레임 */}
+        <div className="phone-frame-wrapper">
+          <div className="phone-notch" />
+          <div className="phone-screen">
+            {/* 노치 높이만큼 상단 패딩 부여 */}
+            <div className="phone-notch-spacer" style={{ height: '24px', backgroundColor: '#ffffff' }} />
+            <StoreMiniHome />
           </div>
         </div>
       </div>

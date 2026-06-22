@@ -1780,7 +1780,25 @@ export const CustomerPWA: React.FC = () => {
                   {t.earnRateLimitLabel} {formatInterval(selectedStore.earningIntervalMinutes, language)}
                 </span>
               </div>
-              <h4 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: '#1c1c1e', lineHeight: '1.2', paddingRight: '85px' }}>{selectedStore.name}</h4>
+              <h4 
+                onClick={() => {
+                  if (selectedStore.id !== 'unassigned') {
+                    window.location.hash = `#/store-home/${selectedStore.id}`;
+                  }
+                }}
+                style={{ 
+                  fontSize: '18px', 
+                  fontWeight: 800, 
+                  margin: 0, 
+                  color: selectedStore.id !== 'unassigned' ? '#5f5ce6' : '#1c1c1e', 
+                  lineHeight: '1.2', 
+                  paddingRight: '85px',
+                  cursor: selectedStore.id !== 'unassigned' ? 'pointer' : 'default',
+                  textDecoration: selectedStore.id !== 'unassigned' ? 'underline' : 'none'
+                }}
+              >
+                {selectedStore.name} {selectedStore.id !== 'unassigned' && <span style={{ fontSize: '11px', fontWeight: 550, textDecoration: 'none', display: 'inline-block', marginLeft: '4px', verticalAlign: 'middle' }}>🔗</span>}
+              </h4>
               <span style={{ fontSize: '14.5px', color: 'var(--text-primary)', display: 'block', lineHeight: '1.3' }}>
                 {t.rewardLabel} <strong style={{ fontSize: '16.5px', fontWeight: 800, color: '#FF073A' }}>${selectedStore.pointRewardPer7Stamps.toFixed(2)}</strong>
               </span>
