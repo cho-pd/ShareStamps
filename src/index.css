@@ -1,0 +1,530 @@
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css");
+@import url('https://fonts.googleapis.com/css2?family=Nanum+Pen+Script&family=Caveat:wght@700&display=swap');
+
+/* imin-inspired Design System Variables */
+:root {
+  --font-sans: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+  --primary-color: #5F5CE6;        /* 아임인 시그니처 연보라/인디고 */
+  --primary-hover: #4F47C8;
+  --primary-light: #EEEDFD;        /* 버튼 호버나 소프트배경용 */
+  --background-color: #F2F2F7;     /* 앱 전체 라이트 배경 (시뮬레이터 회색 배경) */
+  --surface-color: #FFFFFF;        /* 카드 등 주요 컴포넌트 화이트 배경 */
+  --border-color: #EFEFEF;         /* 옅은 경계선 */
+  --text-primary: #1F1F24;         /* 다크 차콜 텍스트 */
+  --text-secondary: #8E8E93;       /* 서브 텍스트 */
+  --accent-green: #10B981;         /* 네온 그린 (스탬프 체크, 적립 성공) */
+  --accent-blue: #0A84FF;          /* 네온 블루 (선물) */
+  --accent-purple: #BF5AF2;        /* 네온 퍼플 (기부) */
+  --accent-red: #FF453A;           /* 에러 및 취소 */
+  
+  --border-radius-lg: 16px;        /* 둥근 카드 모서리 */
+  --border-radius-md: 12px;
+  --border-radius-sm: 8px;
+  --border-radius-pill: 9999px;    /* 알약 버튼 */
+  
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 32px rgba(95, 92, 230, 0.12); /* 연보랏빛 부드러운 그림자 */
+  
+  font-family: var(--font-sans);
+  letter-spacing: -0.025em;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light;
+  background-color: var(--background-color);
+  color: var(--text-primary);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent; /* 모바일 터치 하이라이트 제거 */
+}
+
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--background-color);
+}
+
+/* imin 스타일 Underline Input */
+.imin-input {
+  width: 100%;
+  border: none;
+  border-bottom: 2px solid var(--border-color);
+  padding: 12px 4px;
+  font-size: 16px;
+  background: transparent;
+  outline: none;
+  transition: border-color 0.2s ease;
+  color: var(--text-primary);
+}
+
+.imin-input:focus {
+  border-bottom-color: var(--primary-color);
+}
+
+/* imin 스타일 둥근 알약 버튼 */
+.imin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 28px;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: var(--border-radius-pill);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%;
+  text-align: center;
+}
+
+.imin-btn-primary {
+  background-color: var(--primary-color);
+  color: #ffffff;
+}
+
+.imin-btn-primary:hover:not(:disabled) {
+  background-color: var(--primary-hover);
+  box-shadow: 0 4px 12px rgba(95, 92, 230, 0.3);
+}
+
+.imin-btn-secondary {
+  background-color: var(--primary-light);
+  color: var(--primary-color);
+}
+
+.imin-btn-secondary:hover:not(:disabled) {
+  background-color: #E2E0FB;
+}
+
+.imin-btn-outline {
+  background-color: transparent;
+  border: 2px solid var(--primary-color);
+  color: var(--primary-color);
+}
+
+.imin-btn-outline:hover:not(:disabled) {
+  background-color: var(--primary-light);
+}
+
+.imin-btn:disabled {
+  background-color: #E5E5EA;
+  color: #AEAEB2;
+  cursor: not-allowed;
+}
+
+/* imin 스타일 카드 컨테이너 */
+.imin-card {
+  background-color: var(--surface-color);
+  border-radius: var(--border-radius-lg);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
+  padding: 20px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.imin-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* 바텀 시트 -> 상단형 카드 팝업 모달 (헤더 아래에서 시작) */
+.bottom-sheet-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  animation: fadeIn 0.2s ease-out;
+  padding: 64px 16px 16px 16px;
+}
+
+.bottom-sheet {
+  background-color: var(--surface-color);
+  width: 100%;
+  max-width: 330px;
+  border-radius: var(--border-radius-lg);
+  padding: 20px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  animation: scaleUp 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  max-height: calc(100% - 80px);
+  overflow-y: auto;
+}
+
+/* 닫기 인디케이터 바 숨김 */
+.bottom-sheet::before {
+  display: none;
+}
+
+/* 태그 칩 (알약) */
+.imin-chip {
+  display: inline-flex;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: var(--border-radius-pill);
+  background-color: #E5E5EA;
+  color: #48484A;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.imin-chip.active {
+  background-color: var(--primary-color);
+  color: #ffffff;
+}
+
+/* 애니메이션 정의 */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes scaleUp {
+  from { transform: scale(0.9); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* A4 포스터 인쇄 스타일 */
+@media print {
+  body {
+    background-color: #ffffff;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
+
+/* --- [NEW] 디바이스 프레임 목업 스타일링 --- */
+
+.customer-pwa-container {
+  height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #E5E5EA;
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* 1. 스마트폰 프레임 (모바일 고객용) */
+.phone-frame-wrapper {
+  background-color: #1c1c1e;
+  width: 380px;
+  height: 820px;
+  border-radius: 40px;
+  border: 12px solid #000000;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.phone-screen {
+  background-color: #ffffff;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 폰 상단 카메라 노치 바 */
+.phone-notch {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 140px;
+  height: 24px;
+  background-color: #000000;
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
+  z-index: 1000;
+}
+
+@media (max-width: 480px) {
+  .customer-pwa-container {
+    background-color: #ffffff !important;
+    padding: 0 !important;
+  }
+  .phone-frame-wrapper {
+    width: 100% !important;
+    height: 100% !important;
+    border-radius: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  .phone-notch {
+    display: none !important;
+  }
+  .phone-notch-spacer {
+    display: none !important;
+  }
+}
+
+/* 2. 태블릿 프레임 (계산대 키오스크용) */
+.tablet-frame-wrapper {
+  background-color: #1c1c1e;
+  width: 620px;
+  height: 820px;
+  border-radius: 28px;
+  border: 16px solid #000000;
+  box-shadow: 0 25px 50px rgba(0,0,0,0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tablet-screen {
+  background-color: #111115;
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  position: relative;
+}
+
+/* 3. PC 데스크탑 랩톱 프레임 (매장 포스기 / 본사 관리자용) */
+.pc-frame-wrapper {
+  background-color: #f1f1f1;
+  border: 1px solid #dcdcdc;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+  width: 100%;
+  max-width: 1200px;
+  min-height: 700px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pc-window-header {
+  height: 36px;
+  background-color: #e0e0e0;
+  border-bottom: 1px solid #dcdcdc;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 8px;
+}
+
+.pc-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+.pc-dot-red { background-color: #ff5f56; }
+.pc-dot-yellow { background-color: #ffbd2e; }
+.pc-dot-green { background-color: #27c93f; }
+
+.pc-screen {
+  background-color: #ffffff;
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  position: relative;
+}
+
+/* 스탬프 캐시 사용 요청 컬러 CTA 버튼 */
+.discount-barcode-btn {
+  width: 70% !important;
+  padding: 11px 14px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.3px !important;
+  border-radius: var(--border-radius-pill) !important;
+  border: none !important;
+  background: linear-gradient(135deg, #5F5CE6 0%, #7B6CF6 50%, #9D8DFF 100%) !important;
+  color: #FFFFFF !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 7px !important;
+  cursor: pointer !important;
+  margin-top: 8px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  box-shadow: 0 4px 14px rgba(95, 92, 230, 0.35) !important;
+  transition: all 0.25s ease !important;
+  outline: none !important;
+  text-decoration: none !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.discount-barcode-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.discount-barcode-btn:hover {
+  background: linear-gradient(135deg, #4F47C8 0%, #6B5CE6 50%, #8D7DFF 100%) !important;
+  box-shadow: 0 6px 20px rgba(95, 92, 230, 0.45) !important;
+  transform: translateY(-1px) !important;
+}
+
+.discount-barcode-btn:active {
+  transform: scale(0.97) translateY(0) !important;
+  box-shadow: 0 2px 8px rgba(95, 92, 230, 0.3) !important;
+}
+
+/* 바코드 그래픽 라인 스타일 */
+.barcode-icon-line {
+  height: 10px !important;
+  background-color: #FFFFFF !important;
+  border-radius: 1px !important;
+}
+
+/* 광고 배너 페이드인 애니메이션 */
+@keyframes adFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* --- [NEW] 태블릿 실제 기기 전체화면 및 반응형 최적화 스타일 --- */
+
+/* 1. 기본 PC/시뮬레이터 모드 배경 및 여백 설정 */
+.kiosk-pos-wrapper {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #E5E5EA; /* 시뮬레이터 뒷배경 회색 */
+  padding: 40px 20px;
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+/* 2. 태블릿 키오스크 전용 기본 컨테이너 */
+.tablet-kiosk-container {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  box-sizing: border-box;
+}
+
+/* 3. 모바일/태블릿 화면 크기(1024px 이하) 대응 반응형 스타일 */
+@media (max-width: 1024px) {
+  /* 주변 여백 및 하얀 회색 바탕 제거 */
+  .kiosk-pos-wrapper {
+    padding: 0 !important;
+    background-color: #111115 !important; /* 전체를 키오스크 배경과 일치시킴 */
+  }
+
+  /* 가짜 검은색 태블릿 목업 베젤 제거 */
+  .tablet-frame-wrapper {
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+  }
+
+  .tablet-screen {
+    padding: 0 !important;
+    background-color: #111115 !important;
+  }
+
+  /* 내부 키오스크 컨테이너 여백 없이 전체화면 채우기 */
+  .tablet-kiosk-container {
+    max-width: 100% !important;
+    height: 100vh !important;
+    padding: 0 !important;
+    gap: 0 !important;
+  }
+
+  /* 키오스크 메인 카드가 화면 전체를 덮도록 보정 */
+  .tablet-kiosk-container .imin-card {
+    border: none !important;
+    border-radius: 0 !important;
+    height: 100% !important;
+    flex: 1 !important;
+  }
+}
+
+/* 4. 브라우저 전체화면(HTML5 Fullscreen) 및 커스텀 강제 전체화면 활성화 대응 스타일 */
+:fullscreen .kiosk-pos-wrapper,
+:-webkit-full-screen .kiosk-pos-wrapper,
+.kiosk-fullscreen-active .kiosk-pos-wrapper {
+  padding: 0 !important;
+  background-color: #111115 !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 999999 !important;
+}
+
+:fullscreen .tablet-frame-wrapper,
+:-webkit-full-screen .tablet-frame-wrapper,
+.kiosk-fullscreen-active .tablet-frame-wrapper {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  margin: 0 !important;
+}
+
+:fullscreen .tablet-screen,
+:-webkit-full-screen .tablet-screen,
+.kiosk-fullscreen-active .tablet-screen {
+  padding: 0 !important;
+  background-color: #111115 !important;
+  height: 100vh !important;
+}
+
+:fullscreen .tablet-kiosk-container,
+:-webkit-full-screen .tablet-kiosk-container,
+.kiosk-fullscreen-active .tablet-kiosk-container {
+  max-width: 100% !important;
+  height: 100vh !important;
+  padding: 0 !important;
+  gap: 0 !important;
+}
+
+:fullscreen .tablet-kiosk-container .imin-card,
+:-webkit-full-screen .tablet-kiosk-container .imin-card,
+.kiosk-fullscreen-active .tablet-kiosk-container .imin-card {
+  border: none !important;
+  border-radius: 0 !important;
+  height: 100% !important;
+  flex: 1 !important;
+}
+
+
