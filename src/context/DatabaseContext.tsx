@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { playVoiceGuidance } from '../utils/voice';
 import { db as firestoreDb } from '../firebase';
 import { doc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
@@ -1410,87 +1410,6 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     }
   };
-
-  const repairedAiReviewIdsRef = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    if (!dbState) return;
-
-    const aiReviewsMissingStamp = (dbState.reviews || []).filter(review => {
-      if (!review.isAIContent || !review.userId || review.userId === 'guest') return false;
-      if (repairedAiReviewIdsRef.current.has(review.id)) return false;
-      return !(dbState.stampTransactions || []).some(tx => (
-        tx.referenceId === review.id &&
-        tx.source === 'ai_review' &&
-        tx.type === 'earn' &&
-        tx.amount > 0
-      ));
-    });
-
-    if (aiReviewsMissingStamp.length === 0) return;
-
-    const reviewToRepair = [...aiReviewsMissingStamp].sort((a, b) => (
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    ))[0];
-
-    const cardIdx = dbState.stampCards.findIndex(card => (
-      card.userId === reviewToRepair.userId &&
-      card.storeId === reviewToRepair.storeId
-    ));
-    const currentStamps = cardIdx > -1 ? dbState.stampCards[cardIdx].currentStamps : 0;
-    if (currentStamps >= 7) {
-      repairedAiReviewIdsRef.current.add(reviewToRepair.id);
-      return;
-    }
-
-    const store = dbState.stores.find(s => s.id === reviewToRepair.storeId);
-    const rewardPer7 = store ? store.pointRewardPer7Stamps : 5;
-    const valuePerStamp = rewardPer7 / 7;
-    const stampToAdd = {
-      id: `stamp_${Date.now()}_ai_review_repair`,
-      acquiredAt: getSkewCorrectedIsoString(),
-      cashValue: parseFloat(valuePerStamp.toFixed(2))
-    };
-
-    const updatedCards = [...dbState.stampCards];
-    if (cardIdx === -1) {
-      updatedCards.push({
-        id: `card_${Date.now()}_ai_repair`,
-        userId: reviewToRepair.userId,
-        storeId: reviewToRepair.storeId,
-        currentStamps: 1,
-        stamps: [stampToAdd],
-        updatedAt: getSkewCorrectedIsoString()
-      });
-    } else {
-      const card = updatedCards[cardIdx];
-      updatedCards[cardIdx] = {
-        ...card,
-        currentStamps: currentStamps + 1,
-        stamps: [...(card.stamps || []), stampToAdd],
-        updatedAt: getSkewCorrectedIsoString()
-      };
-    }
-
-    repairedAiReviewIdsRef.current.add(reviewToRepair.id);
-    updateDbState({
-      ...dbState,
-      stampCards: updatedCards,
-      stampTransactions: [
-        ...(dbState.stampTransactions || []),
-        {
-          id: `stx_${Date.now()}_ai_review_repair`,
-          userId: reviewToRepair.userId,
-          storeId: reviewToRepair.storeId,
-          amount: 1,
-          type: 'earn',
-          source: 'ai_review',
-          referenceId: reviewToRepair.id,
-          createdAt: getSkewCorrectedIsoString()
-        }
-      ]
-    });
-  }, [dbState]);
 
   const initializeDefaultDb = async (completeEmpty?: boolean) => {
     const initialDb = completeEmpty ? {
