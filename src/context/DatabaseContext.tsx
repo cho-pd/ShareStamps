@@ -1844,34 +1844,43 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
   };
 
-  const getDailyRewardUsage = (
+  // \uC2A4\uD0EC\uD504 \uC801\uB9BD \uC77C\uC77C \uD55C\uB3C4 (\uB9E4\uC7A5\uBCC4 / \uD604\uC9C0 \uC790\uC815 0\uC2DC \uAE30\uC900 \uB9AC\uC14B / \uC885\uB958\uBCC4 \uB3C5\uB9BD)
+  const QR_DAILY_LIMIT = 3;      // QR \uC801\uB9BD: \uB9E4\uC7A5\uB2F9 \uD558\uB8E8 3\uC7A5 (\uC778\uD130\uBC8C \uD0C0\uC784 \uBCC4\uB3C4 \uC801\uC6A9)
+  const REVIEW_DAILY_LIMIT = 1;  // \uB9AC\uBDF0 \uC791\uC131: \uB9E4\uC7A5\uB2F9 \uD558\uB8E8 1\uC7A5
+  const SNS_DAILY_LIMIT = 1;     // SNS \uACF5\uC720: \uB9E4\uC7A5\uB2F9 \uD558\uB8E8 1\uC7A5
+
+  // \uD2B9\uC815 \uC720\uC800\uAC00 \uD2B9\uC815 \uB9E4\uC7A5\uC5D0\uC11C \uC624\uB298(\uD604\uC9C0 \uC790\uC815 \uAE30\uC900) \uD574\uB2F9 \uC18C\uC2A4\uB85C \uC801\uB9BD\uD55C \uC2A4\uD0EC\uD504 \uC218
+  const getDailyStoreStampCount = (
+    txList: StampTransaction[],
     userId: string,
-    rewardSource?: NonNullable<StampTransaction['source']>
+    storeId: string,
+    source: NonNullable<StampTransaction['source']>
   ) => {
-    if (!dbState) return { total: 0, sourceTotal: 0 };
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const end = start + 24 * 60 * 60 * 1000;
-    const txs = dbState.stampTransactions.filter(t => {
-      if (t.userId !== userId || t.type !== 'earn' || t.amount <= 0) return false;
+    return txList.filter(t => {
+      if (t.userId !== userId || t.storeId !== storeId || t.type !== 'earn' || t.amount <= 0) return false;
+      // \uB808\uAC70\uC2DC(\uC18C\uC2A4 \uC5C6\uC74C) \uC801\uB9BD\uC740 QR \uC801\uB9BD\uC73C\uB85C \uAC04\uC8FC
+      const matchSource = source === 'receipt_qr'
+        ? (t.source === 'receipt_qr' || !t.source)
+        : t.source === source;
+      if (!matchSource) return false;
       const created = new Date(t.createdAt).getTime();
       return created >= start && created < end;
-    });
-    return {
-      total: txs.reduce((sum, t) => sum + t.amount, 0),
-      sourceTotal: rewardSource
-        ? txs
-            .filter(t => t.source === rewardSource || (!t.source && rewardSource === 'receipt_qr'))
-            .reduce((sum, t) => sum + t.amount, 0)
-        : 0
-    };
+    }).reduce((sum, t) => sum + t.amount, 0);
   };
 
-  const getDailyRewardLimitMessage = (rewardName: string) => (
-    language === 'ko'
-      ? `${rewardName} \uC2A4\uD0EC\uD504 \uBCF4\uC0C1\uC740 \uD558\uB8E8 1\uC7A5, \uC804\uCCB4 \uBCF4\uC0C1\uC740 \uD558\uB8E8 3\uC7A5\uAE4C\uC9C0 \uBC1B\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`
-      : `${rewardName} stamp rewards are limited to 1 per day, and all daily rewards are limited to 3 stamps.`
-  );
+  const getDailyLimitMessage = (kind: 'qr' | 'review' | 'sns') => {
+    if (language === 'ko') {
+      if (kind === 'qr') return `QR \uC801\uB9BD\uC740 \uB9E4\uC7A5\uB2F9 \uD558\uB8E8 ${QR_DAILY_LIMIT}\uC7A5\uAE4C\uC9C0 \uBC1B\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`;
+      if (kind === 'review') return `\uB9AC\uBDF0 \uC2A4\uD0EC\uD504\uB294 \uB9E4\uC7A5\uB2F9 \uD558\uB8E8 ${REVIEW_DAILY_LIMIT}\uC7A5\uAE4C\uC9C0 \uBC1B\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`;
+      return `SNS \uACF5\uC720 \uC2A4\uD0EC\uD504\uB294 \uB9E4\uC7A5\uB2F9 \uD558\uB8E8 ${SNS_DAILY_LIMIT}\uC7A5\uAE4C\uC9C0 \uBC1B\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`;
+    }
+    if (kind === 'qr') return `QR stamps are limited to ${QR_DAILY_LIMIT} per store per day.`;
+    if (kind === 'review') return `Review stamps are limited to ${REVIEW_DAILY_LIMIT} per store per day.`;
+    return `SNS share stamps are limited to ${SNS_DAILY_LIMIT} per store per day.`;
+  };
 
   const claimQRStamps = (token: string, deviceToken: string) => {
     if (!dbState) return { success: false, message: 'DB 상태 에러', stampsAwarded: 0, newStamps: 0, earnedPoints: 0 };
@@ -1947,11 +1956,11 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       updatedStores.push(store);
     }
 
-    const receiptDailyUsage = getDailyRewardUsage(user.id, 'receipt_qr');
-    if (receiptDailyUsage.sourceTotal >= 1 || receiptDailyUsage.total >= 3) {
+    const qrTodayCount = getDailyStoreStampCount(dbState.stampTransactions, user.id, store.id, 'receipt_qr');
+    if (qrTodayCount >= QR_DAILY_LIMIT) {
       return {
         success: false,
-        message: getDailyRewardLimitMessage(language === 'ko' ? '\uC601\uC218\uC99D' : 'Receipt'),
+        message: getDailyLimitMessage('qr'),
         stampsAwarded: 0,
         newStamps: 0,
         earnedPoints: 0
@@ -1985,7 +1994,8 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     let card = dbState.stampCards.find(c => c.userId === user.id && c.storeId === store.id);
     let currentStamps = card ? card.currentStamps : 0;
     
-    const stampsToAward = Math.min(scan.stampsToAward, 1, 3 - receiptDailyUsage.total);
+    // QR 1회 스캔당 1장, 단 매장당 하루 3장 한도를 넘지 않도록 제한
+    const stampsToAward = Math.min(scan.stampsToAward, 1, QR_DAILY_LIMIT - qrTodayCount);
     let newStamps = currentStamps + stampsToAward;
     let earnedPoints = 0;
 
@@ -3034,21 +3044,11 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     let stampAwarded = false;
 
     if (isAIContent && currentUser) {
-      const reviewDailyUsage = getDailyRewardUsage(currentUser.id, 'ai_review');
-      const hasAiReviewStampAtStoreToday = newStampTxs.some(tx => {
-        if (tx.userId !== currentUser.id || tx.storeId !== storeId || tx.source !== 'ai_review' || tx.type !== 'earn' || tx.amount <= 0) return false;
-        const created = new Date(tx.createdAt);
-        const now = new Date();
-        return created.getFullYear() === now.getFullYear() &&
-          created.getMonth() === now.getMonth() &&
-          created.getDate() === now.getDate();
-      });
+      // 리뷰 스탬프: 매장당 하루 1장 (현지 자정 기준 리셋)
+      const reviewTodayCount = getDailyStoreStampCount(newStampTxs, currentUser.id, storeId, 'ai_review');
       const cardIdx = updatedCards.findIndex(c => c.userId === currentUser.id && c.storeId === storeId);
       const current = cardIdx > -1 ? updatedCards[cardIdx].currentStamps : 0;
-      const shouldAwardReviewStamp = current < 7 && !hasAiReviewStampAtStoreToday && (
-        reviewDailyUsage.sourceTotal < 1 ||
-        current === 0
-      );
+      const shouldAwardReviewStamp = current < 7 && reviewTodayCount < REVIEW_DAILY_LIMIT;
       if (shouldAwardReviewStamp) {
         const store = dbState.stores.find(s => s.id === storeId);
         const rewardPer7 = store ? store.pointRewardPer7Stamps : 5;
@@ -3121,7 +3121,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       stampAwarded,
       message: stampAwarded
         ? (language === 'ko' ? '\uC2A4\uD0EC\uD504 1\uAC1C\uAC00 \uC801\uB9BD\uB418\uC5C8\uC2B5\uB2C8\uB2E4.' : '1 stamp earned.')
-        : getDailyRewardLimitMessage(language === 'ko' ? '\uB9AC\uBDF0' : 'Review')
+        : getDailyLimitMessage('review')
     };
   };
 
