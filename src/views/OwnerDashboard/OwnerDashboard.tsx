@@ -481,6 +481,7 @@ export const OwnerDashboard: React.FC = () => {
   const [isUploadingThumbnail, setIsUploadingThumbnail] = useState<boolean>(false);
   const [isUploadingBanner, setIsUploadingBanner] = useState<boolean>(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [showUrlInputs, setShowUrlInputs] = useState<boolean>(false);
 
   // 매장 이미지 URL 동기화
   useEffect(() => {
@@ -614,11 +615,6 @@ export const OwnerDashboard: React.FC = () => {
               } else {
                 setBannerUrl(compressedBase64);
               }
-              setUploadError(
-                language === 'ko' 
-                  ? '클라우드 스토리지 업로드 권한 오류로 인해 이미지를 데이터베이스에 직접 저장했습니다. (정상 저장 완료)' 
-                  : 'Storage upload permission issue. Image saved directly to database instead. (Saved successfully)'
-              );
             }
           } else {
             // 로컬 시뮬레이터 모드인 경우 Base64 데이터 직접 임베딩
@@ -2138,14 +2134,16 @@ export const OwnerDashboard: React.FC = () => {
                   </div>
                   
                   {/* URL Text Input (optional fallback/view) */}
-                  <input 
-                    name="thumbnailUrl"
-                    value={thumbnailUrl} 
-                    onChange={(e) => setThumbnailUrl(e.target.value)}
-                    className="imin-input" 
-                    placeholder="https://example.com/thumb.jpg"
-                    style={{ fontSize: '12px', padding: '8px 12px' }}
-                  />
+                  {showUrlInputs && (
+                    <input 
+                      name="thumbnailUrl"
+                      value={thumbnailUrl} 
+                      onChange={(e) => setThumbnailUrl(e.target.value)}
+                      className="imin-input" 
+                      placeholder="https://example.com/thumb.jpg"
+                      style={{ fontSize: '12px', padding: '8px 12px' }}
+                    />
+                  )}
                 </div>
 
                 <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -2246,15 +2244,40 @@ export const OwnerDashboard: React.FC = () => {
                   </div>
                   
                   {/* URL Text Input (optional fallback/view) */}
-                  <input 
-                    name="bannerUrl"
-                    value={bannerUrl} 
-                    onChange={(e) => setBannerUrl(e.target.value)}
-                    className="imin-input" 
-                    placeholder="https://example.com/banner.jpg"
-                    style={{ fontSize: '12px', padding: '8px 12px' }}
-                  />
+                  {showUrlInputs && (
+                    <input 
+                      name="bannerUrl"
+                      value={bannerUrl} 
+                      onChange={(e) => setBannerUrl(e.target.value)}
+                      className="imin-input" 
+                      placeholder="https://example.com/banner.jpg"
+                      style={{ fontSize: '12px', padding: '8px 12px' }}
+                    />
+                  )}
                 </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '-8px' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setShowUrlInputs(!showUrlInputs)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#6366f1',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    padding: 0,
+                    textAlign: 'left'
+                  }}
+                >
+                  {showUrlInputs 
+                    ? (language === 'ko' ? '🔗 이미지 주소(URL) 직접 입력창 숨기기' : '🔗 Hide Image URL Inputs')
+                    : (language === 'ko' ? '🔗 이미지 주소(URL) 직접 입력하기' : '🔗 Input Image URL Directly')
+                  }
+                </button>
               </div>
 
               <div style={{ textAlign: 'left' }}>
