@@ -2448,14 +2448,15 @@ export const OwnerDashboard: React.FC = () => {
             </p>
 
             {/* SNS 채널 연동 토글 */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '24px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginBottom: '24px' }}>
               {[
                 { key: 'facebookEnabled', label: 'Facebook Feed', icon: '🔵' },
                 { key: 'instagramEnabled', label: 'Instagram Reels', icon: '📸' },
                 { key: 'threadsEnabled', label: 'Threads Feed', icon: '💬' },
                 { key: 'linkedinEnabled', label: 'LinkedIn Post', icon: '💼' },
                 { key: 'youtubeEnabled', label: 'YouTube Shorts', icon: '🔴' },
-                { key: 'tiktokEnabled', label: 'TikTok Video', icon: '🎵' }
+                { key: 'tiktokEnabled', label: 'TikTok Video', icon: '🎵' },
+                { key: 'googleEnabled', label: 'Google Business', icon: '🏢' }
               ].map(platform => {
                 const isEnabled = selectedStore.snsSettings?.[platform.key as keyof typeof selectedStore.snsSettings] ?? false;
                 return (
@@ -2479,7 +2480,8 @@ export const OwnerDashboard: React.FC = () => {
                         threadsEnabled: true,
                         linkedinEnabled: false,
                         youtubeEnabled: false,
-                        tiktokEnabled: true
+                        tiktokEnabled: true,
+                        googleEnabled: true
                       };
                       const updatedSettings = {
                         ...currentSettings,
@@ -2514,6 +2516,224 @@ export const OwnerDashboard: React.FC = () => {
                   </div>
                 );
               })}
+            </div>
+
+            {/* ⚙️ 자동 배포 채널 상세 설정 */}
+            <div style={{ 
+              backgroundColor: '#f8fafc', 
+              borderRadius: '12px', 
+              padding: '16px', 
+              border: '1px solid var(--border-color)', 
+              marginBottom: '24px',
+              textAlign: 'left'
+            }}>
+              <h4 style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 14px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                ⚙️ {language === 'ko' ? '자동 배포 및 크로스 포스팅 상세 설정' : 'Detailed Auto-Posting & Connection Settings'}
+              </h4>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                {/* Google Business Profile 설정 */}
+                <div style={{ 
+                  backgroundColor: 'white', 
+                  padding: '14px', 
+                  borderRadius: '10px', 
+                  border: '1px solid var(--border-color)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                  opacity: selectedStore.snsSettings?.googleEnabled ? 1 : 0.6
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      🏢 Google Business Profile
+                    </span>
+                    <span style={{ 
+                      fontSize: '10px', 
+                      fontWeight: 700, 
+                      color: selectedStore.snsConfig?.googleConnected ? '#34C759' : '#8e8e93',
+                      backgroundColor: selectedStore.snsConfig?.googleConnected ? 'rgba(52,199,89,0.1)' : 'rgba(142,142,147,0.1)',
+                      padding: '2px 6px',
+                      borderRadius: '4px'
+                    }}>
+                      {selectedStore.snsConfig?.googleConnected 
+                        ? (language === 'ko' ? '● 연동됨' : '● Connected') 
+                        : (language === 'ko' ? '○ 미연동' : '○ Not Connected')}
+                    </span>
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                      {language === 'ko' ? '구글 플레이스 ID (Place ID)' : 'Google Place ID'}
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="ChIJ3Ry... (Place ID)" 
+                      value={selectedStore.snsConfig?.googlePlaceId || ''}
+                      disabled={!selectedStore.snsSettings?.googleEnabled}
+                      onChange={(e) => {
+                        const config = selectedStore.snsConfig || {};
+                        updateStoreMiniHome(selectedStoreId, {
+                          snsConfig: { ...config, googlePlaceId: e.target.value }
+                        });
+                      }}
+                      className="imin-input"
+                      style={{ fontSize: '11px', padding: '6px 10px' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                      {language === 'ko' ? '리뷰 작성 다이렉트 링크' : 'Direct Review URL'}
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="https://g.page/r/..." 
+                      value={selectedStore.snsConfig?.googleReviewUrl || ''}
+                      disabled={!selectedStore.snsSettings?.googleEnabled}
+                      onChange={(e) => {
+                        const config = selectedStore.snsConfig || {};
+                        updateStoreMiniHome(selectedStoreId, {
+                          snsConfig: { ...config, googleReviewUrl: e.target.value }
+                        });
+                      }}
+                      className="imin-input"
+                      style={{ fontSize: '11px', padding: '6px 10px' }}
+                    />
+                  </div>
+                  
+                  <button
+                    type="button"
+                    disabled={!selectedStore.snsSettings?.googleEnabled}
+                    onClick={() => {
+                      const config = selectedStore.snsConfig || {};
+                      const isConnected = !config.googleConnected;
+                      updateStoreMiniHome(selectedStoreId, {
+                        snsConfig: { 
+                          ...config, 
+                          googleConnected: isConnected,
+                          // 임시 연동 정보 채워주기
+                          googlePlaceId: isConnected ? (config.googlePlaceId || 'ChIJs8_8M62pfDURP_KqWc516mY') : '',
+                          googleReviewUrl: isConnected ? (config.googleReviewUrl || 'https://search.google.com/local/writereview?placeid=ChIJs8_8M62pfDURP_KqWc516mY') : ''
+                        }
+                      });
+                    }}
+                    className="imin-btn"
+                    style={{ 
+                      fontSize: '11px', 
+                      padding: '6px 10px', 
+                      marginTop: '4px',
+                      backgroundColor: selectedStore.snsConfig?.googleConnected ? 'rgba(255, 59, 48, 0.08)' : 'var(--primary-color)',
+                      color: selectedStore.snsConfig?.googleConnected ? 'var(--accent-red)' : 'white',
+                      border: selectedStore.snsConfig?.googleConnected ? '1px solid rgba(255,59,48,0.2)' : 'none'
+                    }}
+                  >
+                    {selectedStore.snsConfig?.googleConnected 
+                      ? (language === 'ko' ? '구글 계정 연동 해제' : 'Disconnect Google Account') 
+                      : (language === 'ko' ? '구글 계정 연동하기' : 'Connect Google Account')}
+                  </button>
+                </div>
+
+                {/* Facebook / Instagram 설정 */}
+                <div style={{ 
+                  backgroundColor: 'white', 
+                  padding: '14px', 
+                  borderRadius: '10px', 
+                  border: '1px solid var(--border-color)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                  opacity: (selectedStore.snsSettings?.facebookEnabled || selectedStore.snsSettings?.instagramEnabled) ? 1 : 0.6
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      🔵 Meta (Facebook / IG)
+                    </span>
+                    <span style={{ 
+                      fontSize: '10px', 
+                      fontWeight: 700, 
+                      color: selectedStore.snsConfig?.facebookConnected ? '#34C759' : '#8e8e93',
+                      backgroundColor: selectedStore.snsConfig?.facebookConnected ? 'rgba(52,199,89,0.1)' : 'rgba(142,142,147,0.1)',
+                      padding: '2px 6px',
+                      borderRadius: '4px'
+                    }}>
+                      {selectedStore.snsConfig?.facebookConnected 
+                        ? (language === 'ko' ? '● 연동됨' : '● Connected') 
+                        : (language === 'ko' ? '○ 미연동' : '○ Not Connected')}
+                    </span>
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                      {language === 'ko' ? '연동할 페이스북 페이지 ID' : 'Facebook Page ID'}
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="102948... (Page ID)" 
+                      value={selectedStore.snsConfig?.facebookPageId || ''}
+                      disabled={!(selectedStore.snsSettings?.facebookEnabled || selectedStore.snsSettings?.instagramEnabled)}
+                      onChange={(e) => {
+                        const config = selectedStore.snsConfig || {};
+                        updateStoreMiniHome(selectedStoreId, {
+                          snsConfig: { ...config, facebookPageId: e.target.value }
+                        });
+                      }}
+                      className="imin-input"
+                      style={{ fontSize: '11px', padding: '6px 10px' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                      {language === 'ko' ? '페이스북 페이지 이름' : 'Facebook Page Name'}
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="My Store Official" 
+                      value={selectedStore.snsConfig?.facebookPageName || ''}
+                      disabled={!(selectedStore.snsSettings?.facebookEnabled || selectedStore.snsSettings?.instagramEnabled)}
+                      onChange={(e) => {
+                        const config = selectedStore.snsConfig || {};
+                        updateStoreMiniHome(selectedStoreId, {
+                          snsConfig: { ...config, facebookPageName: e.target.value }
+                        });
+                      }}
+                      className="imin-input"
+                      style={{ fontSize: '11px', padding: '6px 10px' }}
+                    />
+                  </div>
+                  
+                  <button
+                    type="button"
+                    disabled={!(selectedStore.snsSettings?.facebookEnabled || selectedStore.snsSettings?.instagramEnabled)}
+                    onClick={() => {
+                      const config = selectedStore.snsConfig || {};
+                      const isConnected = !config.facebookConnected;
+                      updateStoreMiniHome(selectedStoreId, {
+                        snsConfig: { 
+                          ...config, 
+                          facebookConnected: isConnected,
+                          // 임시 연동 정보 채워주기
+                          facebookPageId: isConnected ? (config.facebookPageId || '1048291058291') : '',
+                          facebookPageName: isConnected ? (config.facebookPageName || selectedStore.name) : ''
+                        }
+                      });
+                    }}
+                    className="imin-btn"
+                    style={{ 
+                      fontSize: '11px', 
+                      padding: '6px 10px', 
+                      marginTop: '4px',
+                      backgroundColor: selectedStore.snsConfig?.facebookConnected ? 'rgba(255, 59, 48, 0.08)' : 'var(--primary-color)',
+                      color: selectedStore.snsConfig?.facebookConnected ? 'var(--accent-red)' : 'white',
+                      border: selectedStore.snsConfig?.facebookConnected ? '1px solid rgba(255,59,48,0.2)' : 'none'
+                    }}
+                  >
+                    {selectedStore.snsConfig?.facebookConnected 
+                      ? (language === 'ko' ? '페이스북 연동 해제' : 'Disconnect Facebook') 
+                      : (language === 'ko' ? '페이스북 연동하기' : 'Connect Facebook')}
+                  </button>
+                </div>
+              </div>
             </div>
 
             {/* SNS 배포 로그 모니터 */}
@@ -2559,7 +2779,8 @@ export const OwnerDashboard: React.FC = () => {
                             { key: 'threadsEnabled', label: 'Threads', shareKey: 'threads' },
                             { key: 'linkedinEnabled', label: 'LinkedIn', shareKey: 'linkedin' },
                             { key: 'youtubeEnabled', label: 'YouTube Shorts', shareKey: 'youtube' },
-                            { key: 'tiktokEnabled', label: 'TikTok', shareKey: 'tiktok' }
+                            { key: 'tiktokEnabled', label: 'TikTok', shareKey: 'tiktok' },
+                            { key: 'googleEnabled', label: 'Google Business', shareKey: 'google' }
                           ].map(platform => {
                             const isConfigured = selectedStore.snsSettings?.[platform.key as keyof typeof selectedStore.snsSettings] ?? false;
                             const isSharedByReview = review.snsShared?.[platform.shareKey as keyof typeof review.snsShared] ?? false;

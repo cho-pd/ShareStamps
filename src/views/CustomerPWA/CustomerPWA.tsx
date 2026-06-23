@@ -1564,7 +1564,24 @@ Human-like review body:`;
       const photoToUpload = sharbeePhotoBlob;
       const videoToUpload = sharbeeVideoFile;
       const videoExtension = ((videoToUpload?.name.split('.').pop() || 'mp4').toLowerCase());
-      const result = addReview(selectedStore.id, sharbeeRating, sharbeeDraft.trim(), sharbeePhotoUrl || undefined, true, sharbeeVideoUrl || undefined, sharbeeLogs.filter(log => log.sender === 'user').map((log, index) => ({ q: `Sharbee ${index + 1}`, a: log.text })), {});
+      const result = addReview(
+        selectedStore.id,
+        sharbeeRating,
+        sharbeeDraft.trim(),
+        sharbeePhotoUrl || undefined,
+        true,
+        sharbeeVideoUrl || undefined,
+        sharbeeLogs.filter(log => log.sender === 'user').map((log, index) => ({ q: `Sharbee ${index + 1}`, a: log.text })),
+        {
+          facebook: selectedStore.snsSettings?.facebookEnabled ?? true,
+          instagram: selectedStore.snsSettings?.instagramEnabled ?? true,
+          threads: selectedStore.snsSettings?.threadsEnabled ?? true,
+          linkedin: selectedStore.snsSettings?.linkedinEnabled ?? false,
+          youtube: selectedStore.snsSettings?.youtubeEnabled ?? false,
+          tiktok: selectedStore.snsSettings?.tiktokEnabled ?? true,
+          google: selectedStore.snsSettings?.googleEnabled ?? true
+        }
+      );
 
       if (result.reviewId && (photoToUpload || videoToUpload)) {
         Promise.allSettled([

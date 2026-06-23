@@ -188,6 +188,15 @@ export interface Store {
     linkedinEnabled: boolean;
     youtubeEnabled: boolean;
     tiktokEnabled: boolean;
+    googleEnabled: boolean;
+  };
+  snsConfig?: {
+    googlePlaceId?: string;
+    googleReviewUrl?: string;
+    googleConnected?: boolean;
+    facebookPageId?: string;
+    facebookPageName?: string;
+    facebookConnected?: boolean;
   };
 }
 
@@ -211,6 +220,7 @@ export interface StoreReview {
     linkedin?: boolean;
     youtube?: boolean;
     tiktok?: boolean;
+    google?: boolean;
   };
 }
 
@@ -389,6 +399,7 @@ interface DatabaseContextProps {
       linkedin?: boolean;
       youtube?: boolean;
       tiktok?: boolean;
+      google?: boolean;
     }
   ) => { reviewId: string; stampAwarded: boolean; message: string };
   updateReviewMedia: (reviewId: string, media: { photoUrl?: string; videoUrl?: string }) => void;
@@ -655,9 +666,39 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             threadsEnabled: true,
             linkedinEnabled: false,
             youtubeEnabled: false,
-            tiktokEnabled: true
+            tiktokEnabled: true,
+            googleEnabled: true
+          };
+          updatedStore.snsConfig = {
+            googlePlaceId: '',
+            googleReviewUrl: '',
+            googleConnected: false,
+            facebookPageId: '',
+            facebookPageName: '',
+            facebookConnected: false
           };
           storeMigrated = true;
+        } else {
+          let snsMigrated = false;
+          if (s.snsSettings.googleEnabled === undefined) {
+            updatedStore.snsSettings = {
+              ...s.snsSettings,
+              googleEnabled: true
+            };
+            snsMigrated = true;
+          }
+          if (s.snsConfig === undefined) {
+            updatedStore.snsConfig = {
+              googlePlaceId: '',
+              googleReviewUrl: '',
+              googleConnected: false,
+              facebookPageId: '',
+              facebookPageName: '',
+              facebookConnected: false
+            };
+            snsMigrated = true;
+          }
+          if (snsMigrated) storeMigrated = true;
         }
         if (storeMigrated) migrated = true;
         return updatedStore;
@@ -3001,6 +3042,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       linkedin?: boolean;
       youtube?: boolean;
       tiktok?: boolean;
+      google?: boolean;
     }
   ) => {
     if (!dbState) return { reviewId: '', stampAwarded: false, message: 'DB Error' };
