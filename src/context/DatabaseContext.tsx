@@ -197,6 +197,14 @@ export interface Store {
     facebookPageId?: string;
     facebookPageName?: string;
     facebookConnected?: boolean;
+    threadsUsername?: string;
+    threadsConnected?: boolean;
+    linkedinPageId?: string;
+    linkedinConnected?: boolean;
+    youtubeChannelId?: string;
+    youtubeConnected?: boolean;
+    tiktokUsername?: string;
+    tiktokConnected?: boolean;
   };
 }
 
@@ -675,7 +683,15 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             googleConnected: false,
             facebookPageId: '',
             facebookPageName: '',
-            facebookConnected: false
+            facebookConnected: false,
+            threadsUsername: '',
+            threadsConnected: false,
+            linkedinPageId: '',
+            linkedinConnected: false,
+            youtubeChannelId: '',
+            youtubeConnected: false,
+            tiktokUsername: '',
+            tiktokConnected: false
           };
           storeMigrated = true;
         } else {
@@ -694,9 +710,38 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               googleConnected: false,
               facebookPageId: '',
               facebookPageName: '',
-              facebookConnected: false
+              facebookConnected: false,
+              threadsUsername: '',
+              threadsConnected: false,
+              linkedinPageId: '',
+              linkedinConnected: false,
+              youtubeChannelId: '',
+              youtubeConnected: false,
+              tiktokUsername: '',
+              tiktokConnected: false
             };
             snsMigrated = true;
+          } else {
+            let configMigrated = false;
+            const config = s.snsConfig;
+            if (config.threadsConnected === undefined) { config.threadsUsername = ''; config.threadsConnected = false; configMigrated = true; }
+            if (config.linkedinConnected === undefined) { config.linkedinPageId = ''; config.linkedinConnected = false; configMigrated = true; }
+            if (config.youtubeConnected === undefined) { config.youtubeChannelId = ''; config.youtubeConnected = false; configMigrated = true; }
+            if (config.tiktokConnected === undefined) { config.tiktokUsername = ''; config.tiktokConnected = false; configMigrated = true; }
+            if (configMigrated) {
+              updatedStore.snsConfig = {
+                ...s.snsConfig,
+                threadsUsername: config.threadsUsername || '',
+                threadsConnected: config.threadsConnected || false,
+                linkedinPageId: config.linkedinPageId || '',
+                linkedinConnected: config.linkedinConnected || false,
+                youtubeChannelId: config.youtubeChannelId || '',
+                youtubeConnected: config.youtubeConnected || false,
+                tiktokUsername: config.tiktokUsername || '',
+                tiktokConnected: config.tiktokConnected || false
+              };
+              snsMigrated = true;
+            }
           }
           if (snsMigrated) storeMigrated = true;
         }

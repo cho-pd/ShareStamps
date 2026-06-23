@@ -2545,7 +2545,7 @@ export const OwnerDashboard: React.FC = () => {
                 ⚙️ {language === 'ko' ? '자동 배포 및 크로스 포스팅 상세 설정' : 'Detailed Auto-Posting & Connection Settings'}
               </h4>
               
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
                 {/* Google Business Profile 설정 */}
                 <div style={{ 
                   backgroundColor: 'white', 
@@ -2745,6 +2745,322 @@ export const OwnerDashboard: React.FC = () => {
                     {selectedStore.snsConfig?.facebookConnected 
                       ? (language === 'ko' ? '페이스북 연동 해제' : 'Disconnect Facebook') 
                       : (language === 'ko' ? '페이스북 연동하기' : 'Connect Facebook')}
+                  </button>
+                </div>
+
+                {/* Threads 설정 */}
+                <div style={{ 
+                  backgroundColor: 'white', 
+                  padding: '14px', 
+                  borderRadius: '10px', 
+                  border: '1px solid var(--border-color)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                  opacity: selectedStore.snsSettings?.threadsEnabled ? 1 : 0.6
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      💬 Threads Feed
+                    </span>
+                    <span style={{ 
+                      fontSize: '10px', 
+                      fontWeight: 700, 
+                      color: selectedStore.snsConfig?.threadsConnected ? '#34C759' : '#8e8e93',
+                      backgroundColor: selectedStore.snsConfig?.threadsConnected ? 'rgba(52,199,89,0.1)' : 'rgba(142,142,147,0.1)',
+                      padding: '2px 6px',
+                      borderRadius: '4px'
+                    }}>
+                      {selectedStore.snsConfig?.threadsConnected 
+                        ? (language === 'ko' ? '● 연동됨' : '● Connected') 
+                        : (language === 'ko' ? '○ 미연동' : '○ Not Connected')}
+                    </span>
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                      {language === 'ko' ? '스레드 사용자 아이디' : 'Threads Username'}
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="@username" 
+                      value={selectedStore.snsConfig?.threadsUsername || ''}
+                      disabled={!selectedStore.snsSettings?.threadsEnabled}
+                      onChange={(e) => {
+                        const config = selectedStore.snsConfig || {};
+                        updateStoreMiniHome(selectedStoreId, {
+                          snsConfig: { ...config, threadsUsername: e.target.value }
+                        });
+                      }}
+                      className="imin-input"
+                      style={{ fontSize: '11px', padding: '6px 10px' }}
+                    />
+                  </div>
+                  
+                  <button
+                    type="button"
+                    disabled={!selectedStore.snsSettings?.threadsEnabled}
+                    onClick={() => {
+                      const config = selectedStore.snsConfig || {};
+                      const isConnected = !config.threadsConnected;
+                      updateStoreMiniHome(selectedStoreId, {
+                        snsConfig: { 
+                          ...config, 
+                          threadsConnected: isConnected,
+                          threadsUsername: isConnected ? (config.threadsUsername || 'sharestamp_official') : ''
+                        }
+                      });
+                    }}
+                    className="imin-btn"
+                    style={{ 
+                      fontSize: '11px', 
+                      padding: '6px 10px', 
+                      marginTop: 'auto',
+                      backgroundColor: selectedStore.snsConfig?.threadsConnected ? 'rgba(255, 59, 48, 0.08)' : 'var(--primary-color)',
+                      color: selectedStore.snsConfig?.threadsConnected ? 'var(--accent-red)' : 'white',
+                      border: selectedStore.snsConfig?.threadsConnected ? '1px solid rgba(255,59,48,0.2)' : 'none'
+                    }}
+                  >
+                    {selectedStore.snsConfig?.threadsConnected 
+                      ? (language === 'ko' ? '스레드 연동 해제' : 'Disconnect Threads') 
+                      : (language === 'ko' ? '스레드 연동하기' : 'Connect Threads')}
+                  </button>
+                </div>
+
+                {/* LinkedIn 설정 */}
+                <div style={{ 
+                  backgroundColor: 'white', 
+                  padding: '14px', 
+                  borderRadius: '10px', 
+                  border: '1px solid var(--border-color)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                  opacity: selectedStore.snsSettings?.linkedinEnabled ? 1 : 0.6
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      💼 LinkedIn Post
+                    </span>
+                    <span style={{ 
+                      fontSize: '10px', 
+                      fontWeight: 700, 
+                      color: selectedStore.snsConfig?.linkedinConnected ? '#34C759' : '#8e8e93',
+                      backgroundColor: selectedStore.snsConfig?.linkedinConnected ? 'rgba(52,199,89,0.1)' : 'rgba(142,142,147,0.1)',
+                      padding: '2px 6px',
+                      borderRadius: '4px'
+                    }}>
+                      {selectedStore.snsConfig?.linkedinConnected 
+                        ? (language === 'ko' ? '● 연동됨' : '● Connected') 
+                        : (language === 'ko' ? '○ 미연동' : '○ Not Connected')}
+                    </span>
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                      {language === 'ko' ? '링크드인 페이지 ID' : 'LinkedIn Page ID'}
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="linkedin-page-1234" 
+                      value={selectedStore.snsConfig?.linkedinPageId || ''}
+                      disabled={!selectedStore.snsSettings?.linkedinEnabled}
+                      onChange={(e) => {
+                        const config = selectedStore.snsConfig || {};
+                        updateStoreMiniHome(selectedStoreId, {
+                          snsConfig: { ...config, linkedinPageId: e.target.value }
+                        });
+                      }}
+                      className="imin-input"
+                      style={{ fontSize: '11px', padding: '6px 10px' }}
+                    />
+                  </div>
+                  
+                  <button
+                    type="button"
+                    disabled={!selectedStore.snsSettings?.linkedinEnabled}
+                    onClick={() => {
+                      const config = selectedStore.snsConfig || {};
+                      const isConnected = !config.linkedinConnected;
+                      updateStoreMiniHome(selectedStoreId, {
+                        snsConfig: { 
+                          ...config, 
+                          linkedinConnected: isConnected,
+                          linkedinPageId: isConnected ? (config.linkedinPageId || 'urn:li:organization:729381') : ''
+                        }
+                      });
+                    }}
+                    className="imin-btn"
+                    style={{ 
+                      fontSize: '11px', 
+                      padding: '6px 10px', 
+                      marginTop: 'auto',
+                      backgroundColor: selectedStore.snsConfig?.linkedinConnected ? 'rgba(255, 59, 48, 0.08)' : 'var(--primary-color)',
+                      color: selectedStore.snsConfig?.linkedinConnected ? 'var(--accent-red)' : 'white',
+                      border: selectedStore.snsConfig?.linkedinConnected ? '1px solid rgba(255,59,48,0.2)' : 'none'
+                    }}
+                  >
+                    {selectedStore.snsConfig?.linkedinConnected 
+                      ? (language === 'ko' ? '링크드인 연동 해제' : 'Disconnect LinkedIn') 
+                      : (language === 'ko' ? '링크드인 연동하기' : 'Connect LinkedIn')}
+                  </button>
+                </div>
+
+                {/* YouTube 설정 */}
+                <div style={{ 
+                  backgroundColor: 'white', 
+                  padding: '14px', 
+                  borderRadius: '10px', 
+                  border: '1px solid var(--border-color)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                  opacity: selectedStore.snsSettings?.youtubeEnabled ? 1 : 0.6
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      🔴 YouTube Shorts
+                    </span>
+                    <span style={{ 
+                      fontSize: '10px', 
+                      fontWeight: 700, 
+                      color: selectedStore.snsConfig?.youtubeConnected ? '#34C759' : '#8e8e93',
+                      backgroundColor: selectedStore.snsConfig?.youtubeConnected ? 'rgba(52,199,89,0.1)' : 'rgba(142,142,147,0.1)',
+                      padding: '2px 6px',
+                      borderRadius: '4px'
+                    }}>
+                      {selectedStore.snsConfig?.youtubeConnected 
+                        ? (language === 'ko' ? '● 연동됨' : '● Connected') 
+                        : (language === 'ko' ? '○ 미연동' : '○ Not Connected')}
+                    </span>
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                      {language === 'ko' ? '유튜브 채널 ID' : 'YouTube Channel ID'}
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="UC-some-channel-id" 
+                      value={selectedStore.snsConfig?.youtubeChannelId || ''}
+                      disabled={!selectedStore.snsSettings?.youtubeEnabled}
+                      onChange={(e) => {
+                        const config = selectedStore.snsConfig || {};
+                        updateStoreMiniHome(selectedStoreId, {
+                          snsConfig: { ...config, youtubeChannelId: e.target.value }
+                        });
+                      }}
+                      className="imin-input"
+                      style={{ fontSize: '11px', padding: '6px 10px' }}
+                    />
+                  </div>
+                  
+                  <button
+                    type="button"
+                    disabled={!selectedStore.snsSettings?.youtubeEnabled}
+                    onClick={() => {
+                      const config = selectedStore.snsConfig || {};
+                      const isConnected = !config.youtubeConnected;
+                      updateStoreMiniHome(selectedStoreId, {
+                        snsConfig: { 
+                          ...config, 
+                          youtubeConnected: isConnected,
+                          youtubeChannelId: isConnected ? (config.youtubeChannelId || 'UCs7x56k9O-T3Zl9c8x9Y2fg') : ''
+                        }
+                      });
+                    }}
+                    className="imin-btn"
+                    style={{ 
+                      fontSize: '11px', 
+                      padding: '6px 10px', 
+                      marginTop: 'auto',
+                      backgroundColor: selectedStore.snsConfig?.youtubeConnected ? 'rgba(255, 59, 48, 0.08)' : 'var(--primary-color)',
+                      color: selectedStore.snsConfig?.youtubeConnected ? 'var(--accent-red)' : 'white',
+                      border: selectedStore.snsConfig?.youtubeConnected ? '1px solid rgba(255,59,48,0.2)' : 'none'
+                    }}
+                  >
+                    {selectedStore.snsConfig?.youtubeConnected 
+                      ? (language === 'ko' ? '유튜브 연동 해제' : 'Disconnect YouTube') 
+                      : (language === 'ko' ? '유튜브 연동하기' : 'Connect YouTube')}
+                  </button>
+                </div>
+
+                {/* TikTok 설정 */}
+                <div style={{ 
+                  backgroundColor: 'white', 
+                  padding: '14px', 
+                  borderRadius: '10px', 
+                  border: '1px solid var(--border-color)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                  opacity: selectedStore.snsSettings?.tiktokEnabled ? 1 : 0.6
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      🎵 TikTok Video
+                    </span>
+                    <span style={{ 
+                      fontSize: '10px', 
+                      fontWeight: 700, 
+                      color: selectedStore.snsConfig?.tiktokConnected ? '#34C759' : '#8e8e93',
+                      backgroundColor: selectedStore.snsConfig?.tiktokConnected ? 'rgba(52,199,89,0.1)' : 'rgba(142,142,147,0.1)',
+                      padding: '2px 6px',
+                      borderRadius: '4px'
+                    }}>
+                      {selectedStore.snsConfig?.tiktokConnected 
+                        ? (language === 'ko' ? '● 연동됨' : '● Connected') 
+                        : (language === 'ko' ? '○ 미연동' : '○ Not Connected')}
+                    </span>
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                      {language === 'ko' ? '틱톡 사용자 이름' : 'TikTok Username'}
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="@tiktok_user" 
+                      value={selectedStore.snsConfig?.tiktokUsername || ''}
+                      disabled={!selectedStore.snsSettings?.tiktokEnabled}
+                      onChange={(e) => {
+                        const config = selectedStore.snsConfig || {};
+                        updateStoreMiniHome(selectedStoreId, {
+                          snsConfig: { ...config, tiktokUsername: e.target.value }
+                        });
+                      }}
+                      className="imin-input"
+                      style={{ fontSize: '11px', padding: '6px 10px' }}
+                    />
+                  </div>
+                  
+                  <button
+                    type="button"
+                    disabled={!selectedStore.snsSettings?.tiktokEnabled}
+                    onClick={() => {
+                      const config = selectedStore.snsConfig || {};
+                      const isConnected = !config.tiktokConnected;
+                      updateStoreMiniHome(selectedStoreId, {
+                        snsConfig: { 
+                          ...config, 
+                          tiktokConnected: isConnected,
+                          tiktokUsername: isConnected ? (config.tiktokUsername || 'sharestamp_tiktok') : ''
+                        }
+                      });
+                    }}
+                    className="imin-btn"
+                    style={{ 
+                      fontSize: '11px', 
+                      padding: '6px 10px', 
+                      marginTop: 'auto',
+                      backgroundColor: selectedStore.snsConfig?.tiktokConnected ? 'rgba(255, 59, 48, 0.08)' : 'var(--primary-color)',
+                      color: selectedStore.snsConfig?.tiktokConnected ? 'var(--accent-red)' : 'white',
+                      border: selectedStore.snsConfig?.tiktokConnected ? '1px solid rgba(255,59,48,0.2)' : 'none'
+                    }}
+                  >
+                    {selectedStore.snsConfig?.tiktokConnected 
+                      ? (language === 'ko' ? '틱톡 연동 해제' : 'Disconnect TikTok') 
+                      : (language === 'ko' ? '틱톡 연동하기' : 'Connect TikTok')}
                   </button>
                 </div>
               </div>
