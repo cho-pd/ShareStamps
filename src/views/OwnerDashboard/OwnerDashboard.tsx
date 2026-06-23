@@ -490,6 +490,22 @@ export const OwnerDashboard: React.FC = () => {
     }
   }, [selectedStoreId, selectedStore?.thumbnailUrl, selectedStore?.bannerUrl]);
 
+  // Base64 문자열을 Blob 객체로 변환하는 유틸리티 함수 (fetch가 차단된 환경 대응)
+  const base64ToBlob = (base64: string, contentType: string) => {
+    const byteCharacters = atob(base64.split(',')[1]);
+    const byteArrays = [];
+    for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+      const slice = byteCharacters.slice(offset, offset + 512);
+      const byteNumbers = new Array(slice.length);
+      for (let i = 0; i < slice.length; i++) {
+        byteNumbers[i] = slice.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      byteArrays.push(byteArray);
+    }
+    return new Blob(byteArrays, { type: contentType });
+  };
+
   // 이미지 업로드 및 Canvas 압축 핸들러
   const handleImageUpload = (
     e: React.ChangeEvent<HTMLInputElement>,
@@ -506,8 +522,24 @@ export const OwnerDashboard: React.FC = () => {
     setUploadError(null);
 
     const reader = new FileReader();
+    reader.onerror = () => {
+      setUploadError(language === 'ko' ? '파일을 읽는 도중 오류가 발생했습니다.' : 'Error reading file.');
+      if (type === 'thumbnail') {
+        setIsUploadingThumbnail(false);
+      } else {
+        setIsUploadingBanner(false);
+      }
+    };
     reader.onload = (event) => {
       const img = new Image();
+      img.onerror = () => {
+        setUploadError(language === 'ko' ? '이미지를 불러오는데 실패했습니다.' : 'Failed to load image.');
+        if (type === 'thumbnail') {
+          setIsUploadingThumbnail(false);
+        } else {
+          setIsUploadingBanner(false);
+        }
+      };
       img.onload = async () => {
         try {
           const canvas = document.createElement('canvas');
@@ -540,29 +572,43 @@ export const OwnerDashboard: React.FC = () => {
 
           // Firebase Storage 설정된 경우 업로드 진행
           if (firebaseStorage) {
-            const timestamp = Date.now();
-            const extension = 'jpg';
-            const safeStoreId = selectedStoreId || 'store_unknown';
-            const storagePath = `stores/${safeStoreId}/${type}_${timestamp}.${extension}`;
-            
-            // Base64를 Blob으로 역변환
-            const response = await fetch(compressedBase64);
-            const blob = await response.blob();
-            
-            const uploaded = await uploadBytes(storageRef(firebaseStorage, storagePath), blob, {
-              contentType: 'image/jpeg',
-              customMetadata: {
-                storeId: safeStoreId,
-                imageType: type,
-                source: 'owner-dashboard'
+            try {
+              const timestamp = Date.now();
+              const extension = 'jpg';
+              const safeStoreId = selectedStoreId || 'store_unknown';
+              const storagePath = `stores/${safeStoreId}/${type}_${timestamp}.${extension}`;
+              
+              // Base64를 Blob으로 역변환
+              const blob = base64ToBlob(compressedBase64, 'image/jpeg');
+              
+              const uploaded = await uploadBytes(storageRef(firebaseStorage, storagePath), blob, {
+                contentType: 'image/jpeg',
+                customMetadata: {
+                  storeId: safeStoreId,
+                  imageType: type,
+                  source: 'owner-dashboard'
+                }
+              });
+              const downloadUrl = await getDownloadURL(uploaded.ref);
+              
+              if (type === 'thumbnail') {
+                setThumbnailUrl(downloadUrl);
+              } else {
+                setBannerUrl(downloadUrl);
               }
-            });
-            const downloadUrl = await getDownloadURL(uploaded.ref);
-            
-            if (type === 'thumbnail') {
-              setThumbnailUrl(downloadUrl);
-            } else {
-              setBannerUrl(downloadUrl);
+            } catch (storageErr) {
+              console.warn("Firebase Storage upload failed, falling back to Base64 database embedding:", storageErr);
+              // Storage 업로드 실패 시 데이터베이스 임베딩으로 자동 전환
+              if (type === 'thumbnail') {
+                setThumbnailUrl(compressedBase64);
+              } else {
+                setBannerUrl(compressedBase64);
+              }
+              setUploadError(
+                language === 'ko' 
+                  ? '클라우드 스토리지 업로드 권한 오류로 인해 이미지를 데이터베이스에 직접 저장했습니다. (정상 저장 완료)' 
+                  : 'Storage upload permission issue. Image saved directly to database instead. (Saved successfully)'
+              );
             }
           } else {
             // 로컬 시뮬레이터 모드인 경우 Base64 데이터 직접 임베딩
