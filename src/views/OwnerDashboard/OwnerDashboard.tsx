@@ -2084,7 +2084,7 @@ export const OwnerDashboard: React.FC = () => {
             }} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
                   <label className="imin-input-label">{language === 'ko' ? '매장 썸네일 이미지' : 'Store Thumbnail'}</label>
                   
                   {/* Preview & Upload Area */}
@@ -2097,7 +2097,8 @@ export const OwnerDashboard: React.FC = () => {
                     borderRadius: '8px', 
                     backgroundColor: 'rgba(255,255,255,0.5)',
                     minHeight: '146px',
-                    boxSizing: 'border-box'
+                    boxSizing: 'border-box',
+                    flex: 1
                   }}>
                     {thumbnailUrl ? (
                       <div style={{ 
@@ -2199,7 +2200,7 @@ export const OwnerDashboard: React.FC = () => {
                   </div>
                 </div>
 
-                <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
                   <label className="imin-input-label">{language === 'ko' ? '매장 대표 배너 이미지' : 'Store Banner'}</label>
                   
                   {/* Preview & Upload Area */}
@@ -2212,12 +2213,13 @@ export const OwnerDashboard: React.FC = () => {
                     borderRadius: '8px', 
                     backgroundColor: 'rgba(255,255,255,0.5)',
                     minHeight: '146px',
-                    boxSizing: 'border-box'
+                    boxSizing: 'border-box',
+                    flex: 1
                   }}>
                     {bannerUrl ? (
                       <div style={{ 
                         width: '100%', 
-                        height: '80px', 
+                        aspectRatio: '16/5', 
                         borderRadius: '6px', 
                         border: '1px solid var(--border-color)', 
                         overflow: 'hidden', 
@@ -2250,7 +2252,7 @@ export const OwnerDashboard: React.FC = () => {
                     ) : (
                       <div style={{ 
                         width: '100%', 
-                        height: '80px', 
+                        aspectRatio: '16/5', 
                         borderRadius: '6px', 
                         border: '1px solid var(--border-color)', 
                         backgroundColor: '#f4f4f5',
@@ -2264,7 +2266,7 @@ export const OwnerDashboard: React.FC = () => {
                     
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                        {language === 'ko' ? '권장 비율: 2:1 또는 16:9 와이드' : 'Recommended ratio: 2:1 or 16:9 wide'}
+                        {language === 'ko' ? '권장 비율: 16:5 와이드' : 'Recommended ratio: 16:5 wide'}
                       </span>
                       <label className="imin-btn imin-btn-outline" style={{ 
                         padding: '6px 12px', 

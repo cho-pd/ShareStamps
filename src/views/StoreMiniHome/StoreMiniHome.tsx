@@ -209,7 +209,7 @@ export const StoreMiniHome: React.FC = () => {
       </div>
 
       {/* Banner & Brand Info Header */}
-      <div style={{ position: 'relative', width: '100%', height: '160px', backgroundColor: '#e4e4e7' }}>
+      <div style={{ position: 'relative', width: '100%', aspectRatio: '16/5', backgroundColor: '#e4e4e7' }}>
         <img 
           src={store.bannerUrl || 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=800'} 
           alt={store.name} 
