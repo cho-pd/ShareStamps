@@ -998,7 +998,9 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                       }
                     } else {
                       mergedState = mergeStates(serverState, localState);
-                      if (JSON.stringify(serverState) !== JSON.stringify(mergedState)) {
+                      const { updatedAt: _serverUpdatedAt, ...serverComparable } = serverState;
+                      const { updatedAt: _mergedUpdatedAt, ...mergedComparable } = mergedState;
+                      if (JSON.stringify(serverComparable) !== JSON.stringify(mergedComparable)) {
                         hasSelfHealed = true;
                       }
                     }
