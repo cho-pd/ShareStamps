@@ -55,8 +55,16 @@ export const CustomerPWA: React.FC = () => {
     paymentRequests, requestPayment, cancelPaymentRequest,
     adBanners, stampTransactions, pointTransactions,
     users, gifts, acceptGift, declineGift, convertStampsToCash, addReview, updateReviewMedia,
+    submitSnsShare,
     customerSelectedStoreId, setCustomerSelectedStoreId
   } = useDatabase();
+
+  // P1: SNS 공유 스탬프 제출 모달 상태
+  const [showSnsShareModal, setShowSnsShareModal] = useState<boolean>(false);
+  const [snsSharefPlatform, setSnsSharePlatform] = useState<'facebook' | 'instagram' | 'threads' | 'linkedin' | 'youtube' | 'tiktok' | 'google' | 'blog' | 'other'>('instagram');
+  const [snsShareUrl, setSnsShareUrl] = useState<string>('');
+  const [snsShareMsg, setSnsShareMsg] = useState<string | null>(null);
+  const [snsShareBusy, setSnsShareBusy] = useState<boolean>(false);
 
 
   const activeAds = adBanners.filter(ad => ad.status === 'active');
@@ -2831,6 +2839,36 @@ Human-like review body:`;
                   <span>{language === 'ko' ? '\uC0E4\uBE44\uC640 \uB9AC\uBDF0 \uC4F0\uACE0 \uC2A4\uD0EC\uD504 \uBC1B\uAE30' : 'Write with Sharbee'}</span>
                 </button>
               )}
+              {!isUnassignedStoreView && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSnsShareUrl('');
+                    setSnsShareMsg(null);
+                    setSnsSharePlatform('instagram');
+                    setShowSnsShareModal(true);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(95, 92, 230, 0.35)',
+                    backgroundColor: 'rgba(95, 92, 230, 0.06)',
+                    color: 'var(--primary-color)',
+                    fontWeight: 800,
+                    fontSize: '12.5px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <Send size={16} />
+                  <span>{language === 'ko' ? '\uB0B4 SNS\uC5D0 \uACF5\uC720\uD558\uACE0 \uC2A4\uD0EC\uD504 \uBC1B\uAE30' : 'Share on my SNS for a stamp'}</span>
+                </button>
+              )}
             </div>
 
             {/* 박스 3 (캐시 사용 카드) */}
@@ -3691,6 +3729,87 @@ Human-like review body:`;
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* --- P1: SNS 공유 스탬프 제출 모달 --- */}
+      {showSnsShareModal && (
+        <div className="bottom-sheet-overlay" onClick={() => setShowSnsShareModal(false)} style={{ alignItems: 'center' }}>
+          <div
+            className="imin-card"
+            onClick={e => e.stopPropagation()}
+            style={{ width: '88%', maxWidth: '330px', padding: '22px', borderRadius: 'var(--border-radius-lg)', display: 'flex', flexDirection: 'column', gap: '14px' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: 'var(--primary-color)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Send size={16} /> {language === 'ko' ? '내 SNS 공유 인증' : 'Verify My SNS Share'}
+              </h3>
+              <button onClick={() => setShowSnsShareModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '13px' }}>
+                {language === 'ko' ? '닫기' : 'Close'}
+              </button>
+            </div>
+
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
+              {language === 'ko'
+                ? `${selectedStore.name} 리뷰를 내 SNS에 올리고 그 게시물 링크를 붙여넣어 주세요. 매장당 하루 1장 스탬프를 드립니다.`
+                : `Post a review of ${selectedStore.name} on your SNS and paste the post link. 1 stamp per store per day.`}
+            </p>
+
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>{language === 'ko' ? '플랫폼' : 'Platform'}</label>
+              <select
+                value={snsSharefPlatform}
+                onChange={(e) => setSnsSharePlatform(e.target.value as typeof snsSharefPlatform)}
+                style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '4px', fontSize: '13px', fontWeight: 600 }}
+              >
+                <option value="instagram">Instagram</option>
+                <option value="facebook">Facebook</option>
+                <option value="threads">Threads</option>
+                <option value="linkedin">LinkedIn</option>
+                <option value="youtube">YouTube</option>
+                <option value="tiktok">TikTok</option>
+                <option value="google">Google</option>
+                <option value="blog">{language === 'ko' ? '블로그' : 'Blog'}</option>
+                <option value="other">{language === 'ko' ? '기타' : 'Other'}</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>{language === 'ko' ? '게시물 링크 (URL)' : 'Post link (URL)'}</label>
+              <input
+                type="url"
+                value={snsShareUrl}
+                onChange={(e) => { setSnsShareUrl(e.target.value); setSnsShareMsg(null); }}
+                placeholder="https://..."
+                className="imin-input"
+                style={{ marginTop: '4px', fontSize: '13px' }}
+              />
+            </div>
+
+            {snsShareMsg && (
+              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent-red)' }}>{snsShareMsg}</div>
+            )}
+
+            <button
+              disabled={snsShareBusy}
+              onClick={() => {
+                setSnsShareBusy(true);
+                const res = submitSnsShare(selectedStore.id, snsSharefPlatform, snsShareUrl);
+                setSnsShareBusy(false);
+                if (res.success) {
+                  setShowSnsShareModal(false);
+                  setGiftingSuccessMessage(res.message);
+                  setTimeout(() => setGiftingSuccessMessage(null), 2500);
+                } else {
+                  setSnsShareMsg(res.message);
+                }
+              }}
+              className="imin-btn imin-btn-primary"
+              style={{ padding: '12px', fontSize: '14px', fontWeight: 700 }}
+            >
+              {language === 'ko' ? '제출하고 스탬프 받기' : 'Submit & get stamp'}
+            </button>
           </div>
         </div>
       )}

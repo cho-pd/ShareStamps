@@ -132,7 +132,9 @@ const mergeStates = (stateA: any, stateB: any): any => {
   merged.paymentRequests = mergeCollections(stateA.paymentRequests, stateB.paymentRequests, timeA, timeB);
   merged.reviews = mergeCollections(stateA.reviews || [], stateB.reviews || [], timeA, timeB)
     .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  
+  merged.snsShareSubmissions = mergeCollections(stateA.snsShareSubmissions || [], stateB.snsShareSubmissions || [], timeA, timeB)
+    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
   merged.categories = timeB > timeA ? (stateB.categories || []) : (stateA.categories || []);
   merged.donationsLedger = timeB > timeA ? (stateB.donationsLedger || []) : (stateA.donationsLedger || []);
   merged.donationsAudit = timeB > timeA ? (stateB.donationsAudit || []) : (stateA.donationsAudit || []);
@@ -230,6 +232,22 @@ export interface StoreReview {
     tiktok?: boolean;
     google?: boolean;
   };
+}
+
+// 손님이 직접 자기 SNS 계정에 매장 리뷰를 올리고 링크를 제출한 기록 (P1: SNS 공유 스탬프)
+export type SnsPlatform = 'facebook' | 'instagram' | 'threads' | 'linkedin' | 'youtube' | 'tiktok' | 'google' | 'blog' | 'other';
+
+export interface SnsShareSubmission {
+  id: string;
+  userId: string;
+  userNickname: string;
+  storeId: string;
+  platform: SnsPlatform;
+  url: string;
+  status: 'pending' | 'verified' | 'rejected';
+  stampAwarded: boolean;
+  createdAt: string;
+  updatedAt?: string;
 }
 
 
@@ -411,6 +429,9 @@ interface DatabaseContextProps {
     }
   ) => { reviewId: string; stampAwarded: boolean; message: string };
   updateReviewMedia: (reviewId: string, media: { photoUrl?: string; videoUrl?: string }) => void;
+  snsShareSubmissions: SnsShareSubmission[];
+  submitSnsShare: (storeId: string, platform: SnsPlatform, url: string) => { success: boolean; stampAwarded: boolean; message: string };
+  verifySnsShare: (submissionId: string, status: 'verified' | 'rejected') => void;
   updateStoreMiniHome: (storeId: string, updates: Partial<Store>) => void;
   
   // 로그인 상태 및 디바이스
@@ -531,6 +552,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     giftCards: GiftCard[];
     giftCardTransactions: GiftCardTransaction[];
     reviews: StoreReview[];
+    snsShareSubmissions: SnsShareSubmission[];
     categories: string[];
     updatedAt?: string;
     resetAt?: string;
@@ -779,6 +801,10 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         'Retail (유통/마트)',
         'Salon (미용/헤어)'
       ];
+      migrated = true;
+    }
+    if (!parsed.snsShareSubmissions) {
+      parsed.snsShareSubmissions = [];
       migrated = true;
     }
 
@@ -1317,6 +1343,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       giftCards: [],
       giftCardTransactions: [],
       reviews: defaultReviews,
+      snsShareSubmissions: [],
       adBanners: [
         {
           id: 'ad_default_duracell',
@@ -1431,6 +1458,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       giftCards: [],
       giftCardTransactions: [],
       reviews: [],
+      snsShareSubmissions: [],
       adBanners: [],
       paymentRequests: [],
       ownerRequests: []
@@ -3155,6 +3183,133 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  // P1: 손님이 자기 SNS에 매장 리뷰를 올리고 링크를 제출 → 매장당 하루 1장 스탬프 (명예 신고형 MVP)
+  const submitSnsShare = (storeId: string, platform: SnsPlatform, url: string) => {
+    if (!dbState || !currentUser) {
+      return { success: false, stampAwarded: false, message: language === 'ko' ? '로그인이 필요합니다.' : 'Login required.' };
+    }
+
+    // URL 형식 검증 (http/https 필수)
+    const trimmed = (url || '').trim();
+    if (!/^https?:\/\/.+/i.test(trimmed)) {
+      return { success: false, stampAwarded: false, message: language === 'ko' ? '올바른 링크(URL)를 입력해 주세요.' : 'Please enter a valid URL.' };
+    }
+
+    // 매장당 하루 1장 한도 (현지 자정 기준)
+    const snsTodayCount = getDailyStoreStampCount(dbState.stampTransactions, currentUser.id, storeId, 'sns_share');
+    if (snsTodayCount >= SNS_DAILY_LIMIT) {
+      return { success: false, stampAwarded: false, message: getDailyLimitMessage('sns') };
+    }
+
+    const submission: SnsShareSubmission = {
+      id: `sns_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      userId: currentUser.id,
+      userNickname: currentUser.nickname,
+      storeId,
+      platform,
+      url: trimmed,
+      status: 'pending',
+      stampAwarded: false,
+      createdAt: getSkewCorrectedIsoString(),
+      updatedAt: getSkewCorrectedIsoString()
+    };
+
+    let updatedCards = [...dbState.stampCards];
+    const newStampTxs = [...dbState.stampTransactions];
+    let stampAwarded = false;
+
+    const cardIdx = updatedCards.findIndex(c => c.userId === currentUser.id && c.storeId === storeId);
+    const current = cardIdx > -1 ? updatedCards[cardIdx].currentStamps : 0;
+
+    if (current < 7) {
+      const store = dbState.stores.find(s => s.id === storeId);
+      const rewardPer7 = store ? store.pointRewardPer7Stamps : 5;
+      const valuePerStamp = rewardPer7 / 7;
+      const stampToAdd = {
+        id: `stamp_${Date.now()}_sns_share`,
+        acquiredAt: getSkewCorrectedIsoString(),
+        cashValue: parseFloat(valuePerStamp.toFixed(2))
+      };
+
+      if (cardIdx === -1) {
+        updatedCards.push({
+          id: `card_${Date.now()}_sns`,
+          userId: currentUser.id,
+          storeId,
+          currentStamps: 1,
+          stamps: [stampToAdd],
+          updatedAt: getSkewCorrectedIsoString()
+        });
+      } else {
+        const card = updatedCards[cardIdx];
+        const existingStamps = card.stamps ? [...(card.stamps || [])] : [];
+        // stamps 배열과 currentStamps 정합성 보정
+        if (existingStamps.length !== current) {
+          existingStamps.length = 0;
+          for (let i = 0; i < current; i++) {
+            existingStamps.push({
+              id: `stamp_mig_${card.id}_${i}_${Date.now()}`,
+              acquiredAt: card.updatedAt || getSkewCorrectedIsoString(),
+              cashValue: parseFloat(valuePerStamp.toFixed(2))
+            });
+          }
+        }
+        updatedCards[cardIdx] = {
+          ...card,
+          currentStamps: current + 1,
+          stamps: [...existingStamps, stampToAdd],
+          updatedAt: getSkewCorrectedIsoString()
+        };
+      }
+
+      newStampTxs.push({
+        id: `stx_${Date.now()}_sns_earn`,
+        userId: currentUser.id,
+        storeId,
+        amount: 1,
+        type: 'earn',
+        source: 'sns_share',
+        referenceId: submission.id,
+        createdAt: getSkewCorrectedIsoString()
+      });
+      stampAwarded = true;
+      submission.stampAwarded = true;
+    }
+
+    updateDbState({
+      ...dbState,
+      stampCards: updatedCards,
+      stampTransactions: newStampTxs,
+      snsShareSubmissions: [submission, ...(dbState.snsShareSubmissions || [])]
+    });
+
+    playVoiceGuidance(
+      stampAwarded
+        ? (language === 'ko' ? 'SNS 공유가 등록되고 스탬프 1개가 적립되었습니다.' : 'SNS share submitted. 1 stamp earned.')
+        : (language === 'ko' ? 'SNS 공유가 등록되었습니다.' : 'SNS share submitted.'),
+      language
+    );
+
+    return {
+      success: true,
+      stampAwarded,
+      message: stampAwarded
+        ? (language === 'ko' ? '스탬프 1개가 적립되었습니다.' : '1 stamp earned.')
+        : (language === 'ko' ? '스탬프 카드가 가득 찼습니다. 적립 후 다시 시도해 주세요.' : 'Stamp card is full. Please redeem first.')
+    };
+  };
+
+  // 점주가 제출된 SNS 공유를 사후 검증(승인/반려) — 스탬프 회수는 하지 않음(명예 신고형)
+  const verifySnsShare = (submissionId: string, status: 'verified' | 'rejected') => {
+    if (!dbState) return;
+    const updated = (dbState.snsShareSubmissions || []).map(s => (
+      s.id === submissionId
+        ? { ...s, status, updatedAt: getSkewCorrectedIsoString() }
+        : s
+    ));
+    updateDbState({ ...dbState, snsShareSubmissions: updated });
+  };
+
   const deductStampsByOwner = (customerId: string, storeId: string, count: number) => {
     if (!dbState) return { success: false, message: 'DB Error' };
     const customer = dbState.users.find(u => u.id === customerId);
@@ -4324,6 +4479,9 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     reviews: dbState?.reviews || [],
     addReview,
     updateReviewMedia,
+    snsShareSubmissions: dbState?.snsShareSubmissions || [],
+    submitSnsShare,
+    verifySnsShare,
     updateStoreMiniHome,
     giftCards: dbState?.giftCards || [],
     giftCardTransactions: dbState?.giftCardTransactions || [],

@@ -49,6 +49,8 @@ export const OwnerDashboard: React.FC = () => {
     processRefund,
     registerStripeConnect,
     reviews,
+    snsShareSubmissions,
+    verifySnsShare,
     updateStoreMiniHome
   } = useDatabase();
   
@@ -3143,6 +3145,59 @@ export const OwnerDashboard: React.FC = () => {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+
+          {/* 2.7. 손님 SNS 공유 인증 대장 (P1) */}
+          <div className="imin-card" style={{ padding: '24px' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 800, borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '16px', color: 'var(--text-primary)', textAlign: 'left' }}>
+              🔗 {language === 'ko' ? '손님 SNS 공유 인증 (하루 1장 스탬프)' : 'Customer SNS Share Submissions'}
+            </h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'left', margin: '0 0 14px 0', lineHeight: 1.45 }}>
+              {language === 'ko'
+                ? '손님이 자기 SNS에 우리 매장 리뷰를 올리고 제출한 링크입니다. 확인 후 승인/반려할 수 있어요. (반려해도 이미 지급된 스탬프는 회수되지 않습니다.)'
+                : 'Links customers submitted after posting our store on their own SNS. Verify or reject after checking.'}
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '280px', overflowY: 'auto', paddingRight: '4px' }}>
+              {(snsShareSubmissions || []).filter(s => s.storeId === selectedStoreId).length > 0 ? (
+                (snsShareSubmissions || []).filter(s => s.storeId === selectedStoreId).map(sub => (
+                  <div key={sub.id} style={{ padding: '12px', border: '1px solid var(--border-color)', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: '#F8F9FF', textAlign: 'left' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                        👤 @{sub.userNickname} · <span style={{ textTransform: 'capitalize' }}>{sub.platform}</span>
+                      </span>
+                      <span style={{
+                        fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '6px',
+                        backgroundColor: sub.status === 'verified' ? 'rgba(52,199,89,0.1)' : sub.status === 'rejected' ? 'rgba(226,75,74,0.1)' : 'rgba(142,142,147,0.12)',
+                        color: sub.status === 'verified' ? '#1D9E75' : sub.status === 'rejected' ? '#E24B4A' : '#8E8E93'
+                      }}>
+                        {sub.status === 'verified' ? (language === 'ko' ? '승인됨' : 'Verified') : sub.status === 'rejected' ? (language === 'ko' ? '반려됨' : 'Rejected') : (language === 'ko' ? '대기' : 'Pending')}
+                        {sub.stampAwarded ? ' · 🎯' : ''}
+                      </span>
+                    </div>
+                    <a href={sub.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '11.5px', color: 'var(--primary-color)', wordBreak: 'break-all', textDecoration: 'underline' }}>
+                      {sub.url}
+                    </a>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{new Date(sub.createdAt).toLocaleString()}</span>
+                      {sub.status === 'pending' && (
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button onClick={() => verifySnsShare(sub.id, 'verified')} style={{ fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '6px', border: '1px solid #1D9E75', color: '#1D9E75', backgroundColor: '#fff', cursor: 'pointer' }}>
+                            {language === 'ko' ? '승인' : 'Verify'}
+                          </button>
+                          <button onClick={() => verifySnsShare(sub.id, 'rejected')} style={{ fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '6px', border: '1px solid #E24B4A', color: '#E24B4A', backgroundColor: '#fff', cursor: 'pointer' }}>
+                            {language === 'ko' ? '반려' : 'Reject'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '12px', padding: '16px 0', backgroundColor: 'var(--background-color)', borderRadius: '8px' }}>
+                  {language === 'ko' ? '아직 제출된 SNS 공유가 없습니다.' : 'No SNS shares submitted yet.'}
+                </div>
+              )}
             </div>
           </div>
 
