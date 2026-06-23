@@ -2094,7 +2094,7 @@ export const OwnerDashboard: React.FC = () => {
             }} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+                <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '8px', height: '100%' }}>
                   <label className="imin-input-label">{language === 'ko' ? '매장 썸네일 이미지' : 'Store Thumbnail'}</label>
                   
                   {/* Preview & Upload Area */}
@@ -2113,7 +2113,7 @@ export const OwnerDashboard: React.FC = () => {
                     {thumbnailUrl ? (
                       <div style={{ 
                         width: '100%', 
-                        height: '80px', 
+                        aspectRatio: '16/5', 
                         display: 'flex',
                         justifyContent: 'center',
                         alignItems: 'center',
@@ -2122,6 +2122,8 @@ export const OwnerDashboard: React.FC = () => {
                         <div style={{
                           width: '80px',
                           height: '80px',
+                          maxWidth: '100%',
+                          maxHeight: '100%',
                           borderRadius: '50%',
                           border: '1px solid var(--border-color)',
                           overflow: 'hidden',
@@ -2154,7 +2156,7 @@ export const OwnerDashboard: React.FC = () => {
                     ) : (
                       <div style={{ 
                         width: '100%', 
-                        height: '80px', 
+                        aspectRatio: '16/5', 
                         display: 'flex', 
                         alignItems: 'center', 
                         justifyContent: 'center'
@@ -2162,6 +2164,8 @@ export const OwnerDashboard: React.FC = () => {
                         <div style={{
                           width: '80px',
                           height: '80px',
+                          maxWidth: '100%',
+                          maxHeight: '100%',
                           borderRadius: '50%',
                           border: '1px solid var(--border-color)',
                           backgroundColor: '#f4f4f5',
@@ -2210,7 +2214,7 @@ export const OwnerDashboard: React.FC = () => {
                   </div>
                 </div>
 
-                <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+                <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '8px', height: '100%' }}>
                   <label className="imin-input-label">{language === 'ko' ? '매장 대표 배너 이미지' : 'Store Banner'}</label>
                   
                   {/* Preview & Upload Area */}
