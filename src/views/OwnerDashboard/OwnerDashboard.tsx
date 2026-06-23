@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useDatabase } from '../../context/DatabaseContext';
-import { Users, Award, Heart, Printer, ArrowRight, Clock, LogOut, Search, CreditCard, Tablet, Globe, Star } from 'lucide-react';
+import { Users, Award, Heart, Printer, ArrowRight, Clock, LogOut, Search, CreditCard, Tablet, Globe, Star, Upload, ImageIcon, X, Loader2 } from 'lucide-react';
+import { storage as firebaseStorage } from '../../firebase';
+import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
+
 
 const formatInterval = (minutes: number, lang: string = 'ko') => {
   const minsNum = typeof minutes === 'number' && !isNaN(minutes) ? minutes : 60;
@@ -471,6 +474,121 @@ export const OwnerDashboard: React.FC = () => {
       setTempRewardAmount(selectedStore.pointRewardPer7Stamps.toFixed(2));
     }
   }, [selectedStoreId, selectedStore?.pointRewardPer7Stamps]);
+
+  // 매장 이미지 파일 업로드 상태
+  const [thumbnailUrl, setThumbnailUrl] = useState<string>('');
+  const [bannerUrl, setBannerUrl] = useState<string>('');
+  const [isUploadingThumbnail, setIsUploadingThumbnail] = useState<boolean>(false);
+  const [isUploadingBanner, setIsUploadingBanner] = useState<boolean>(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // 매장 이미지 URL 동기화
+  useEffect(() => {
+    if (selectedStore) {
+      setThumbnailUrl(selectedStore.thumbnailUrl || '');
+      setBannerUrl(selectedStore.bannerUrl || '');
+    }
+  }, [selectedStoreId, selectedStore?.thumbnailUrl, selectedStore?.bannerUrl]);
+
+  // 이미지 업로드 및 Canvas 압축 핸들러
+  const handleImageUpload = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    type: 'thumbnail' | 'banner'
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (type === 'thumbnail') {
+      setIsUploadingThumbnail(true);
+    } else {
+      setIsUploadingBanner(true);
+    }
+    setUploadError(null);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = async () => {
+        try {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          // 압축 리사이징 제한 (썸네일: 최대 400px, 배너: 최대 1200px)
+          const maxDimension = type === 'thumbnail' ? 400 : 1200;
+          if (width > maxDimension || height > maxDimension) {
+            if (width > height) {
+              height = Math.round((height * maxDimension) / width);
+              width = maxDimension;
+            } else {
+              width = Math.round((width * maxDimension) / height);
+              height = maxDimension;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, width, height);
+            ctx.drawImage(img, 0, 0, width, height);
+          }
+
+          // 압축률 0.8 수준의 JPEG 데이터 추출
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
+
+          // Firebase Storage 설정된 경우 업로드 진행
+          if (firebaseStorage) {
+            const timestamp = Date.now();
+            const extension = 'jpg';
+            const safeStoreId = selectedStoreId || 'store_unknown';
+            const storagePath = `stores/${safeStoreId}/${type}_${timestamp}.${extension}`;
+            
+            // Base64를 Blob으로 역변환
+            const response = await fetch(compressedBase64);
+            const blob = await response.blob();
+            
+            const uploaded = await uploadBytes(storageRef(firebaseStorage, storagePath), blob, {
+              contentType: 'image/jpeg',
+              customMetadata: {
+                storeId: safeStoreId,
+                imageType: type,
+                source: 'owner-dashboard'
+              }
+            });
+            const downloadUrl = await getDownloadURL(uploaded.ref);
+            
+            if (type === 'thumbnail') {
+              setThumbnailUrl(downloadUrl);
+            } else {
+              setBannerUrl(downloadUrl);
+            }
+          } else {
+            // 로컬 시뮬레이터 모드인 경우 Base64 데이터 직접 임베딩
+            if (type === 'thumbnail') {
+              setThumbnailUrl(compressedBase64);
+            } else {
+              setBannerUrl(compressedBase64);
+            }
+          }
+        } catch (error: any) {
+          console.error(`Image upload failed for ${type}:`, error);
+          setUploadError(language === 'ko' ? '이미지 업로드에 실패했습니다. 다시 시도해주세요.' : 'Failed to upload image. Please try again.');
+        } finally {
+          if (type === 'thumbnail') {
+            setIsUploadingThumbnail(false);
+          } else {
+            setIsUploadingBanner(false);
+          }
+          // 파일 인풋 초기화
+          e.target.value = '';
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
 
   // 보상 금액 변경 비밀번호 최종 검증 제출
   const handleRewardConfirmSubmit = (e: React.FormEvent) => {
@@ -1863,6 +1981,12 @@ export const OwnerDashboard: React.FC = () => {
               🏠 {language === 'ko' ? '미니홈피 기본 정보 설정' : 'Mini-Home General Settings'}
             </h3>
             
+            {uploadError && (
+              <div style={{ padding: '10px 14px', backgroundColor: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.2)', borderRadius: '8px', color: 'var(--accent-red)', fontSize: '12px', textAlign: 'left', marginBottom: '12px' }}>
+                ⚠️ {uploadError}
+              </div>
+            )}
+            
             <form onSubmit={(e) => {
               e.preventDefault();
               const formData = new FormData(e.currentTarget);
@@ -1877,24 +2001,202 @@ export const OwnerDashboard: React.FC = () => {
             }} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div style={{ textAlign: 'left' }}>
-                  <label className="imin-input-label">{language === 'ko' ? '매장 썸네일 이미지 URL' : 'Store Thumbnail URL'}</label>
+                <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label className="imin-input-label">{language === 'ko' ? '매장 썸네일 이미지' : 'Store Thumbnail'}</label>
+                  
+                  {/* Preview & Upload Area */}
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '16px', 
+                    padding: '12px', 
+                    border: '1px dashed var(--border-color)', 
+                    borderRadius: '8px', 
+                    backgroundColor: 'rgba(255,255,255,0.5)',
+                    minHeight: '90px'
+                  }}>
+                    <div style={{ 
+                      width: '64px', 
+                      height: '64px', 
+                      borderRadius: '50%', 
+                      border: '1px solid var(--border-color)', 
+                      overflow: 'hidden', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      backgroundColor: '#f4f4f5',
+                      flexShrink: 0
+                    }}>
+                      {thumbnailUrl ? (
+                        <img src={thumbnailUrl} alt="Thumbnail Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        <ImageIcon size={28} style={{ color: '#a1a1aa' }} />
+                      )}
+                    </div>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flexGrow: 1 }}>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <label className="imin-btn imin-btn-outline" style={{ 
+                          padding: '6px 12px', 
+                          fontSize: '12px', 
+                          cursor: isUploadingThumbnail ? 'not-allowed' : 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          margin: 0
+                        }}>
+                          {isUploadingThumbnail ? (
+                            <>
+                              <Loader2 size={14} className="animate-spin" />
+                              <span>{language === 'ko' ? '업로드 중...' : 'Uploading...'}</span>
+                            </>
+                          ) : (
+                            <>
+                              <Upload size={14} />
+                              <span>{language === 'ko' ? '사진 업로드' : 'Upload Photo'}</span>
+                            </>
+                          )}
+                          <input 
+                            type="file" 
+                            accept="image/*"
+                            style={{ display: 'none' }}
+                            disabled={isUploadingThumbnail}
+                            onChange={(e) => handleImageUpload(e, 'thumbnail')}
+                          />
+                        </label>
+                        {thumbnailUrl && (
+                          <button 
+                            type="button" 
+                            onClick={() => setThumbnailUrl('')}
+                            className="imin-btn imin-btn-outline" 
+                            style={{ padding: '6px 12px', fontSize: '12px', color: 'var(--accent-red)', borderColor: 'rgba(255, 59, 48, 0.2)' }}
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        {language === 'ko' ? '권장 크기: 400x400 (1:1 비율)' : 'Recommended: 400x400 (1:1 ratio)'}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {/* URL Text Input (optional fallback/view) */}
                   <input 
                     name="thumbnailUrl"
-                    defaultValue={selectedStore.thumbnailUrl || ''} 
+                    value={thumbnailUrl} 
+                    onChange={(e) => setThumbnailUrl(e.target.value)}
                     className="imin-input" 
                     placeholder="https://example.com/thumb.jpg"
-                    style={{ marginTop: '6px' }}
+                    style={{ fontSize: '12px', padding: '8px 12px' }}
                   />
                 </div>
-                <div style={{ textAlign: 'left' }}>
-                  <label className="imin-input-label">{language === 'ko' ? '매장 대표 배너 이미지 URL' : 'Store Banner URL'}</label>
+
+                <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label className="imin-input-label">{language === 'ko' ? '매장 대표 배너 이미지' : 'Store Banner'}</label>
+                  
+                  {/* Preview & Upload Area */}
+                  <div style={{ 
+                    display: 'flex', 
+                    flexDirection: 'column',
+                    gap: '12px', 
+                    padding: '12px', 
+                    border: '1px dashed var(--border-color)', 
+                    borderRadius: '8px', 
+                    backgroundColor: 'rgba(255,255,255,0.5)',
+                    minHeight: '90px'
+                  }}>
+                    {bannerUrl ? (
+                      <div style={{ 
+                        width: '100%', 
+                        height: '80px', 
+                        borderRadius: '6px', 
+                        border: '1px solid var(--border-color)', 
+                        overflow: 'hidden', 
+                        backgroundColor: '#f4f4f5',
+                        position: 'relative'
+                      }}>
+                        <img src={bannerUrl} alt="Banner Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <button 
+                          type="button" 
+                          onClick={() => setBannerUrl('')}
+                          style={{
+                            position: 'absolute',
+                            top: '6px',
+                            right: '6px',
+                            backgroundColor: 'rgba(0,0,0,0.6)',
+                            border: 'none',
+                            borderRadius: '50%',
+                            width: '24px',
+                            height: '24px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#ffffff',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ 
+                        width: '100%', 
+                        height: '80px', 
+                        borderRadius: '6px', 
+                        border: '1px solid var(--border-color)', 
+                        backgroundColor: '#f4f4f5',
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center'
+                      }}>
+                        <ImageIcon size={28} style={{ color: '#a1a1aa' }} />
+                      </div>
+                    )}
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        {language === 'ko' ? '권장 비율: 2:1 또는 16:9 와이드' : 'Recommended ratio: 2:1 or 16:9 wide'}
+                      </span>
+                      <label className="imin-btn imin-btn-outline" style={{ 
+                        padding: '6px 12px', 
+                        fontSize: '12px', 
+                        cursor: isUploadingBanner ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        margin: 0
+                      }}>
+                        {isUploadingBanner ? (
+                          <>
+                            <Loader2 size={14} className="animate-spin" />
+                            <span>{language === 'ko' ? '업로드 중...' : 'Uploading...'}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload size={14} />
+                            <span>{language === 'ko' ? '배너 업로드' : 'Upload Banner'}</span>
+                          </>
+                        )}
+                        <input 
+                          type="file" 
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          disabled={isUploadingBanner}
+                          onChange={(e) => handleImageUpload(e, 'banner')}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                  
+                  {/* URL Text Input (optional fallback/view) */}
                   <input 
                     name="bannerUrl"
-                    defaultValue={selectedStore.bannerUrl || ''} 
+                    value={bannerUrl} 
+                    onChange={(e) => setBannerUrl(e.target.value)}
                     className="imin-input" 
                     placeholder="https://example.com/banner.jpg"
-                    style={{ marginTop: '6px' }}
+                    style={{ fontSize: '12px', padding: '8px 12px' }}
                   />
                 </div>
               </div>
