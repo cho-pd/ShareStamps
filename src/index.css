@@ -248,6 +248,10 @@ body {
   flex-direction: column;
 }
 
+.phone-screen.no-scroll {
+  overflow-y: hidden !important;
+}
+
 /* 폰 상단 카메라 노치 바 */
 .phone-notch {
   position: absolute;
@@ -527,4 +531,8 @@ body {
   flex: 1 !important;
 }
 
-
+@keyframes iminBounce {
+  0% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-6px) scale(1.08); }
+  100% { transform: translateY(0) scale(1); }
+}

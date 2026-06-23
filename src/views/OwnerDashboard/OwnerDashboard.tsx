@@ -2033,6 +2033,166 @@ export const OwnerDashboard: React.FC = () => {
             </div>
           </div>
 
+          {/* 2.5. SNS 자동 연동 관리 */}
+          <div className="imin-card" style={{ padding: '24px' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 800, borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '16px', color: 'var(--text-primary)', textAlign: 'left' }}>
+              🔗 {language === 'ko' ? 'SNS 자동 배포 및 크로스 포스팅 관리' : 'SNS Auto-Posting & Cross-Posting'}
+            </h3>
+            
+            <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', textAlign: 'left', lineHeight: 1.45, margin: '0 0 16px 0' }}>
+              {language === 'ko' 
+                ? '고객이 AI로 작성한 콘텐츠를 매장의 공식 SNS 채널에 자동으로 동시 게시합니다. 활성화할 플랫폼을 선택해 주세요.' 
+                : 'Automatically cross-post customer AI reviews to your official social media channels. Select platforms to enable.'}
+            </p>
+
+            {/* SNS 채널 연동 토글 */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '24px' }}>
+              {[
+                { key: 'facebookEnabled', label: 'Facebook Feed', icon: '🔵' },
+                { key: 'instagramEnabled', label: 'Instagram Reels', icon: '📸' },
+                { key: 'threadsEnabled', label: 'Threads Feed', icon: '💬' },
+                { key: 'linkedinEnabled', label: 'LinkedIn Post', icon: '💼' },
+                { key: 'youtubeEnabled', label: 'YouTube Shorts', icon: '🔴' },
+                { key: 'tiktokEnabled', label: 'TikTok Video', icon: '🎵' }
+              ].map(platform => {
+                const isEnabled = selectedStore.snsSettings?.[platform.key as keyof typeof selectedStore.snsSettings] ?? false;
+                return (
+                  <div 
+                    key={platform.key}
+                    style={{ 
+                      padding: '12px', 
+                      borderRadius: '10px', 
+                      backgroundColor: isEnabled ? 'rgba(95, 92, 230, 0.05)' : 'var(--background-color)',
+                      border: `1.5px solid ${isEnabled ? 'var(--primary-color)' : 'var(--border-color)'}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      cursor: 'pointer',
+                      userSelect: 'none'
+                    }}
+                    onClick={() => {
+                      const currentSettings = selectedStore.snsSettings || {
+                        facebookEnabled: true,
+                        instagramEnabled: true,
+                        threadsEnabled: true,
+                        linkedinEnabled: false,
+                        youtubeEnabled: false,
+                        tiktokEnabled: true
+                      };
+                      const updatedSettings = {
+                        ...currentSettings,
+                        [platform.key]: !isEnabled
+                      };
+                      updateStoreMiniHome(selectedStoreId, { snsSettings: updatedSettings });
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '14px' }}>{platform.icon}</span>
+                      <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>{platform.label}</span>
+                    </div>
+                    <div style={{ 
+                      width: '32px', 
+                      height: '18px', 
+                      borderRadius: '9px', 
+                      backgroundColor: isEnabled ? '#34C759' : '#D1D1D6',
+                      position: 'relative',
+                      transition: 'background-color 0.2s'
+                    }}>
+                      <div style={{ 
+                        width: '14px', 
+                        height: '14px', 
+                        borderRadius: '50%', 
+                        backgroundColor: '#FFFFFF',
+                        position: 'absolute',
+                        top: '2px',
+                        left: isEnabled ? '16px' : '2px',
+                        transition: 'left 0.2s'
+                      }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* SNS 배포 로그 모니터 */}
+            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+              <h4 style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-secondary)', margin: '0 0 12px 0', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                🖥️ {language === 'ko' ? '실시간 SNS 배포 상태 모니터' : 'Real-time SNS Delivery Tracker'}
+              </h4>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
+                {reviews.filter(r => r.storeId === selectedStoreId && r.isAIContent).length > 0 ? (
+                  reviews.filter(r => r.storeId === selectedStoreId && r.isAIContent).map(review => {
+                    return (
+                      <div 
+                        key={review.id}
+                        style={{ 
+                          padding: '12px', 
+                          borderRadius: '8px', 
+                          border: '1px solid var(--border-color)', 
+                          backgroundColor: '#F8F9FF',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px',
+                          textAlign: 'left'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                            👤 {review.userName} (@{review.userNickname})
+                          </span>
+                          <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                            {new Date(review.createdAt).toLocaleTimeString()}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', fontStyle: 'italic', borderLeft: '2.5px solid var(--primary-color)', paddingLeft: '8px' }}>
+                          "{review.comment.slice(0, 45)}..."
+                        </div>
+                        
+                        {/* 플랫폼별 분배 상태 */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
+                          {[
+                            { key: 'facebookEnabled', label: 'Facebook', shareKey: 'facebook' },
+                            { key: 'instagramEnabled', label: 'Instagram Reels', shareKey: 'instagram' },
+                            { key: 'threadsEnabled', label: 'Threads', shareKey: 'threads' },
+                            { key: 'linkedinEnabled', label: 'LinkedIn', shareKey: 'linkedin' },
+                            { key: 'youtubeEnabled', label: 'YouTube Shorts', shareKey: 'youtube' },
+                            { key: 'tiktokEnabled', label: 'TikTok', shareKey: 'tiktok' }
+                          ].map(platform => {
+                            const isConfigured = selectedStore.snsSettings?.[platform.key as keyof typeof selectedStore.snsSettings] ?? false;
+                            const isSharedByReview = review.snsShared?.[platform.shareKey as keyof typeof review.snsShared] ?? false;
+                            const isActive = isConfigured && isSharedByReview;
+
+                            return (
+                              <span 
+                                key={platform.key}
+                                style={{
+                                  fontSize: '9.5px',
+                                  fontWeight: 700,
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  backgroundColor: isActive ? 'rgba(52, 199, 89, 0.08)' : 'rgba(142, 142, 147, 0.08)',
+                                  color: isActive ? '#34C759' : '#8E8E93',
+                                  border: `1px solid ${isActive ? 'rgba(52, 199, 89, 0.2)' : 'rgba(142, 142, 147, 0.2)'}`
+                                }}
+                              >
+                                {platform.label}: {isActive ? (language === 'ko' ? '🟢 배포 완료' : '🟢 Shared') : (language === 'ko' ? '⚪ 비활성' : '⚪ Disabled')}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '12px', padding: '16px 0', backgroundColor: 'var(--background-color)', borderRadius: '8px' }}>
+                    {language === 'ko' ? '아직 배포된 AI 콘텐츠 이력이 없습니다.' : 'No AI content shared yet.'}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* 3. 최근 고객 리뷰 대장 */}
           <div className="imin-card" style={{ padding: '24px' }}>
             <h3 style={{ fontSize: '16px', fontWeight: 800, borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '16px', color: 'var(--text-primary)', textAlign: 'left' }}>

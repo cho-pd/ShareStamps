@@ -10,7 +10,8 @@ export const StoreMiniHome: React.FC = () => {
     reviews, 
     addReview, 
     donations, 
-    language 
+    language,
+    setCustomerSelectedStoreId
   } = useDatabase();
 
   const [storeId, setStoreId] = useState<string>(() => {
@@ -55,7 +56,7 @@ export const StoreMiniHome: React.FC = () => {
     ? parseFloat((storeReviews.reduce((sum, r) => sum + r.rating, 0) / storeReviews.length).toFixed(1))
     : 5.0;
 
-  const [activeTab, setActiveTab] = useState<'info' | 'esg' | 'reviews'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'esg' | 'reviews'>('reviews');
   const [showReviewModal, setShowReviewModal] = useState<boolean>(false);
 
   // Review Form States
@@ -282,7 +283,7 @@ export const StoreMiniHome: React.FC = () => {
         top: '45px',
         zIndex: 9
       }}>
-        {(['info', 'esg', 'reviews'] as const).map(tab => {
+        {(['reviews', 'info', 'esg'] as const).map(tab => {
           const isActive = activeTab === tab;
           let label = t.infoTab;
           if (tab === 'esg') label = t.esgTab;
@@ -466,7 +467,9 @@ export const StoreMiniHome: React.FC = () => {
               <button
                 onClick={() => {
                   setErrorMsg(null);
-                  setShowReviewModal(true);
+                  setCustomerSelectedStoreId(store.id);
+                  localStorage.setItem('sharestamps_open_sharbee_review_store_id', store.id);
+                  window.location.hash = '#/customer';
                 }}
                 className="imin-btn imin-btn-primary"
                 style={{ 
@@ -507,7 +510,26 @@ export const StoreMiniHome: React.FC = () => {
                           {review.userName.charAt(0)}
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                          <span style={{ fontSize: '12.5px', fontWeight: 800, color: '#18181b', lineHeight: 1.1 }}>{review.userName}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontSize: '12.5px', fontWeight: 800, color: '#18181b', lineHeight: 1.1 }}>{review.userName}</span>
+                            {review.isAIContent && (
+                              <span style={{
+                                fontSize: '8.5px',
+                                fontWeight: 800,
+                                padding: '1.5px 5px',
+                                borderRadius: '4px',
+                                backgroundColor: 'rgba(255, 184, 0, 0.12)',
+                                color: '#D97706',
+                                border: '1px solid rgba(255, 184, 0, 0.25)',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '2.5px',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                🌟 {language === 'ko' ? 'AI 콘텐츠' : 'AI Content'}
+                              </span>
+                            )}
+                          </div>
                           <span style={{ fontSize: '10px', color: '#71717a', marginTop: '2px' }}>@{review.userNickname}</span>
                         </div>
                       </div>
@@ -536,6 +558,17 @@ export const StoreMiniHome: React.FC = () => {
                     }}>
                       {review.comment}
                     </p>
+
+                    {review.videoUrl && (
+                      <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', backgroundColor: '#000000', position: 'relative', aspectRatio: '16 / 9' }}>
+                        <video 
+                          src={review.videoUrl} 
+                          controls 
+                          playsInline
+                          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                        />
+                      </div>
+                    )}
 
                     {review.photoUrl && (
                       <div style={{ width: '100%', maxHeight: '200px', borderRadius: '12px', overflow: 'hidden', backgroundColor: '#f4f4f5' }}>

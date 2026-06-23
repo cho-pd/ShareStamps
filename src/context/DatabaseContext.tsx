@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { playVoiceGuidance } from '../utils/voice';
 import { db as firestoreDb } from '../firebase';
 import { doc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
@@ -181,6 +181,14 @@ export interface Store {
   menuItems?: { name: string; price: number; description?: string }[];
   thumbnailUrl?: string;
   bannerUrl?: string;
+  snsSettings?: {
+    facebookEnabled: boolean;
+    instagramEnabled: boolean;
+    threadsEnabled: boolean;
+    linkedinEnabled: boolean;
+    youtubeEnabled: boolean;
+    tiktokEnabled: boolean;
+  };
 }
 
 export interface StoreReview {
@@ -193,6 +201,17 @@ export interface StoreReview {
   comment: string;
   photoUrl?: string;
   createdAt: string;
+  isAIContent?: boolean;
+  videoUrl?: string;
+  aiQuestionsAnswers?: { q: string; a: string }[];
+  snsShared?: {
+    facebook?: boolean;
+    instagram?: boolean;
+    threads?: boolean;
+    linkedin?: boolean;
+    youtube?: boolean;
+    tiktok?: boolean;
+  };
 }
 
 
@@ -288,6 +307,7 @@ export interface StampTransaction {
   storeId: string;
   amount: number;
   type: 'earn' | 'gift_send' | 'gift_receive' | 'donation' | 'point_conversion';
+  source?: 'receipt_qr' | 'ai_review' | 'sns_share' | 'manual';
   referenceId?: string;
   createdAt: string;
 }
@@ -354,7 +374,24 @@ interface DatabaseContextProps {
   giftCards: GiftCard[];
   giftCardTransactions: GiftCardTransaction[];
   reviews: StoreReview[];
-  addReview: (storeId: string, rating: number, comment: string, photoUrl?: string) => void;
+  addReview: (
+    storeId: string,
+    rating: number,
+    comment: string,
+    photoUrl?: string,
+    isAIContent?: boolean,
+    videoUrl?: string,
+    aiQuestionsAnswers?: { q: string; a: string }[],
+    snsShared?: {
+      facebook?: boolean;
+      instagram?: boolean;
+      threads?: boolean;
+      linkedin?: boolean;
+      youtube?: boolean;
+      tiktok?: boolean;
+    }
+  ) => { reviewId: string; stampAwarded: boolean; message: string };
+  updateReviewMedia: (reviewId: string, media: { photoUrl?: string; videoUrl?: string }) => void;
   updateStoreMiniHome: (storeId: string, updates: Partial<Store>) => void;
   
   // 로그인 상태 및 디바이스
@@ -605,11 +642,25 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     if (parsed.stores && Array.isArray(parsed.stores)) {
       parsed.stores = parsed.stores.map((s: any) => {
+        let updatedStore = { ...s };
+        let storeMigrated = false;
         if (s.earningIntervalMinutes === undefined) {
-          migrated = true;
-          return { ...s, earningIntervalMinutes: 60 };
+          updatedStore.earningIntervalMinutes = 60;
+          storeMigrated = true;
         }
-        return s;
+        if (s.snsSettings === undefined) {
+          updatedStore.snsSettings = {
+            facebookEnabled: true,
+            instagramEnabled: true,
+            threadsEnabled: true,
+            linkedinEnabled: false,
+            youtubeEnabled: false,
+            tiktokEnabled: true
+          };
+          storeMigrated = true;
+        }
+        if (storeMigrated) migrated = true;
+        return updatedStore;
       });
     }
 
@@ -1272,6 +1323,87 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  const repairedAiReviewIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!dbState) return;
+
+    const aiReviewsMissingStamp = (dbState.reviews || []).filter(review => {
+      if (!review.isAIContent || !review.userId || review.userId === 'guest') return false;
+      if (repairedAiReviewIdsRef.current.has(review.id)) return false;
+      return !(dbState.stampTransactions || []).some(tx => (
+        tx.referenceId === review.id &&
+        tx.source === 'ai_review' &&
+        tx.type === 'earn' &&
+        tx.amount > 0
+      ));
+    });
+
+    if (aiReviewsMissingStamp.length === 0) return;
+
+    const reviewToRepair = [...aiReviewsMissingStamp].sort((a, b) => (
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    ))[0];
+
+    const cardIdx = dbState.stampCards.findIndex(card => (
+      card.userId === reviewToRepair.userId &&
+      card.storeId === reviewToRepair.storeId
+    ));
+    const currentStamps = cardIdx > -1 ? dbState.stampCards[cardIdx].currentStamps : 0;
+    if (currentStamps >= 7) {
+      repairedAiReviewIdsRef.current.add(reviewToRepair.id);
+      return;
+    }
+
+    const store = dbState.stores.find(s => s.id === reviewToRepair.storeId);
+    const rewardPer7 = store ? store.pointRewardPer7Stamps : 5;
+    const valuePerStamp = rewardPer7 / 7;
+    const stampToAdd = {
+      id: `stamp_${Date.now()}_ai_review_repair`,
+      acquiredAt: getSkewCorrectedIsoString(),
+      cashValue: parseFloat(valuePerStamp.toFixed(2))
+    };
+
+    const updatedCards = [...dbState.stampCards];
+    if (cardIdx === -1) {
+      updatedCards.push({
+        id: `card_${Date.now()}_ai_repair`,
+        userId: reviewToRepair.userId,
+        storeId: reviewToRepair.storeId,
+        currentStamps: 1,
+        stamps: [stampToAdd],
+        updatedAt: getSkewCorrectedIsoString()
+      });
+    } else {
+      const card = updatedCards[cardIdx];
+      updatedCards[cardIdx] = {
+        ...card,
+        currentStamps: currentStamps + 1,
+        stamps: [...(card.stamps || []), stampToAdd],
+        updatedAt: getSkewCorrectedIsoString()
+      };
+    }
+
+    repairedAiReviewIdsRef.current.add(reviewToRepair.id);
+    updateDbState({
+      ...dbState,
+      stampCards: updatedCards,
+      stampTransactions: [
+        ...(dbState.stampTransactions || []),
+        {
+          id: `stx_${Date.now()}_ai_review_repair`,
+          userId: reviewToRepair.userId,
+          storeId: reviewToRepair.storeId,
+          amount: 1,
+          type: 'earn',
+          source: 'ai_review',
+          referenceId: reviewToRepair.id,
+          createdAt: getSkewCorrectedIsoString()
+        }
+      ]
+    });
+  }, [dbState]);
+
   const initializeDefaultDb = async (completeEmpty?: boolean) => {
     const initialDb = completeEmpty ? {
       users: [],
@@ -1297,8 +1429,10 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       ownerRequests: []
     } : getDefaultDbSeed();
 
+    const { state: migratedState } = migrateDatabaseState(initialDb);
+
     const stateWithTimestamp = {
-      ...initialDb,
+      ...migratedState,
       resetAt: getSkewCorrectedIsoString(),
       updatedAt: getSkewCorrectedIsoString()
     };
@@ -1703,6 +1837,35 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
   };
 
+  const getDailyRewardUsage = (
+    userId: string,
+    rewardSource?: NonNullable<StampTransaction['source']>
+  ) => {
+    if (!dbState) return { total: 0, sourceTotal: 0 };
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const end = start + 24 * 60 * 60 * 1000;
+    const txs = dbState.stampTransactions.filter(t => {
+      if (t.userId !== userId || t.type !== 'earn' || t.amount <= 0) return false;
+      const created = new Date(t.createdAt).getTime();
+      return created >= start && created < end;
+    });
+    return {
+      total: txs.reduce((sum, t) => sum + t.amount, 0),
+      sourceTotal: rewardSource
+        ? txs
+            .filter(t => t.source === rewardSource || (!t.source && rewardSource === 'receipt_qr'))
+            .reduce((sum, t) => sum + t.amount, 0)
+        : 0
+    };
+  };
+
+  const getDailyRewardLimitMessage = (rewardName: string) => (
+    language === 'ko'
+      ? `${rewardName} \uC2A4\uD0EC\uD504 \uBCF4\uC0C1\uC740 \uD558\uB8E8 1\uC7A5, \uC804\uCCB4 \uBCF4\uC0C1\uC740 \uD558\uB8E8 3\uC7A5\uAE4C\uC9C0 \uBC1B\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`
+      : `${rewardName} stamp rewards are limited to 1 per day, and all daily rewards are limited to 3 stamps.`
+  );
+
   const claimQRStamps = (token: string, deviceToken: string) => {
     if (!dbState) return { success: false, message: 'DB 상태 에러', stampsAwarded: 0, newStamps: 0, earnedPoints: 0 };
     
@@ -1777,9 +1940,20 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       updatedStores.push(store);
     }
 
+    const receiptDailyUsage = getDailyRewardUsage(user.id, 'receipt_qr');
+    if (receiptDailyUsage.sourceTotal >= 1 || receiptDailyUsage.total >= 3) {
+      return {
+        success: false,
+        message: getDailyRewardLimitMessage(language === 'ko' ? '\uC601\uC218\uC99D' : 'Receipt'),
+        stampsAwarded: 0,
+        newStamps: 0,
+        earnedPoints: 0
+      };
+    }
+
     // 동일 점포 재적립 제한 시간(분) 체크
     const userStoreTxs = dbState.stampTransactions
-      .filter(t => t.userId === user.id && t.storeId === store.id && t.amount > 0 && t.type === 'earn')
+      .filter(t => t.userId === user.id && t.storeId === store.id && t.amount > 0 && t.type === 'earn' && (t.source === 'receipt_qr' || !t.source))
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
     const intervalMinutes = typeof store.earningIntervalMinutes === 'number' ? store.earningIntervalMinutes : 60;
@@ -1804,7 +1978,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     let card = dbState.stampCards.find(c => c.userId === user.id && c.storeId === store.id);
     let currentStamps = card ? card.currentStamps : 0;
     
-    const stampsToAward = scan.stampsToAward;
+    const stampsToAward = Math.min(scan.stampsToAward, 1, 3 - receiptDailyUsage.total);
     let newStamps = currentStamps + stampsToAward;
     let earnedPoints = 0;
 
@@ -1821,6 +1995,8 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       storeId: store.id,
       amount: stampsToAward,
       type: 'earn',
+      source: 'receipt_qr',
+      referenceId: scan.id,
       createdAt: getSkewCorrectedIsoString()
     });
 
@@ -2810,8 +2986,24 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     );
   };
 
-  const addReview = (storeId: string, rating: number, comment: string, photoUrl?: string) => {
-    if (!dbState) return;
+  const addReview = (
+    storeId: string,
+    rating: number,
+    comment: string,
+    photoUrl?: string,
+    isAIContent?: boolean,
+    videoUrl?: string,
+    aiQuestionsAnswers?: { q: string; a: string }[],
+    snsShared?: {
+      facebook?: boolean;
+      instagram?: boolean;
+      threads?: boolean;
+      linkedin?: boolean;
+      youtube?: boolean;
+      tiktok?: boolean;
+    }
+  ) => {
+    if (!dbState) return { reviewId: '', stampAwarded: false, message: 'DB Error' };
     const newReview: StoreReview = {
       id: `review_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       storeId,
@@ -2821,16 +3013,138 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       rating,
       comment,
       photoUrl,
-      createdAt: getSkewCorrectedIsoString()
+      createdAt: getSkewCorrectedIsoString(),
+      isAIContent,
+      videoUrl,
+      aiQuestionsAnswers,
+      snsShared
     };
     const updatedReviews = [newReview, ...(dbState.reviews || [])];
-    updateDbState({ ...dbState, reviews: updatedReviews });
+
+    let updatedCards = [...dbState.stampCards];
+    let newStampTxs = [...dbState.stampTransactions];
+    let stampAwarded = false;
+
+    if (isAIContent && currentUser) {
+      const reviewDailyUsage = getDailyRewardUsage(currentUser.id, 'ai_review');
+      const hasAiReviewStampAtStoreToday = newStampTxs.some(tx => {
+        if (tx.userId !== currentUser.id || tx.storeId !== storeId || tx.source !== 'ai_review' || tx.type !== 'earn' || tx.amount <= 0) return false;
+        const created = new Date(tx.createdAt);
+        const now = new Date();
+        return created.getFullYear() === now.getFullYear() &&
+          created.getMonth() === now.getMonth() &&
+          created.getDate() === now.getDate();
+      });
+      const cardIdx = updatedCards.findIndex(c => c.userId === currentUser.id && c.storeId === storeId);
+      const current = cardIdx > -1 ? updatedCards[cardIdx].currentStamps : 0;
+      const shouldAwardReviewStamp = current < 7 && !hasAiReviewStampAtStoreToday && (
+        reviewDailyUsage.sourceTotal < 1 ||
+        current === 0
+      );
+      if (shouldAwardReviewStamp) {
+        const store = dbState.stores.find(s => s.id === storeId);
+        const rewardPer7 = store ? store.pointRewardPer7Stamps : 5;
+        const valuePerStamp = rewardPer7 / 7;
+        const stampToAdd = {
+          id: `stamp_${Date.now()}_ai_review`,
+          acquiredAt: getSkewCorrectedIsoString(),
+          cashValue: parseFloat(valuePerStamp.toFixed(2))
+        };
+
+        if (cardIdx === -1) {
+          updatedCards.push({
+            id: `card_${Date.now()}_ai`,
+            userId: currentUser.id,
+            storeId,
+            currentStamps: 1,
+            stamps: [stampToAdd],
+            updatedAt: getSkewCorrectedIsoString()
+          });
+        } else {
+          const card = updatedCards[cardIdx];
+          const existingStamps = card.stamps ? [...(card.stamps || [])] : [];
+          if (existingStamps.length !== current) {
+            existingStamps.length = 0;
+            for (let i = 0; i < current; i++) {
+              existingStamps.push({
+                id: `stamp_mig_${card.id}_${i}_${Date.now()}`,
+                acquiredAt: card.updatedAt || getSkewCorrectedIsoString(),
+                cashValue: parseFloat(valuePerStamp.toFixed(2))
+              });
+            }
+          }
+          updatedCards[cardIdx] = {
+            ...card,
+            currentStamps: current + 1,
+            stamps: [...existingStamps, stampToAdd],
+            updatedAt: getSkewCorrectedIsoString()
+          };
+        }
+
+        newStampTxs.push({
+          id: `stx_${Date.now()}_ai_earn`,
+          userId: currentUser.id,
+          storeId,
+          amount: 1,
+          type: 'earn',
+          source: 'ai_review',
+          referenceId: newReview.id,
+          createdAt: getSkewCorrectedIsoString()
+        });
+        stampAwarded = true;
+      }
+    }
+
+    updateDbState({
+      ...dbState,
+      reviews: updatedReviews,
+      stampCards: updatedCards,
+      stampTransactions: newStampTxs
+    });
+
     playVoiceGuidance(
       language === 'ko'
-        ? "리뷰가 등록되었습니다."
-        : "Review submitted successfully.",
+        ? (isAIContent && stampAwarded ? "AI \uCF58\uD150\uCE20\uAC00 \uB4F1\uB85D\uB418\uACE0 \uC2A4\uD0EC\uD504 1\uAC1C\uAC00 \uC801\uB9BD\uB418\uC5C8\uC2B5\uB2C8\uB2E4." : "\uB9AC\uBDF0\uAC00 \uB4F1\uB85D\uB418\uC5C8\uC2B5\uB2C8\uB2E4.")
+        : (isAIContent && stampAwarded ? "AI content submitted successfully. 1 stamp earned." : "Review submitted successfully."),
       language
     );
+    return {
+      reviewId: newReview.id,
+      stampAwarded,
+      message: stampAwarded
+        ? (language === 'ko' ? '\uC2A4\uD0EC\uD504 1\uAC1C\uAC00 \uC801\uB9BD\uB418\uC5C8\uC2B5\uB2C8\uB2E4.' : '1 stamp earned.')
+        : getDailyRewardLimitMessage(language === 'ko' ? '\uB9AC\uBDF0' : 'Review')
+    };
+  };
+
+  const updateReviewMedia = (reviewId: string, media: { photoUrl?: string; videoUrl?: string }) => {
+    if (!reviewId || (!media.photoUrl && !media.videoUrl)) return;
+
+    try {
+      const latestRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
+      const latestState = latestRaw ? JSON.parse(latestRaw) : dbState;
+      if (!latestState?.reviews) return;
+
+      const hasReview = latestState.reviews.some((review: StoreReview) => review.id === reviewId);
+      if (!hasReview) return;
+
+      const updatedState = {
+        ...latestState,
+        reviews: latestState.reviews.map((review: StoreReview) => (
+          review.id === reviewId
+            ? {
+                ...review,
+                photoUrl: media.photoUrl || review.photoUrl,
+                videoUrl: media.videoUrl || review.videoUrl
+              }
+            : review
+        ))
+      };
+
+      updateDbState(updatedState, true);
+    } catch (error) {
+      console.error('Failed to update review media:', error);
+    }
   };
 
   const deductStampsByOwner = (customerId: string, storeId: string, count: number) => {
@@ -4001,6 +4315,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     deleteUser,
     reviews: dbState?.reviews || [],
     addReview,
+    updateReviewMedia,
     updateStoreMiniHome,
     giftCards: dbState?.giftCards || [],
     giftCardTransactions: dbState?.giftCardTransactions || [],

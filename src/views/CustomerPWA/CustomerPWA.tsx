@@ -26,11 +26,24 @@ const formatUSPhoneNumber = (value: string) => {
 import { useDatabase } from '../../context/DatabaseContext';
 import type { User } from '../../context/DatabaseContext';
 import { playVoiceGuidance } from '../../utils/voice';
+import { storage as firebaseStorage } from '../../firebase';
+import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
 import { 
   QrCode, Gift, Heart, User as UserIcon, LogOut, CheckCircle2, 
   History, Globe, Loader2, XCircle, Smartphone,
-  ChevronDown, ChevronUp, Settings
+  ChevronDown, ChevronUp, Settings, Sparkles, Send, Camera, Video, Image as ImageIcon
 } from 'lucide-react';
+
+const SHARBEE_HELPER_IMAGE = '/sharbee/sharbee5.png';
+const GEMINI_REVIEW_MODEL = 'gemini-3.1-flash-lite';
+const SHARBEE_MAX_VIDEO_SECONDS = 15;
+const SHARBEE_MAX_VIDEO_BYTES = 80 * 1024 * 1024;
+
+const detectReviewLanguage = (texts: string[]): 'ko' | 'en' => {
+  const joined = texts.join(' ');
+  const koreanMatches = joined.match(/[가-힣]/g)?.length || 0;
+  return koreanMatches >= 2 ? 'ko' : 'en';
+};
 
 
 export const CustomerPWA: React.FC = () => {
@@ -41,7 +54,7 @@ export const CustomerPWA: React.FC = () => {
     language, setLanguage,
     paymentRequests, requestPayment, cancelPaymentRequest,
     adBanners, stampTransactions, pointTransactions,
-    users, gifts, acceptGift, declineGift, convertStampsToCash,
+    users, gifts, acceptGift, declineGift, convertStampsToCash, addReview, updateReviewMedia,
     customerSelectedStoreId, setCustomerSelectedStoreId
   } = useDatabase();
 
@@ -277,6 +290,8 @@ export const CustomerPWA: React.FC = () => {
   const [cameraError, setCameraError] = useState<string>('');
   const [manualQrToken, setManualQrToken] = useState<string>('');
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const chatLogsContainerRef = useRef<HTMLDivElement | null>(null);
+
 
 
   useEffect(() => {
@@ -565,6 +580,8 @@ export const CustomerPWA: React.FC = () => {
   const [selectedStoreId, setSelectedStoreIdState] = useState<string>(() => {
     return customerSelectedStoreId || 'store_id_1';
   });
+  const [manualStoreBrowseId, setManualStoreBrowseId] = useState<string>('');
+  const [pendingSharbeeOpenStoreId, setPendingSharbeeOpenStoreId] = useState<string>('');
 
   const setSelectedStoreId = (storeId: string) => {
     setSelectedStoreIdState(storeId);
@@ -626,6 +643,27 @@ export const CustomerPWA: React.FC = () => {
   // PWA 설치 바로가기 안내 상태
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showPwaGuideModal, setShowPwaGuideModal] = useState<boolean>(false);
+  const [showSharbeeReview, setShowSharbeeReview] = useState<boolean>(false);
+  const [sharbeeStep, setSharbeeStep] = useState<'chat' | 'draft'>('chat');
+  const [sharbeeLogs, setSharbeeLogs] = useState<{ sender: 'ai' | 'user'; text: string }[]>([]);
+  const [sharbeeOptions, setSharbeeOptions] = useState<string[]>([]);
+  const [sharbeeInput, setSharbeeInput] = useState<string>('');
+  const [sharbeeDraft, setSharbeeDraft] = useState<string>('');
+  const [sharbeeRating, setSharbeeRating] = useState<number>(0);
+  const [sharbeePhotoUrl, setSharbeePhotoUrl] = useState<string>('');
+  const [sharbeePhotoBlob, setSharbeePhotoBlob] = useState<Blob | null>(null);
+  const [sharbeeVideoUrl, setSharbeeVideoUrl] = useState<string>('');
+  const [sharbeeVideoFile, setSharbeeVideoFile] = useState<File | null>(null);
+  const [sharbeeVideoName, setSharbeeVideoName] = useState<string>('');
+  const [sharbeeMediaError, setSharbeeMediaError] = useState<string>('');
+  const [sharbeeSubmitting, setSharbeeSubmitting] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (chatLogsContainerRef.current) {
+      chatLogsContainerRef.current.scrollTop = chatLogsContainerRef.current.scrollHeight;
+    }
+  }, [sharbeeLogs]);
+
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: Event) => {
@@ -635,6 +673,22 @@ export const CustomerPWA: React.FC = () => {
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, []);
+
+  useEffect(() => {
+    const phoneScreen = document.querySelector('.phone-screen') as HTMLElement;
+    if (phoneScreen) {
+      if (showSharbeeReview) {
+        phoneScreen.style.overflowY = 'hidden';
+      } else {
+        phoneScreen.style.overflowY = 'auto';
+      }
+    }
+    return () => {
+      if (phoneScreen) {
+        phoneScreen.style.overflowY = 'auto';
+      }
+    };
+  }, [showSharbeeReview]);
 
   const handleInstallClick = () => {
     if (deferredPrompt) {
@@ -835,7 +889,7 @@ export const CustomerPWA: React.FC = () => {
     paymentRequests.some(req => req.userId === currentUser.id)
   ) : false;
   const hasQrStoreContext = hasPendingQR || !!localStorage.getItem('sharestamps_pending_qr_store_id');
-  const isUnassignedStoreView = !!currentUser && !hasStoreActivity && !hasQrStoreContext;
+  const isUnassignedStoreView = !!currentUser && !hasStoreActivity && !hasQrStoreContext && !manualStoreBrowseId;
   const shouldShowNoStoreIntro = false;
   const isStorelessDashboard = false;
 
@@ -854,6 +908,704 @@ export const CustomerPWA: React.FC = () => {
   const pointsBalance = currentUser && !isUnassignedStoreView
     ? (storePoints.find(p => p.userId === currentUser.id && p.storeId === selectedStoreId)?.pointsBalance || 0.00)
     : 0.00;
+
+  const getSharbeeMenuOptions = () => {
+    const menuNames = (((selectedStore as any).menuItems || []) as { name?: string }[])
+      .map(item => item.name || '')
+      .filter(Boolean)
+      .slice(0, 4);
+    const fallbackMenus = language === 'ko'
+      ? ['\uB300\uD45C \uBA54\uB274', '\uC624\uB298\uC758 \uCD94\uCC9C \uBA54\uB274', '\uC778\uAE30 \uBA54\uB274', '\uC0C8\uB85C \uB098\uC628 \uBA54\uB274']
+      : ['Signature menu', "Today's recommendation", 'Popular menu', 'New menu'];
+    return [...menuNames, ...fallbackMenus].slice(0, 4);
+  };
+
+  const getJosa = (word: string, josa1: string, josa2: string) => {
+    if (!word) return josa1;
+    const lastChar = word.charCodeAt(word.length - 1);
+    if (lastChar >= 0xAC00 && lastChar <= 0xD7A3) {
+      return (lastChar - 0xAC00) % 28 > 0 ? josa1 : josa2;
+    }
+    return josa2;
+  };
+
+  const getSharbeeFollowup = (userMessageCount: number, lastAnswer: string) => {
+    if (userMessageCount === 1) {
+      const josa = getJosa(lastAnswer, '을', '를');
+      return {
+        question: language === 'ko'
+          ? `오! ${lastAnswer}${josa} 맛있게 드셨군요! 정말 탁월한 선택이십니다. 😋\n\n오늘 식사하신 ${lastAnswer}의 맛, 식재료의 신선함, 혹은 비주얼(모양) 중 어떤 점이 가장 기억에 남으셨나요?`
+          : `Wow, having ${lastAnswer} sounds like a delicious choice! 🐝\n\nWhat stood out to you the most about its flavor, fresh ingredients, or presentation?`,
+        options: language === 'ko'
+          ? ['맛이 깊고 조화로웠어요', '재료가 신선하게 느껴졌어요', '비주얼/담음새가 예뻤어요', '기대보다 대만족이었어요']
+          : ['The flavor was rich & balanced', 'The ingredients felt super fresh', 'The presentation was beautiful', 'Better than I ever expected']
+      };
+    }
+    if (userMessageCount === 2) {
+      let reaction = '';
+      if (language === 'ko') {
+        if (lastAnswer.includes('바삭')) {
+          reaction = '우와, 겉은 바삭하고 속은 촉촉한 그 식감! 튀김 요리의 매력을 제대로 살린 맛이었나 보네요. 정말 군침이 도는 묘사입니다! 😋';
+        } else if (lastAnswer.includes('맛') || lastAnswer.includes('조화') || lastAnswer.includes('깔끔') || lastAnswer.includes('깊')) {
+          reaction = '맛의 밸런스가 깔끔하고 아주 훌륭했나 봐요! 입안 가득 감도는 풍미와 깊이가 고스란히 느껴집니다. 👍';
+        } else if (lastAnswer.includes('재료') || lastAnswer.includes('신선')) {
+          reaction = '역시 훌륭한 음식은 신선한 재료에서부터 시작되죠! 그 신선한 식감을 눈치채시다니 정말 섬세한 미식가이시네요. 🌿';
+        } else if (lastAnswer.includes('모양') || lastAnswer.includes('예뻐') || lastAnswer.includes('비주얼') || lastAnswer.includes('담음새')) {
+          reaction = '눈으로 먼저 먹고, 입으로 두 번 즐기셨군요! 사진을 절로 부르는 예쁜 플레이팅 덕분에 식사 자리가 한층 더 특별해졌겠어요. 📸';
+        } else if (lastAnswer.includes('기대') || lastAnswer.includes('만족') || lastAnswer.includes('최고')) {
+          reaction = '기대하셨던 것보다 훨씬 뛰어난 기쁨을 드렸다니 제가 다 뿌듯합니다. 오늘 완벽한 초이스를 하셨네요! ✨';
+        } else {
+          reaction = `"${lastAnswer}"(이)라니 정말 멋지네요! 상세하게 기억해주신 정성 가득한 답변이 매장에도 정말 큰 힘이 될 거예요. 🧡`;
+        }
+      } else {
+        const lower = lastAnswer.toLowerCase();
+        if (lower.includes('crispy') || lower.includes('crunch')) {
+          reaction = 'Wow, that perfect crispy texture! It sounds like the crunch was absolutely spot on. 😋';
+        } else if (lower.includes('flavor') || lower.includes('taste') || lower.includes('rich')) {
+          reaction = "I'm so glad the flavor was balanced and clean! Sounds like a wonderful taste experience. 👍";
+        } else if (lower.includes('fresh') || lower.includes('ingredient')) {
+          reaction = 'Fresh ingredients make all the difference! You have a great palate to appreciate that freshness. 🌿';
+        } else if (lower.includes('beautiful') || lower.includes('presentation') || lower.includes('look')) {
+          reaction = 'Eating with your eyes first is always a delight! A beautiful presentation makes the meal feel special. 📸';
+        } else if (lower.includes('expect') || lower.includes('satisfy') || lower.includes('great')) {
+          reaction = "Exceeding your expectations is the best feedback! I'm thrilled it brought you so much satisfaction. ✨";
+        } else {
+          reaction = `"${lastAnswer}" sounds wonderful! Thank you for sharing such a nice detail. 🧡`;
+        }
+      }
+
+      return {
+        question: language === 'ko'
+          ? `${reaction}\n\n오늘 식사의 맛과 기분 좋은 기운을 더해, 가격 대비 전체적인 만족감(가성비와 경험)은 어떻게 느끼셨나요?`
+          : `${reaction}\n\nWith that great feeling in mind, when considering both the price and the overall experience, how satisfying did it feel?`,
+        options: language === 'ko'
+          ? ['가격 대비 엄청 만족스러웠어요', '나에게 아깝지 않은 가치 있는 소비였어요', '주변에 자신 있게 권할 만한 가격이에요', '소소한 행복을 주는 힐링 타임이었어요']
+          : ['Extremely satisfied for the price', 'It felt worth every penny spent', 'Great quality that is easy to recommend', 'A healing experience that felt like a treat']
+      };
+    }
+    if (userMessageCount === 3) {
+      let reaction = '';
+      if (language === 'ko') {
+        if (lastAnswer.includes('가격') || lastAnswer.includes('대비') || lastAnswer.includes('만족') || lastAnswer.includes('가성비')) {
+          reaction = '와! 가격과 퀄리티를 모두 잡은 똑똑하고 만족스러운 소비를 하셨네요. 맛있는 가성비는 언제나 즐겁죠! 💰';
+        } else if (lastAnswer.includes('가치') || lastAnswer.includes('소비') || lastAnswer.includes('돈') || lastAnswer.includes('아깝')) {
+          reaction = '돈이 아깝지 않은 소중한 가치를 느끼셨다니 정말 다행입니다. 스스로에게 아주 멋진 선물을 주셨어요. 💎';
+        } else if (lastAnswer.includes('권할') || lastAnswer.includes('추천')) {
+          reaction = '주변에 칭찬하며 공유하고 싶을 만큼 훌륭했다니, 그 마음이 매장 점주님께도 아주 큰 행복으로 전달될 거예요. 💌';
+        } else if (lastAnswer.includes('힐링') || lastAnswer.includes('선물') || lastAnswer.includes('행복')) {
+          reaction = '식사 한 끼가 바쁜 일상 속 작은 쉼표이자 따뜻한 위로가 되었다니 정말 낭만적입니다. 힐링이 되셨다니 행복하네요. 🎁';
+        } else if (lastAnswer.includes('별로') || lastAnswer.includes('아쉽') || lastAnswer.includes('부족')) {
+          reaction = '아, 아쉬운 부분이 있으셨군요. 솔직한 의견 덕분에 매장이 더 성장할 수 있는 소중한 밑거름이 될 것입니다. 😢';
+        } else {
+          reaction = `오, "${lastAnswer}"라고 느껴주셨군요! 이렇게 솔직한 만족도를 표현해주셔서 마음이 든든합니다. 😊`;
+        }
+      } else {
+        const lower = lastAnswer.toLowerCase();
+        if (lower.includes('satisfy') || lower.includes('price') || lower.includes('worth')) {
+          reaction = 'A wallet-friendly and satisfying meal is always a win! Glad it felt worth it. 💰';
+        } else if (lower.includes('value') || lower.includes('spend') || lower.includes('penny')) {
+          reaction = "It's wonderful when a meal feels like a truly valuable and meaningful choice. 💎";
+        } else if (lower.includes('recommend') || lower.includes('share')) {
+          reaction = 'Wanting to recommend us to others is the ultimate compliment! 💌';
+        } else if (lower.includes('healing') || lower.includes('treat') || lower.includes('happy')) {
+          reaction = 'Hearing that it felt like a little gift in your day warms my heart! 🎁';
+        } else if (lower.includes('bad') || lower.includes('poor') || lower.includes('disappoint') || lower.includes('dislike')) {
+          reaction = 'Oh, I am sorry to hear that. Your honest feedback is highly valued and will help the store improve. 😢';
+        } else {
+          reaction = `Oh, you felt "${lastAnswer}"! Thank you for sharing your genuine experience. 😊`;
+        }
+      }
+
+      return {
+        question: language === 'ko'
+          ? `${reaction}\n\n이처럼 기분 좋은 만족감을 간직하신 채, 혹시 소중한 사람에게 이 매장을 추천해주거나 조만간 기쁜 마음으로 재방문하고 싶으신가요?`
+          : `${reaction}\n\nHolding onto that positive energy, would you want to recommend this store to someone close or visit again soon?`,
+        options: language === 'ko'
+          ? ['친한 친구에게 얼른 추천하고 싶어요', '소중한 가족들과 꼭 다시 오고 싶어요', '언제든 나만의 힐링 단골집으로 또 올래요', '다음엔 점 찍어둔 다른 메뉴도 먹어볼래요']
+          : ['I want to recommend it to a close friend', 'I want to come back with my beloved family', 'I will definitely return as a regular customer', 'I want to try another menu item next time']
+      };
+    }
+
+    if (userMessageCount === 4) {
+      let reaction = '';
+      if (language === 'ko') {
+        if (lastAnswer.includes('친구') || lastAnswer.includes('지인') || lastAnswer.includes('추천')) {
+          reaction = '소중한 친구의 손을 잡고 함께 오신다니 최고의 찬사네요! 맛있는 건 나눠 먹을 때 더 행복해지는 법이죠. 👭';
+        } else if (lastAnswer.includes('가족') || lastAnswer.includes('부모') || lastAnswer.includes('아이') || lastAnswer.includes('아내') || lastAnswer.includes('남편')) {
+          reaction = '가장 사랑하는 가족을 떠올리며 다시 오고 싶어 하시다니, 듣기만 해도 가슴 한구석이 몽글몽글해지는 기분이에요. 👨‍👩‍👧‍👦';
+        } else if (lastAnswer.includes('단골') || lastAnswer.includes('혼자') || lastAnswer.includes('또 올래')) {
+          reaction = '언제든 편안하게 들릴 수 있는 나만의 포근한 비밀 아지트가 생긴 셈이네요! 늘 환하게 맞이할 준비를 해둘게요. 🏠';
+        } else if (lastAnswer.includes('다른') || lastAnswer.includes('메뉴') || lastAnswer.includes('먹어')) {
+          reaction = '다음 도장 깨기 타겟 메뉴는 무엇일지 궁금하네요! 매번 새로움을 발견하는 즐거움이 가득할 겁니다. 🎯';
+        } else if (lastAnswer.includes('별로') || lastAnswer.includes('글쎄')) {
+          reaction = '조금 조심스러우시군요. 다음 방문 때는 훨씬 더 나은 완벽한 만족을 드릴 수 있도록 꼭 보완하겠습니다. 💪';
+        } else {
+          reaction = `와, "${lastAnswer}"라는 다정한 답변에 매장 곳곳이 훈훈한 온기로 가득 찰 것 같습니다. 정말 감사합니다! 🐝`;
+        }
+      } else {
+        const lower = lastAnswer.toLowerCase();
+        if (lower.includes('friend') || lower.includes('recommend')) {
+          reaction = 'Recommending us to a friend is the best gift we could ask for! Sharing is caring. 👭';
+        } else if (lower.includes('family') || lower.includes('parent') || lower.includes('kid') || lower.includes('spouse')) {
+          reaction = 'Thinking of family for your next visit is so heartwarming. We would love to host your loved ones! 👨‍👩‍👧‍👦';
+        } else if (lower.includes('regular') || lower.includes('solo') || lower.includes('return') || lower.includes('myself')) {
+          reaction = "It's indeed the perfect spot for a cozy solo retreat. We will always keep a warm table ready. 🏠";
+        } else if (lower.includes('other') || lower.includes('menu') || lower.includes('try')) {
+          reaction = "I'm already excited to see which menu item will capture your heart next! 🎯";
+        } else if (lower.includes('dislike') || lower.includes('not really') || lower.includes('maybe')) {
+          reaction = 'I understand. We will work harder to ensure your next visit is absolutely flawless. 💪';
+        } else {
+          reaction = `Wow, hearing you say "${lastAnswer}" gives us so much energy and warmth! Thank you! 🐝`;
+        }
+      }
+
+      return {
+        question: language === 'ko'
+          ? `${reaction}\n\n대화가 깊어져 정말 즐겁네요. 마지막으로 오늘 매장에서 마주했던 친절함이나, 소소한 즐거움 등 기억에 남는 에피소드가 더 있다면 자유롭게 들려주시겠어요?`
+          : `${reaction}\n\nIt's been wonderful talking to you! Finally, is there any other small detail, kind staff story, or memorable moment you'd like to share?`,
+        options: language === 'ko'
+          ? ['매장 분위기가 참 다정하고 좋았어요', '직원분이 상냥하게 응대해주셨어요', '특별히 기억에 남는 순간이 있었어요', '이제 정성스런 리뷰 작성을 완료할게요']
+          : ['The shop atmosphere was warm & cozy', 'The staff was incredibly kind & helpful', 'There was a very special moment today', 'I am ready to finalize my review now']
+      };
+    }
+
+    // userMessageCount >= 5: Infinite dynamic conversation loop
+    const rotationQuestionsKo = [
+      "정말 흥미로운 이야기네요! 그 순간 매장의 분위기나 배경 음악은 어땠나요?",
+      "오, 그런 세부적인 디테일까지 기억하시다니 멋지네요! 혹시 그 메뉴를 즐기실 때 곁들였던 음료나 다른 음식이 있었나요?",
+      "듣다 보니 점점 더 궁금해지네요! 만약 다음 방문 때 또 다른 메뉴를 고른다면, 가장 먼저 먹어보고 싶은 후보는 무엇인가요?",
+      "그렇군요! 혹시 이 매장의 조명이나 좌석, 혹은 인테리어에서 특별히 편안하다고 느껴진 부분이 있었나요?",
+      "소중한 경험을 나누어 주셔서 감사합니다. 혹시 오늘 매장을 나서면서 느꼈던 전반적인 공기나 온도, 혹은 청결 상태는 만족스러우셨나요?",
+      "와, 들을수록 매력적인 공간이네요! 혹시 사장님이나 직원분들께 전하고 싶은 응원의 한마디나 바라는 점이 있으실까요?",
+      "정말 생생하게 설명해주셔서 감사합니다! 혹시 이 매장만의 가장 독특한 매력을 한 단어(혹은 짧은 문구)로 표현해 보신다면 무엇일까요?"
+    ];
+
+    const rotationQuestionsEn = [
+      "That sounds fascinating! What was the background music or overall vibe of the store like at that moment?",
+      "Wow, you have a great eye for detail! Did you pair your food with any specific drink or side dish?",
+      "I'm getting more and more curious! If you were to choose another menu item on your next visit, what would be your top pick?",
+      "I see! Did any specific part of the lighting, seating, or interior design make you feel particularly comfortable?",
+      "Thank you for sharing. Were you satisfied with the overall cleanliness, temperature, or atmosphere of the shop?",
+      "The more I hear, the more charming this place sounds! Is there any message of support or suggestion you'd like to leave for the staff or owner?",
+      "Thank you for the vivid description! If you had to describe the unique charm of this place in just one word or phrase, what would it be?"
+    ];
+
+    const rotationOptionsKo = [
+      ['잔잔하고 조용한 분위기였어요', '밝고 활기찬 음악이 좋았어요', '대화하기 편안한 무드였어요', '음악 소리가 조금 컸지만 괜찮았어요'],
+      ['시원한 탄산음료와 찰떡이었어요', '향긋한 커피/차가 잘 어울렸어요', '기본 반찬이 깔끔하고 잘 어울렸어요', '음식 단독으로도 충분히 맛있었어요'],
+      ['이 매장의 시그니처 대표 메뉴요', '가장 기본적이고 클래식한 메뉴요', '달콤하거나 든든한 디저트류요', '아직 안 먹어본 새로운 추천 메뉴요'],
+      ['의자가 푹신하고 편안해서 좋았어요', '따뜻하고 아늑한 조명이 맘에 들었어요', '공간이 넓고 탁 트여서 쾌적했어요', '아기자기한 소품 구경이 재밌었어요'],
+      ['테이블과 바닥이 아주 깨끗했어요', '실내 온도가 쾌적하고 시원했어요', '식기류가 깔끔하게 관리되어 좋았어요', '정돈이 잘 되어 믿음이 갔어요'],
+      ['친절하게 미소로 맞아주셔서 감사해요', '변치 말고 오랫동안 번창하세요!', '맛있는 음식 준비해주셔서 고맙습니다', '조만간 또 올게요, 파이팅!'],
+      ['일상 속 작은 쉼터', '나만 알고 싶은 아지트', '믿고 먹는 맛집', '친절함 가득한 공간']
+    ];
+
+    const rotationOptionsEn = [
+      ['It was quiet and peaceful', 'I liked the bright, lively music', 'Comfortable mood for chatting', 'Music was a bit loud but okay'],
+      ['Perfect with a cold soda', 'Well paired with coffee/tea', 'The side dishes were clean and fit well', 'The main dish was great on its own'],
+      ['The signature menu item', 'The most basic and classic option', 'A sweet or filling dessert', 'A new recommended item'],
+      ['Seating was soft and cozy', 'Warm and comforting lighting', 'Spacious and breezy layout', 'Fun looking at cute decors'],
+      ['Table and floor were super clean', 'Indoor temperature was cool and pleasant', 'Utensils were hygienic and neat', 'Well organized and trustworthy'],
+      ['Thank you for welcoming with a smile', 'Hope you prosper for a long time!', 'Thank you for preparing great food', 'See you soon again, fighting!'],
+      ['A small haven in daily life', 'A hideout I want to keep secret', 'A trusty place for great taste', 'A place full of warmth']
+    ];
+
+    const qIndex = (userMessageCount - 5) % rotationQuestionsKo.length;
+    const questionText = language === 'ko' ? rotationQuestionsKo[qIndex] : rotationQuestionsEn[qIndex];
+    const optionsArray = language === 'ko' ? rotationOptionsKo[qIndex] : rotationOptionsEn[qIndex];
+
+    let reaction = '';
+    if (language === 'ko') {
+      const lowerAnswer = lastAnswer.toLowerCase();
+      if (lowerAnswer.includes('분위기') || lowerAnswer.includes('조용') || lowerAnswer.includes('음악') || lowerAnswer.includes('잔잔') || lowerAnswer.includes('활기')) {
+        reaction = '공간의 소리와 어우러지는 분위기를 편안하게 만끽하셨군요. 음악과 대화가 머무는 따뜻한 시간이 머릿속에 그려집니다. 🎵';
+      } else if (lowerAnswer.includes('음료') || lowerAnswer.includes('커피') || lowerAnswer.includes('탄산') || lowerAnswer.includes('반찬') || lowerAnswer.includes('조합')) {
+        reaction = '음식은 곁들이는 조합에 따라 매력이 달라지죠! 꿀조합을 찾아내어 더욱 풍성한 맛을 즐기셨다니 대단하십니다. 🍹';
+      } else if (lowerAnswer.includes('대표') || lowerAnswer.includes('시그니처') || lowerAnswer.includes('메뉴') || lowerAnswer.includes('추천') || lowerAnswer.includes('디저트')) {
+        reaction = '다음 방문의 기대감까지 품게 만드는 멋진 메뉴 구성이네요! 벌써부터 다음의 새로운 맛이 기대됩니다. 🎯';
+      } else if (lowerAnswer.includes('의자') || lowerAnswer.includes('조명') || lowerAnswer.includes('인테리어') || lowerAnswer.includes('소품') || lowerAnswer.includes('아늑')) {
+        reaction = '머무는 공간의 편안함은 머무는 시간조차 더 소중하게 만들어 주죠. 작은 인테리어 배려까지 느껴지다니 매력적입니다. 🛋️';
+      } else if (lowerAnswer.includes('깨끗') || lowerAnswer.includes('청결') || lowerAnswer.includes('위생') || lowerAnswer.includes('쾌적') || lowerAnswer.includes('식기')) {
+        reaction = '역시 믿고 머무를 수 있는 청결함과 쾌적함이 돋보였군요! 깨끗하게 관리된 매장은 늘 안심을 줍니다. ✨';
+      } else if (lowerAnswer.includes('친절') || lowerAnswer.includes('미소') || lowerAnswer.includes('감사') || lowerAnswer.includes('응원') || lowerAnswer.includes('파이팅') || lowerAnswer.includes('고맙')) {
+        reaction = '따뜻한 응원과 마음이 담긴 한마디네요! 사장님과 직원분들께 이 따뜻한 메시지가 전달되면 정말 행복하실 거예요. 💛';
+      } else {
+        reaction = `"${lastAnswer}"(이)라는 멋진 이야기군요! 고객님의 대답 하나하나가 이 매장의 깊이를 채워주는 귀중한 보물입니다. 💎`;
+      }
+    } else {
+      const lowerAnswer = lastAnswer.toLowerCase();
+      if (lowerAnswer.includes('vibe') || lowerAnswer.includes('music') || lowerAnswer.includes('quiet') || lowerAnswer.includes('atmosphere')) {
+        reaction = 'It sounds like you truly absorbed the atmosphere. I can picture a cozy time filled with music and pleasant chat. 🎵';
+      } else if (lowerAnswer.includes('drink') || lowerAnswer.includes('coffee') || lowerAnswer.includes('soda') || lowerAnswer.includes('side') || lowerAnswer.includes('pair')) {
+        reaction = 'A meal is always elevated by the right pairings! Great job finding the perfect combo to enrich the taste. 🍹';
+      } else if (lowerAnswer.includes('signature') || lowerAnswer.includes('menu') || lowerAnswer.includes('recommend') || lowerAnswer.includes('dessert')) {
+        reaction = "It's wonderful how a menu keeps you excited for your next visit! I'm already looking forward to your next choice. 🎯";
+      } else if (lowerAnswer.includes('chair') || lowerAnswer.includes('seating') || lowerAnswer.includes('light') || lowerAnswer.includes('interior') || lowerAnswer.includes('decor')) {
+        reaction = 'A comfortable space makes the time spent there even more precious. It is great you noticed the thoughtful decor. 🛋️';
+      } else if (lowerAnswer.includes('clean') || lowerAnswer.includes('hygiene') || lowerAnswer.includes('neat') || lowerAnswer.includes('table') || lowerAnswer.includes('floor')) {
+        reaction = 'Cleanliness and comfort are key to a great experience! A well-maintained place always brings peace of mind. ✨';
+      } else if (lowerAnswer.includes('kind') || lowerAnswer.includes('smile') || lowerAnswer.includes('thank') || lowerAnswer.includes('support') || lowerAnswer.includes('friendly')) {
+        reaction = 'Such a warm message of support! The owner and staff will be absolutely thrilled to receive this kindness from you. 💛';
+      } else {
+        reaction = `"${lastAnswer}" is such a lovely story! Every detail you share adds depth to this shop's narrative. 💎`;
+      }
+    }
+
+    return {
+      question: `${reaction}\n\n${questionText}`,
+      options: optionsArray
+    };
+  };
+
+
+  const openSharbeeReview = () => {
+    setSharbeeStep('chat');
+    setSharbeeInput('');
+    setSharbeeDraft('');
+    setSharbeeRating(0);
+    setSharbeePhotoUrl('');
+    setSharbeePhotoBlob(null);
+    setSharbeeVideoUrl('');
+    setSharbeeVideoFile(null);
+    setSharbeeVideoName('');
+    setSharbeeMediaError('');
+    setSharbeeLogs([{ 
+      sender: 'ai', 
+      text: language === 'ko' 
+        ? `안녕하세요, 저는 샤비예요 🐝\n오늘 ${selectedStore.name}에 와서 무엇을 드셨나요?` 
+        : `Hi, I'm Sharbee 🐝\nWhat did you have at ${selectedStore.name} today?` 
+    }]);
+    setSharbeeOptions(getSharbeeMenuOptions());
+    setShowSharbeeReview(true);
+  };
+
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const pendingStoreId = localStorage.getItem('sharestamps_open_sharbee_review_store_id');
+    if (!pendingStoreId) return;
+    if (!stores.some(store => store.id === pendingStoreId)) return;
+
+    localStorage.removeItem('sharestamps_open_sharbee_review_store_id');
+    setManualStoreBrowseId(pendingStoreId);
+    setSelectedStoreId(pendingStoreId);
+    setClaimMessage(null);
+    setPendingSharbeeOpenStoreId(pendingStoreId);
+  }, [currentUser, stores]);
+
+  useEffect(() => {
+    if (!pendingSharbeeOpenStoreId || selectedStoreId !== pendingSharbeeOpenStoreId) return;
+
+    const timer = window.setTimeout(() => {
+      openSharbeeReview();
+      setPendingSharbeeOpenStoreId('');
+    }, 80);
+
+    return () => window.clearTimeout(timer);
+  }, [pendingSharbeeOpenStoreId, selectedStoreId, selectedStore.name, language]);
+
+  const handleSharbeePhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setSharbeeMediaError('');
+
+    const reader = new FileReader();
+    reader.onload = readerEvent => {
+      const image = new Image();
+      image.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxSize = 900;
+        let { width, height } = image;
+
+        if (width > height && width > maxSize) {
+          height *= maxSize / width;
+          width = maxSize;
+        } else if (height > maxSize) {
+          width *= maxSize / height;
+          height = maxSize;
+        }
+
+        canvas.width = Math.round(width);
+        canvas.height = Math.round(height);
+        const context = canvas.getContext('2d');
+        context?.drawImage(image, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(blob => {
+          if (!blob) return;
+          setSharbeePhotoBlob(blob);
+          setSharbeePhotoUrl(URL.createObjectURL(blob));
+        }, 'image/jpeg', 0.72);
+      };
+      image.src = readerEvent.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
+  };
+
+  const handleSharbeeVideoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > SHARBEE_MAX_VIDEO_BYTES) {
+      setSharbeeMediaError(language === 'ko' ? '\uB3D9\uC601\uC0C1 \uD30C\uC77C\uC774 \uB108\uBB34 \uD07D\uB2C8\uB2E4. 15\uCD08 \uC774\uB0B4\uC758 \uC9E7\uC740 \uC601\uC0C1\uC73C\uB85C \uB2E4\uC2DC \uC120\uD0DD\uD574\uC8FC\uC138\uC694.' : 'The video file is too large. Please choose a short video under 15 seconds.');
+      event.target.value = '';
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+
+    video.onloadedmetadata = () => {
+      const duration = Number.isFinite(video.duration) ? video.duration : 0;
+      if (duration > SHARBEE_MAX_VIDEO_SECONDS + 0.3) {
+        URL.revokeObjectURL(objectUrl);
+        setSharbeeMediaError(language === 'ko' ? '15\uCD08 \uC774\uB0B4 \uB3D9\uC601\uC0C1\uB9CC \uC62C\uB9B4 \uC218 \uC788\uC5B4\uC694.' : 'Only videos up to 15 seconds can be uploaded.');
+        setSharbeeVideoUrl('');
+        setSharbeeVideoName('');
+      } else {
+        if (sharbeeVideoUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(sharbeeVideoUrl);
+        }
+        setSharbeeMediaError('');
+        setSharbeeVideoUrl(objectUrl);
+        setSharbeeVideoFile(file);
+        setSharbeeVideoName(file.name || (language === 'ko' ? '\uB9AC\uBDF0 \uB3D9\uC601\uC0C1' : 'Review video'));
+      }
+      event.target.value = '';
+    };
+
+    video.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      setSharbeeMediaError(language === 'ko' ? '\uB3D9\uC601\uC0C1\uC744 \uC77D\uC744 \uC218 \uC5C6\uC5B4\uC694. \uB2E4\uB978 \uD30C\uC77C\uB85C \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.' : 'Could not read this video. Please try another file.');
+      event.target.value = '';
+    };
+
+    video.src = objectUrl;
+  };
+
+  const uploadSharbeeMediaToFirebase = async (
+    media: Blob | File | null,
+    mediaType: 'photo' | 'video',
+    extension: string
+  ) => {
+    if (!media) return '';
+    if (!firebaseStorage) {
+      throw new Error('Firebase Storage is not configured.');
+    }
+
+    const safeUserId = currentUser?.id || 'guest';
+    const safeStoreId = selectedStore.id || 'store';
+    const fileName = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}.${extension}`;
+    const path = `reviews/${safeStoreId}/${safeUserId}/${mediaType}/${fileName}`;
+    const uploaded = await uploadBytes(storageRef(firebaseStorage, path), media, {
+      contentType: mediaType === 'photo' ? 'image/jpeg' : (media as File).type || 'video/mp4',
+      customMetadata: {
+        storeId: safeStoreId,
+        userId: safeUserId,
+        source: 'sharbee-review'
+      }
+    });
+    return getDownloadURL(uploaded.ref);
+  };
+
+  const callGeminiAPI = async (prompt: string, historyText: string) => {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn("VITE_GEMINI_API_KEY is not defined in .env");
+      return null;
+    }
+
+    const storeName = selectedStore.name;
+    const systemPrompt = `You are "Sharbee" (샤비), a friendly honeybee chatbot review helper for the store "${storeName}".
+Your role is to help the customer write a review by chatting with them in a cute and warm tone.
+The customer might answer your questions about the food, or they might ask questions about the store, the menu, the store name meaning (e.g. why the store name is "${storeName}"), or other questions.
+Always respond in a very kind, polite, and helpful manner using a cute honeybee persona (with emojis like 🐝 and honey).
+Keep your response concise (1-3 sentences) so it fits beautifully in a chat bubble.
+If the customer asks a question, answer it directly, creatively, and accurately (e.g. if they ask about the store name "LOVELETTER" meaning, you can say it represents warm letters filled with love and stamps sent to the customers).
+Do not break character. Do not repeat the same question if the customer asks something else.
+Here is the chat history:
+${historyText}
+Customer: ${prompt}
+Sharbee:`;
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 6500);
+
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_REVIEW_MODEL}:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          generationConfig: {
+            temperature: 0.72,
+            topP: 0.9,
+            maxOutputTokens: 160
+          },
+          contents: [
+            {
+              parts: [
+                {
+                  text: systemPrompt
+                }
+              ]
+            }
+          ]
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      return responseText ? responseText.trim() : null;
+    } catch (e) {
+      console.error("Error calling Gemini API:", e);
+      return null;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  };
+
+  const submitSharbeeAnswer = async (answerText: string) => {
+    const trimmed = answerText.trim();
+    if (!trimmed) return;
+
+    // 1. Add user's message immediately
+    const nextLogs = [...sharbeeLogs, { sender: 'user' as const, text: trimmed }];
+    setSharbeeLogs(nextLogs);
+    setSharbeeInput('');
+
+    // 2. Put a placeholder/temporary state or fetch immediately
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    const userMessageCount = nextLogs.filter(log => log.sender === 'user').length;
+    const fallback = getSharbeeFollowup(userMessageCount, trimmed);
+
+    let aiResponseText = "";
+    let nextOptions = fallback.options;
+
+    if (apiKey) {
+      // Create dialogue context
+      const historyText = nextLogs
+        .slice(-4, -1) // keep context short for faster replies
+        .map(log => `${log.sender === 'user' ? 'Customer' : 'Sharbee'}: ${log.text}`)
+        .join('\n');
+
+      const geminiRes = await callGeminiAPI(trimmed, historyText);
+      if (geminiRes) {
+        aiResponseText = geminiRes;
+      }
+    }
+
+    if (!aiResponseText) {
+      aiResponseText = fallback.question;
+    }
+
+    // 3. Add AI's response to logs
+    setSharbeeLogs(prev => [...prev, { sender: 'ai', text: aiResponseText }]);
+    setSharbeeOptions(nextOptions);
+  };
+
+  const buildSharbeeQaSection = (logs: { sender: 'ai' | 'user'; text: string }[]) => {
+    const answers = logs.filter(log => log.sender === 'user').map(log => log.text.trim()).filter(Boolean);
+    if (answers.length === 0) return '';
+
+    const menu = answers[0] || (language === 'ko' ? '\uB300\uD45C \uBA54\uB274' : 'the signature menu');
+    const taste = answers[1] || '';
+    const value = answers[2] || '';
+    const recommend = answers[3] || '';
+    const reviewLang = detectReviewLanguage(answers);
+    const storeCategory = String((selectedStore as any).category || '').toLowerCase();
+    const menuLower = menu.toLowerCase();
+
+    const getSearchPlaceTypeKo = () => {
+      if (menu.includes('\uD53C\uC790') || menuLower.includes('pizza')) return '\uD53C\uC790\uC9D1';
+      if (menu.includes('\uCE58\uD0A8') || menuLower.includes('chicken')) return '\uCE58\uD0A8\uC9D1';
+      if (menu.includes('\uCEE4\uD53C') || menu.includes('\uB77C\uB5BC') || menu.includes('\uC544\uBA54\uB9AC\uCE74\uB178') || storeCategory.includes('cafe')) return '\uCE74\uD398';
+      if (menu.includes('\uD30C\uC2A4\uD0C0') || menu.includes('\uC2A4\uD30C\uAC8C\uD2F0') || menuLower.includes('pasta') || menuLower.includes('spaghetti')) return '\uC591\uC2DD\uC9D1';
+      if (storeCategory.includes('salon') || storeCategory.includes('\uBBF8\uC6A9') || storeCategory.includes('hair')) return '\uBBF8\uC6A9\uC2E4';
+      if (storeCategory.includes('restaurant') || storeCategory.includes('\uC2DD\uB2F9')) return '\uC2DD\uB2F9';
+      return '\uB9E4\uC7A5';
+    };
+
+    const getSearchPlaceTypeEn = () => {
+      if (menuLower.includes('pizza')) return 'pizza place';
+      if (menuLower.includes('chicken')) return 'chicken restaurant';
+      if (menuLower.includes('coffee') || menuLower.includes('latte') || menuLower.includes('americano') || storeCategory.includes('cafe')) return 'cafe';
+      if (menuLower.includes('pasta') || menuLower.includes('spaghetti')) return 'Italian restaurant';
+      if (storeCategory.includes('salon') || storeCategory.includes('hair')) return 'hair salon';
+      if (storeCategory.includes('restaurant')) return 'restaurant';
+      return 'store';
+    };
+
+    if (reviewLang === 'ko') {
+      const placeType = getSearchPlaceTypeKo();
+      const menuJosa = getJosa(menu, '\uC744', '\uB97C');
+      const storeTopicJosa = getJosa(selectedStore.name, '\uC740', '\uB294');
+      const question = `${menu}${menuJosa} \uC815\uB9D0 \uC798\uD558\uB294 ${placeType}\uC740?`;
+      const answerParts = [
+        `${selectedStore.name}${storeTopicJosa} ${menu}${menuJosa} \uBA3C\uC800 \uCD94\uCC9C\uD560 \uB9CC\uD55C \uACF3\uC774\uC5D0\uC694.`,
+        taste ? `\uD2B9\uD788 ${taste}\uB294 \uB290\uB08C\uC774 \uC88B\uC558\uACE0` : '',
+        value ? `${value}\uB77C\uB294 \uC810\uB3C4 \uB9CC\uC871\uC2A4\uB7EC\uC6E0\uC5B4\uC694.` : '',
+        recommend ? `${recommend}\uB77C\uACE0 \uB9D0\uD560 \uB9CC\uD07C \uAE30\uC5B5\uC5D0 \uB0A8\uB294 \uBC29\uBB38\uC774\uC5C8\uC2B5\uB2C8\uB2E4.` : ''
+      ].filter(Boolean).join(' ');
+
+      return `\uAD81\uAE08\uC99D \uD074\uB9AC\uC5B4\nQ. ${question}\nA. ${answerParts}`;
+    }
+
+    const placeType = getSearchPlaceTypeEn();
+    const question = `Where can I find a ${placeType} that does ${menu} really well?`;
+    const answerParts = [
+      `${selectedStore.name} is a good ${placeType} to try for ${menu}.`,
+      taste ? `The customer especially noted that ${taste}.` : '',
+      value ? `They also felt ${value}.` : '',
+      recommend ? `It was memorable enough that they said ${recommend}.` : ''
+    ].filter(Boolean).join(' ');
+
+    return `Quick Answer\nQ. ${question}\nA. ${answerParts}`;
+  };
+
+  const generateHumanReviewDraft = async (logs: { sender: 'ai' | 'user'; text: string }[], fallbackReview: string) => {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) return fallbackReview;
+
+    const conversationText = logs
+      .map(log => `${log.sender === 'user' ? 'Customer' : 'Sharbee'}: ${log.text}`)
+      .join('\n');
+    const answerTexts = logs.filter(log => log.sender === 'user').map(log => log.text);
+    const reviewLang = detectReviewLanguage(answerTexts);
+
+    const prompt = reviewLang === 'ko'
+      ? `\uB2F9\uC2E0\uC740 \uC9C4\uC9DC \uACE0\uAC1D\uC774 \uC4F4 \uAC83\uCC98\uB7FC \uC790\uC5F0\uC2A4\uB7FD\uACE0 \uAC1C\uC131 \uC788\uB294 \uB9E4\uC7A5 \uB9AC\uBDF0\uB97C \uC4F0\uB294 \uC791\uAC00\uC785\uB2C8\uB2E4.
+\uB2E4\uC74C \uB300\uD654\uB97C \uBC14\uD0D5\uC73C\uB85C, AI\uAC00 \uC4F4 \uC694\uC57D\uBB38\uCC98\uB7FC \uBCF4\uC774\uC9C0 \uC54A\uAC8C \uC0AC\uB78C\uC774 \uC9C1\uC811 \uB9D0\uD558\uB294 \uB4EF\uD55C \uB9AC\uBDF0\uB85C \uC5EE\uC5B4\uC8FC\uC138\uC694.
+\uC870\uAC74:
+- \uB9E4\uC7A5\uBA85\uC740 ${selectedStore.name}\uC785\uB2C8\uB2E4.
+- \uBC18\uB4DC\uC2DC \uD55C\uAD6D\uC5B4\uB85C \uC4F0\uC138\uC694.
+- 2~4\uBB38\uC7A5 \uC815\uB3C4\uB85C \uC790\uC5F0\uC2A4\uB7FD\uAC8C \uC4F0\uC138\uC694.
+- \uACFC\uC7A5\uB41C \uAD11\uACE0\uBB38, \uC815\uB9AC\uBB38, \uBD84\uC11D\uBB38\uCC98\uB7FC \uC4F0\uC9C0 \uB9C8\uC138\uC694.
+- \uACE0\uAC1D\uC758 \uAC1C\uC778\uC801\uC778 \uB290\uB08C, \uB9DB, \uAC00\uCE58, \uCD94\uCC9C/\uC7AC\uBC29\uBB38 \uC758\uD5A5\uC774 \uC790\uC5F0\uC2A4\uB7FD\uAC8C \uC11E\uC774\uAC8C \uC4F0\uC138\uC694.
+- Q&A \uC139\uC158\uC740 \uC4F0\uC9C0 \uB9C8\uC138\uC694. \uB9AC\uBDF0 \uBCF8\uBB38\uB9CC \uCD9C\uB825\uD558\uC138\uC694.
+
+\uB300\uD654:
+${conversationText}
+
+\uC0AC\uB78C\uC774 \uC4F4 \uAC83\uAC19\uC740 \uB9AC\uBDF0 \uBCF8\uBB38:`
+      : `Write a natural store review that sounds like a real customer wrote it, not like an AI summary.
+Store name: ${selectedStore.name}
+Use the conversation below. Write 2-4 sentences with a personal voice, including taste/experience, value, and recommendation or revisit intent when available.
+Write in English, because the customer's answers are in English.
+Do not add a Q&A section. Output only the review body.
+
+Conversation:
+${conversationText}
+
+Human-like review body:`;
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_REVIEW_MODEL}:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          generationConfig: {
+            temperature: 0.82,
+            topP: 0.92,
+            maxOutputTokens: 520
+          },
+          contents: [{ parts: [{ text: prompt }] }]
+        })
+      });
+
+      if (!response.ok) throw new Error(`Gemini review draft failed: ${response.status}`);
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      return text ? text.trim() : fallbackReview;
+    } catch (e) {
+      console.error('Gemini review draft error:', e);
+      return fallbackReview;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  };
+
+  const finishSharbeeReview = async () => {
+    const logsSnapshot = [...sharbeeLogs];
+    const answers = logsSnapshot.filter(log => log.sender === 'user').map(log => log.text);
+    const reviewLang = detectReviewLanguage(answers);
+    const menu = answers[0] || (language === 'ko' ? '\uBA54\uB274' : 'menu');
+    const details = answers.slice(1).join(' ');
+    const fallbackReview = reviewLang === 'ko'
+      ? `\uC624\uB298 ${selectedStore.name}\uC5D0\uC11C ${menu}\uC744/\uB97C \uC990\uACBC\uB294\uB370, ${details || '\uAE30\uBD84 \uC88B\uC740 \uC2DC\uAC04\uC774\uC5C8\uC5B4\uC694'} \uB2E4\uC2DC \uBC29\uBB38\uD558\uACE0 \uC2F6\uC740 \uB9E4\uC7A5\uC785\uB2C8\uB2E4.`
+      : `I enjoyed ${menu} at ${selectedStore.name} today. ${details || 'It was a pleasant visit.'} I would like to visit again.`;
+
+    setSharbeeRating(0);
+    setSharbeeStep('draft');
+    setSharbeeDraft(language === 'ko' ? '\uC0E4\uBE44\uAC00 \uB9AC\uBDF0\uB97C \uC790\uC5F0\uC2A4\uB7FD\uAC8C \uC5EE\uB294 \uC911\uC785\uB2C8\uB2E4...' : 'Sharbee is weaving your review naturally...');
+
+    const humanReview = await generateHumanReviewDraft(logsSnapshot, fallbackReview);
+    const qaSection = buildSharbeeQaSection(logsSnapshot);
+    setSharbeeDraft(`${humanReview}\n\n${qaSection}`.trim());
+  };
+
+  const submitSharbeeReview = async () => {
+    if (!currentUser || !sharbeeRating || !sharbeeDraft.trim()) return;
+    setSharbeeSubmitting(true);
+    setSharbeeMediaError('');
+
+    try {
+      const photoToUpload = sharbeePhotoBlob;
+      const videoToUpload = sharbeeVideoFile;
+      const videoExtension = ((videoToUpload?.name.split('.').pop() || 'mp4').toLowerCase());
+      const result = addReview(selectedStore.id, sharbeeRating, sharbeeDraft.trim(), sharbeePhotoUrl || undefined, true, sharbeeVideoUrl || undefined, sharbeeLogs.filter(log => log.sender === 'user').map((log, index) => ({ q: `Sharbee ${index + 1}`, a: log.text })), {});
+
+      if (result.reviewId && (photoToUpload || videoToUpload)) {
+        Promise.allSettled([
+          uploadSharbeeMediaToFirebase(photoToUpload, 'photo', 'jpg'),
+          uploadSharbeeMediaToFirebase(videoToUpload, 'video', videoExtension)
+        ]).then(([photoUploadResult, videoUploadResult]) => {
+          const uploadedPhotoUrl = photoUploadResult.status === 'fulfilled' ? photoUploadResult.value : '';
+          const uploadedVideoUrl = videoUploadResult.status === 'fulfilled' ? videoUploadResult.value : '';
+          if (uploadedPhotoUrl || uploadedVideoUrl) {
+            updateReviewMedia(result.reviewId, {
+              photoUrl: uploadedPhotoUrl || undefined,
+              videoUrl: uploadedVideoUrl || undefined
+            });
+          }
+          if ((photoToUpload && !uploadedPhotoUrl) || (videoToUpload && !uploadedVideoUrl)) {
+            console.warn('Sharbee background media upload failed.', {
+              photo: photoUploadResult,
+              video: videoUploadResult
+            });
+          }
+        });
+      }
+
+      setSharbeeSubmitting(false);
+      setShowSharbeeReview(false);
+      setClaimMessage({ 
+        success: true, 
+        text: `${result.stampAwarded 
+          ? result.message 
+          : (language === 'ko' ? '\uB9AC\uBDF0\uAC00 \uBBF8\uB2C8\uD648\uD53C\uC5D0 \uB4F1\uB85D\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uC624\uB298 \uB9AC\uBDF0 \uC2A4\uD0EC\uD504\uB294 \uC774\uBBF8 \uBC1B\uC558\uC5B4\uC694.' : 'Review posted to mini-home. Review stamp already earned today.')}`
+      });
+      window.setTimeout(() => {
+        window.location.hash = `#/store-home/${selectedStore.id}`;
+      }, 1600);
+      setTimeout(() => setClaimMessage(null), 3500);
+    } catch (error) {
+      console.error('Sharbee media upload failed:', error);
+      setSharbeeSubmitting(false);
+      setSharbeeMediaError(language === 'ko' ? '\uBBF8\uB514\uC5B4 \uC5C5\uB85C\uB4DC\uC5D0 \uC2E4\uD328\uD588\uC5B4\uC694. Firebase Storage \uAD8C\uD55C\uC744 \uD655\uC778\uD558\uAC70\uB098 \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.' : 'Media upload failed. Please check Firebase Storage permissions or try again.');
+    }
+  };
 
   // --- 핸들러 함수들 ---
   
@@ -1486,7 +2238,19 @@ export const CustomerPWA: React.FC = () => {
 
   // 로그인 완료된 메인 PWA 화면
   return (
-    <div style={{ width: '100%', maxWidth: '420px', margin: '0 auto', minHeight: '100%', backgroundColor: '#ffffff', display: 'flex', flexDirection: 'column', boxShadow: '0 0 10px rgba(0,0,0,0.05)', position: 'relative' }}>
+    <div style={{ 
+      width: '100%', 
+      maxWidth: '420px', 
+      margin: '0 auto', 
+      height: showSharbeeReview ? '100%' : 'auto',
+      minHeight: '100%', 
+      backgroundColor: '#ffffff', 
+      display: 'flex', 
+      flexDirection: 'column', 
+      boxShadow: '0 0 10px rgba(0,0,0,0.05)', 
+      position: 'relative',
+      overflow: showSharbeeReview ? 'hidden' : 'visible'
+    }}>
       
       {/* PWA 상단 바 (더 작고 조밀하게 축소) */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 16px 10px', borderBottom: '1px solid var(--border-color)', backgroundColor: '#ffffff', position: 'sticky', top: 0, zIndex: 100 }}>
@@ -1738,7 +2502,16 @@ export const CustomerPWA: React.FC = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center', textAlign: 'center' }}>
               <select 
                 value={isUnassignedStoreView ? 'unassigned' : selectedStoreId} 
-                onChange={(e) => { setSelectedStoreId(e.target.value); setClaimMessage(null); }}
+                onChange={(e) => {
+                  const nextStoreId = e.target.value;
+                  if (nextStoreId === 'unassigned') {
+                    setManualStoreBrowseId('');
+                  } else {
+                    setManualStoreBrowseId(nextStoreId);
+                    setSelectedStoreId(nextStoreId);
+                  }
+                  setClaimMessage(null);
+                }}
                 style={{ 
                   width: '100%',
                   maxWidth: '260px',
@@ -1754,13 +2527,10 @@ export const CustomerPWA: React.FC = () => {
                   textAlignLast: 'center'
                 }}
               >
-                {isUnassignedStoreView ? (
-                  <option value="unassigned">{t.unassignedStoreName}</option>
-                ) : (
-                  stores.filter(s => s.id.startsWith('store_id_')).map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))
-                )}
+                <option value="unassigned">{t.unassignedStoreName}</option>
+                {stores.filter(s => s.id.startsWith('store_id_')).map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
               </select>
             </div>
 
@@ -2017,6 +2787,33 @@ export const CustomerPWA: React.FC = () => {
               >
                 {language === 'ko' ? '적립/선물/기부하기' : 'Earn/Gift/Donate'}
               </button>
+              {!isUnassignedStoreView && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openSharbeeReview();
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255,184,0,0.45)',
+                    backgroundColor: 'rgba(255,184,0,0.08)',
+                    color: '#1C1C1E',
+                    fontWeight: 900,
+                    fontSize: '12.5px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <img src={SHARBEE_HELPER_IMAGE} alt="Sharbee" style={{ width: '26px', height: '26px', objectFit: 'contain' }} />
+                  <span>{language === 'ko' ? '\uC0E4\uBE44\uC640 \uB9AC\uBDF0 \uC4F0\uACE0 \uC2A4\uD0EC\uD504 \uBC1B\uAE30' : 'Write with Sharbee'}</span>
+                </button>
+              )}
             </div>
 
             {/* 박스 3 (캐시 사용 카드) */}
@@ -2521,6 +3318,8 @@ export const CustomerPWA: React.FC = () => {
       )}
 
       {/* --- 바텀 모달 시트 (친구 선물) --- */}
+
+
       {showCameraScanner && (
         <div
           className="bottom-sheet-overlay"
@@ -4696,6 +5495,161 @@ export const CustomerPWA: React.FC = () => {
               )}
       </div>
 
+      {showSharbeeReview && (
+        <div
+          onClick={() => {
+            setShowSharbeeReview(false);
+            setIsTimelineModalOpen(false);
+          }}
+          style={{ position: 'absolute', inset: 0, zIndex: 9998, backgroundColor: 'rgba(0,0,0,0.62)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ width: '100%', height: '100%', backgroundColor: '#1C1C1E', color: '#FFFFFF', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '34px 14px 10px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <img src={SHARBEE_HELPER_IMAGE} alt="Sharbee" style={{ width: '34px', height: '34px', objectFit: 'contain' }} />
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 900, color: '#FFB800' }}>{language === 'ko' ? '\uC0E4\uBE44 \uB9AC\uBDF0 \uB3C4\uC6B0\uBBF8' : 'Sharbee Review Helper'}</div>
+                  <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.62)' }}>{selectedStore.name}</div>
+                </div>
+              </div>
+              <button type="button" onClick={() => { setShowSharbeeReview(false); setIsTimelineModalOpen(false); }} style={{ width: '30px', height: '30px', borderRadius: '50%', border: 0, backgroundColor: 'rgba(255,255,255,0.1)', color: '#FFFFFF', cursor: 'pointer', fontWeight: 900 }}>x</button>
+            </div>
+
+            {sharbeeStep === 'chat' && (
+              <>
+                <div 
+                  ref={chatLogsContainerRef}
+                  style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, overflowY: 'auto' }}
+                >
+                  {sharbeeLogs.map((log, index) => (
+                    <div key={index} style={{ display: 'flex', justifyContent: log.sender === 'user' ? 'flex-end' : 'flex-start' }}>
+                      <div style={{ maxWidth: '82%', padding: '10px 12px', borderRadius: '15px', backgroundColor: log.sender === 'user' ? 'var(--primary-color)' : 'rgba(255,255,255,0.09)', color: '#FFFFFF', fontSize: '13px', lineHeight: 1.45, whiteSpace: 'pre-line', textAlign: 'left' }}>{log.text}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ padding: '12px 14px 14px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {sharbeeOptions.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '7px', justifyContent: 'center' }}>
+                      {sharbeeOptions.map((option, index) => (
+                        <button key={index} type="button" onClick={() => submitSharbeeAnswer(option)} style={{ padding: '8px 11px', borderRadius: '999px', border: '1px solid rgba(255,255,255,0.18)', backgroundColor: 'rgba(255,255,255,0.07)', color: '#FFFFFF', fontSize: '11.5px', fontWeight: 800, cursor: 'pointer' }}>{option}</button>
+                      ))}
+                    </div>
+                  )}
+                  <form onSubmit={(e) => { e.preventDefault(); submitSharbeeAnswer(sharbeeInput); }} style={{ display: 'flex', gap: '6px' }}>
+                    <input 
+                      value={sharbeeInput} 
+                      onChange={e => setSharbeeInput(e.target.value)} 
+                      placeholder={
+                        sharbeeLogs.filter(log => log.sender === 'user').length === 0
+                          ? (language === 'ko' ? '드신 메뉴명을 직접 입력해주세요 (예: 김치스파게티)' : 'Type the menu you had (e.g. Pizza)')
+                          : (language === 'ko' ? '추가로 넣고 싶은 말을 적어주세요' : 'Add anything else')
+                      } 
+                      style={{ flex: 1, minWidth: 0, borderRadius: '8px', border: '1px solid rgba(255,255,255,0.16)', backgroundColor: 'rgba(0,0,0,0.22)', color: '#FFFFFF', padding: '9px 10px', fontSize: '13px' }} 
+                    />
+                    <button type="submit" style={{ width: '38px', borderRadius: '8px', border: 0, backgroundColor: 'var(--primary-color)', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><Send size={15} /></button>
+                  </form>
+                  {sharbeeLogs.filter(log => log.sender === 'user').length >= 4 && (
+                    <button type="button" onClick={finishSharbeeReview} style={{ width: '100%', padding: '11px', borderRadius: '8px', border: 0, backgroundColor: '#FFB800', color: '#1C1C1E', fontWeight: 900, fontSize: '13.5px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}><Sparkles size={14} />{language === 'ko' ? '\uB9AC\uBDF0 \uCD08\uC548 \uB9CC\uB4E4\uAE30' : 'Make Review Draft'}</button>
+                  )}
+                </div>
+              </>
+            )}
+
+            {sharbeeStep === 'draft' && (
+              <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, overflowY: 'auto' }}>
+                <div style={{ color: '#FFB800', fontSize: '12px', fontWeight: 900 }}>{language === 'ko' ? '\uC0E4\uBE44\uAC00 \uC815\uB9AC\uD55C \uB9AC\uBDF0 \uCD08\uC548' : 'Sharbee Review Draft'}</div>
+                <textarea value={sharbeeDraft} onChange={e => setSharbeeDraft(e.target.value)} style={{ width: '100%', height: '240px', borderRadius: '9px', border: '1px solid rgba(255,255,255,0.18)', backgroundColor: 'rgba(0,0,0,0.24)', color: '#FFFFFF', padding: '10px', boxSizing: 'border-box', fontSize: '13px', lineHeight: 1.45, resize: 'vertical' }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '10px', borderRadius: '9px', backgroundColor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    {sharbeeVideoUrl ? (
+                      <video src={sharbeeVideoUrl} muted playsInline controls style={{ width: '74px', height: '58px', borderRadius: '8px', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.18)', flexShrink: 0 }} />
+                    ) : sharbeePhotoUrl ? (
+                      <img src={sharbeePhotoUrl} alt="review preview" style={{ width: '58px', height: '58px', borderRadius: '8px', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.18)', flexShrink: 0 }} />
+                    ) : (
+                      <div style={{ width: '58px', height: '58px', borderRadius: '8px', backgroundColor: 'rgba(255,184,0,0.12)', color: '#FFB800', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <Camera size={24} />
+                      </div>
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ color: '#FFFFFF', fontSize: '12px', fontWeight: 900, marginBottom: '3px' }}>
+                        {language === 'ko' ? '\uC0AC\uC9C4 \uB610\uB294 15\uCD08 \uC774\uB0B4 \uB3D9\uC601\uC0C1' : 'Photo or video under 15 sec'}
+                      </div>
+                      <div style={{ color: 'rgba(255,255,255,0.58)', fontSize: '11px', lineHeight: 1.35 }}>
+                        {sharbeeVideoUrl
+                          ? sharbeeVideoName
+                          : (language === 'ko' ? '\uD734\uB300\uD3F0\uC73C\uB85C \uCD2C\uC601\uD558\uAC70\uB098 \uC568\uBC94\uC5D0\uC11C \uC120\uD0DD\uD574 \uBBF8\uB2C8\uD648\uD53C \uB9AC\uBDF0\uC5D0 \uC62C\uB9B4 \uC218 \uC788\uC5B4\uC694.' : 'Take one now or choose from your phone album.')}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '7px' }}>
+                    <label style={{ padding: '9px 10px', borderRadius: '8px', backgroundColor: '#FFB800', color: '#1C1C1E', fontSize: '11.5px', fontWeight: 900, cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+                      <Camera size={14} />
+                      {language === 'ko' ? '\uC0AC\uC9C4 \uCC0D\uAE30' : 'Take Photo'}
+                      <input type="file" accept="image/*" capture="environment" onChange={handleSharbeePhotoChange} style={{ display: 'none' }} />
+                    </label>
+                    <label style={{ padding: '9px 10px', borderRadius: '8px', backgroundColor: 'rgba(255,255,255,0.12)', color: '#FFFFFF', border: '1px solid rgba(255,255,255,0.16)', fontSize: '11.5px', fontWeight: 900, cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+                      <Video size={14} />
+                      {language === 'ko' ? '\uB3D9\uC601\uC0C1 \uCC0D\uAE30' : 'Record Video'}
+                      <input type="file" accept="video/*" capture="environment" onChange={handleSharbeeVideoChange} style={{ display: 'none' }} />
+                    </label>
+                    <label style={{ padding: '9px 8px', borderRadius: '8px', backgroundColor: 'rgba(255,255,255,0.08)', color: '#FFFFFF', border: '1px solid rgba(255,255,255,0.16)', fontSize: '11.5px', fontWeight: 900, cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+                      <ImageIcon size={14} />
+                      {language === 'ko' ? '\uC568\uBC94\uC5D0\uC11C \uCD94\uAC00' : 'From Album'}
+                      <input type="file" accept="image/*,video/*" onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (!file) return;
+                        if (file.type.startsWith('video/')) {
+                          handleSharbeeVideoChange(event);
+                        } else {
+                          handleSharbeePhotoChange(event);
+                        }
+                      }} style={{ display: 'none' }} />
+                    </label>
+                  </div>
+                  {sharbeeMediaError && (
+                    <div style={{ color: '#FCA5A5', fontSize: '11px', fontWeight: 800, lineHeight: 1.35 }}>
+                      {sharbeeMediaError}
+                    </div>
+                  )}
+                </div>
+                <div style={{ padding: '10px', borderRadius: '9px', backgroundColor: 'rgba(255,184,0,0.08)', border: '1px solid rgba(255,184,0,0.22)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 900, marginBottom: '8px' }}>{language === 'ko' ? '\uB9AC\uBDF0\uB97C \uC62C\uB9AC\uAE30 \uC804\uC5D0 \uBCC4\uC810\uC744 \uB20C\uB7EC\uC8FC\uC138\uC694' : 'Tap a star rating before posting'}</div>
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                    {[1, 2, 3, 4, 5].map(rating => (
+                      <button 
+                        key={rating} 
+                        type="button" 
+                        onClick={() => setSharbeeRating(rating)} 
+                        style={{ 
+                          width: '34px', 
+                          height: '34px', 
+                          borderRadius: '50%', 
+                          border: sharbeeRating === rating ? '1px solid #FFB800' : '1px solid rgba(255,255,255,0.16)', 
+                          backgroundColor: sharbeeRating >= rating ? 'rgba(255,184,0,0.18)' : 'rgba(255,255,255,0.06)', 
+                          color: sharbeeRating >= rating ? '#FFB800' : 'rgba(255,255,255,0.5)', 
+                          fontSize: sharbeeRating >= rating ? '20px' : '14px', 
+                          fontWeight: 900,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          padding: 0
+                        }}
+                      >
+                        {sharbeeRating >= rating ? '★' : rating}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button type="button" onClick={submitSharbeeReview} disabled={!sharbeeRating || sharbeeSubmitting} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 0, backgroundColor: sharbeeRating ? '#FFB800' : 'rgba(255,255,255,0.18)', color: sharbeeRating ? '#1C1C1E' : 'rgba(255,255,255,0.55)', fontWeight: 900, cursor: sharbeeRating ? 'pointer' : 'not-allowed' }}>{sharbeeSubmitting ? (language === 'ko' ? '\uB4F1\uB85D \uC911...' : 'Posting...') : (language === 'ko' ? '\uB4F1\uB85D\uD558\uACE0 \uC2A4\uD0EC\uD504 \uBC1B\uAE30' : 'Post & Earn Stamp')}</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
