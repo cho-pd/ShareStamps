@@ -481,7 +481,6 @@ export const OwnerDashboard: React.FC = () => {
   const [isUploadingThumbnail, setIsUploadingThumbnail] = useState<boolean>(false);
   const [isUploadingBanner, setIsUploadingBanner] = useState<boolean>(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [showUrlInputs, setShowUrlInputs] = useState<boolean>(false);
 
   // 매장 이미지 URL 동기화
   useEffect(() => {
@@ -2063,8 +2062,8 @@ export const OwnerDashboard: React.FC = () => {
               const oldThumbnail = selectedStore.thumbnailUrl;
               const oldBanner = selectedStore.bannerUrl;
               
-              const newThumbnail = formData.get('thumbnailUrl') as string;
-              const newBanner = formData.get('bannerUrl') as string;
+              const newThumbnail = thumbnailUrl;
+              const newBanner = bannerUrl;
 
               updateStoreMiniHome(selectedStoreId, {
                 description: formData.get('description') as string,
@@ -2091,91 +2090,113 @@ export const OwnerDashboard: React.FC = () => {
                   {/* Preview & Upload Area */}
                   <div style={{ 
                     display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '16px', 
+                    flexDirection: 'column',
+                    gap: '12px', 
                     padding: '12px', 
                     border: '1px dashed var(--border-color)', 
                     borderRadius: '8px', 
                     backgroundColor: 'rgba(255,255,255,0.5)',
-                    minHeight: '90px'
+                    minHeight: '146px',
+                    boxSizing: 'border-box'
                   }}>
-                    <div style={{ 
-                      width: '64px', 
-                      height: '64px', 
-                      borderRadius: '50%', 
-                      border: '1px solid var(--border-color)', 
-                      overflow: 'hidden', 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'center',
-                      backgroundColor: '#f4f4f5',
-                      flexShrink: 0
-                    }}>
-                      {thumbnailUrl ? (
-                        <img src={thumbnailUrl} alt="Thumbnail Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      ) : (
-                        <ImageIcon size={28} style={{ color: '#a1a1aa' }} />
-                      )}
-                    </div>
-                    
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flexGrow: 1 }}>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <label className="imin-btn imin-btn-outline" style={{ 
-                          padding: '6px 12px', 
-                          fontSize: '12px', 
-                          cursor: isUploadingThumbnail ? 'not-allowed' : 'pointer',
+                    {thumbnailUrl ? (
+                      <div style={{ 
+                        width: '100%', 
+                        height: '80px', 
+                        display: 'flex',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        position: 'relative'
+                      }}>
+                        <div style={{
+                          width: '80px',
+                          height: '80px',
+                          borderRadius: '50%',
+                          border: '1px solid var(--border-color)',
+                          overflow: 'hidden',
+                          backgroundColor: '#f4f4f5'
+                        }}>
+                          <img src={thumbnailUrl} alt="Thumbnail Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        </div>
+                        <button 
+                          type="button" 
+                          onClick={() => setThumbnailUrl('')}
+                          style={{
+                            position: 'absolute',
+                            top: '0px',
+                            right: '6px',
+                            backgroundColor: 'rgba(0,0,0,0.6)',
+                            border: 'none',
+                            borderRadius: '50%',
+                            width: '24px',
+                            height: '24px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#ffffff',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ 
+                        width: '100%', 
+                        height: '80px', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center'
+                      }}>
+                        <div style={{
+                          width: '80px',
+                          height: '80px',
+                          borderRadius: '50%',
+                          border: '1px solid var(--border-color)',
+                          backgroundColor: '#f4f4f5',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '6px',
-                          margin: 0
+                          justifyContent: 'center'
                         }}>
-                          {isUploadingThumbnail ? (
-                            <>
-                              <Loader2 size={14} className="animate-spin" />
-                              <span>{language === 'ko' ? '업로드 중...' : 'Uploading...'}</span>
-                            </>
-                          ) : (
-                            <>
-                              <Upload size={14} />
-                              <span>{language === 'ko' ? '사진 업로드' : 'Upload Photo'}</span>
-                            </>
-                          )}
-                          <input 
-                            type="file" 
-                            accept="image/*"
-                            style={{ display: 'none' }}
-                            disabled={isUploadingThumbnail}
-                            onChange={(e) => handleImageUpload(e, 'thumbnail')}
-                          />
-                        </label>
-                        {thumbnailUrl && (
-                          <button 
-                            type="button" 
-                            onClick={() => setThumbnailUrl('')}
-                            className="imin-btn imin-btn-outline" 
-                            style={{ padding: '6px 12px', fontSize: '12px', color: 'var(--accent-red)', borderColor: 'rgba(255, 59, 48, 0.2)' }}
-                          >
-                            <X size={14} />
-                          </button>
-                        )}
+                          <ImageIcon size={28} style={{ color: '#a1a1aa' }} />
+                        </div>
                       </div>
+                    )}
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                         {language === 'ko' ? '권장 크기: 400x400 (1:1 비율)' : 'Recommended: 400x400 (1:1 ratio)'}
                       </span>
+                      <label className="imin-btn imin-btn-outline" style={{ 
+                        padding: '6px 12px', 
+                        fontSize: '12px', 
+                        cursor: isUploadingThumbnail ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        margin: 0
+                      }}>
+                        {isUploadingThumbnail ? (
+                          <>
+                            <Loader2 size={14} className="animate-spin" />
+                            <span>{language === 'ko' ? '업로드 중...' : 'Uploading...'}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload size={14} />
+                            <span>{language === 'ko' ? '사진 업로드' : 'Upload Photo'}</span>
+                          </>
+                        )}
+                        <input 
+                          type="file" 
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          disabled={isUploadingThumbnail}
+                          onChange={(e) => handleImageUpload(e, 'thumbnail')}
+                        />
+                      </label>
                     </div>
                   </div>
-                  
-                  {/* URL Text Input (optional fallback/view) */}
-                  {showUrlInputs && (
-                    <input 
-                      name="thumbnailUrl"
-                      value={thumbnailUrl} 
-                      onChange={(e) => setThumbnailUrl(e.target.value)}
-                      className="imin-input" 
-                      placeholder="https://example.com/thumb.jpg"
-                      style={{ fontSize: '12px', padding: '8px 12px' }}
-                    />
-                  )}
                 </div>
 
                 <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -2190,7 +2211,8 @@ export const OwnerDashboard: React.FC = () => {
                     border: '1px dashed var(--border-color)', 
                     borderRadius: '8px', 
                     backgroundColor: 'rgba(255,255,255,0.5)',
-                    minHeight: '90px'
+                    minHeight: '146px',
+                    boxSizing: 'border-box'
                   }}>
                     {bannerUrl ? (
                       <div style={{ 
@@ -2274,42 +2296,7 @@ export const OwnerDashboard: React.FC = () => {
                       </label>
                     </div>
                   </div>
-                  
-                  {/* URL Text Input (optional fallback/view) */}
-                  {showUrlInputs && (
-                    <input 
-                      name="bannerUrl"
-                      value={bannerUrl} 
-                      onChange={(e) => setBannerUrl(e.target.value)}
-                      className="imin-input" 
-                      placeholder="https://example.com/banner.jpg"
-                      style={{ fontSize: '12px', padding: '8px 12px' }}
-                    />
-                  )}
                 </div>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '-8px' }}>
-                <button 
-                  type="button" 
-                  onClick={() => setShowUrlInputs(!showUrlInputs)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#6366f1',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    textDecoration: 'underline',
-                    padding: 0,
-                    textAlign: 'left'
-                  }}
-                >
-                  {showUrlInputs 
-                    ? (language === 'ko' ? '🔗 이미지 주소(URL) 직접 입력창 숨기기' : '🔗 Hide Image URL Inputs')
-                    : (language === 'ko' ? '🔗 이미지 주소(URL) 직접 입력하기' : '🔗 Input Image URL Directly')
-                  }
-                </button>
               </div>
 
               <div style={{ textAlign: 'left' }}>
