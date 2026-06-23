@@ -83,7 +83,17 @@ export const OwnerDashboard: React.FC = () => {
   // 고객 정보 조회 관련 상태
   const [customerSearchQuery, setCustomerSearchQuery] = useState<string>('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
-  const [activeSubTab, setActiveSubTab] = useState<'home' | 'customers' | 'analytics' | 'minihome'>('home');
+  const [activeSubTab, setActiveSubTab] = useState<'home' | 'customers' | 'analytics' | 'minihome'>(() => {
+    const saved = localStorage.getItem('ownerActiveSubTab');
+    if (saved === 'home' || saved === 'customers' || saved === 'analytics' || saved === 'minihome') {
+      return saved;
+    }
+    return 'home';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('ownerActiveSubTab', activeSubTab);
+  }, [activeSubTab]);
 
   // 스탬프 직접 관리 관련 상태
   const [ownerStampQty, setOwnerStampQty] = useState<number>(1);
