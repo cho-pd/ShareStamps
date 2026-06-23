@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useDatabase } from '../../context/DatabaseContext';
 import { Users, Award, Heart, Printer, ArrowRight, Clock, LogOut, Search, CreditCard, Tablet, Globe, Star, Upload, ImageIcon, X, Loader2 } from 'lucide-react';
 import { storage as firebaseStorage } from '../../firebase';
-import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
+import { getDownloadURL, ref as storageRef, uploadBytes, deleteObject } from 'firebase/storage';
 
 
 const formatInterval = (minutes: number, lang: string = 'ko') => {
@@ -640,6 +640,22 @@ export const OwnerDashboard: React.FC = () => {
       img.src = event.target?.result as string;
     };
     reader.readAsDataURL(file);
+  };
+
+  // Firebase Storage에서 이전 이미지 파일을 정리/삭제하는 유틸리티
+  const deleteImageFromStorage = async (url: string) => {
+    if (!firebaseStorage || !url) return;
+    if (url.startsWith('data:')) return; // Base64 이미지는 스토리지에 파일이 없음
+    if (!url.includes('firebasestorage.googleapis.com')) return; // 외부 주소 무시
+
+    try {
+      // URL 주소로부터 Storage Reference 자동 획득하여 삭제
+      const fileRef = storageRef(firebaseStorage, url);
+      await deleteObject(fileRef);
+      console.log("Successfully cleaned up old storage image file:", url);
+    } catch (err) {
+      console.warn("Storage cleanup warning (ignored):", err);
+    }
   };
 
   // 보상 금액 변경 비밀번호 최종 검증 제출
@@ -2039,17 +2055,33 @@ export const OwnerDashboard: React.FC = () => {
               </div>
             )}
             
-            <form onSubmit={(e) => {
+            <form onSubmit={async (e) => {
               e.preventDefault();
               const formData = new FormData(e.currentTarget);
+              
+              // 기존 이미지 주소 백업
+              const oldThumbnail = selectedStore.thumbnailUrl;
+              const oldBanner = selectedStore.bannerUrl;
+              
+              const newThumbnail = formData.get('thumbnailUrl') as string;
+              const newBanner = formData.get('bannerUrl') as string;
+
               updateStoreMiniHome(selectedStoreId, {
                 description: formData.get('description') as string,
                 address: formData.get('address') as string,
                 phone: formData.get('phone') as string,
                 hours: formData.get('hours') as string,
-                thumbnailUrl: formData.get('thumbnailUrl') as string,
-                bannerUrl: formData.get('bannerUrl') as string,
+                thumbnailUrl: newThumbnail,
+                bannerUrl: newBanner,
               });
+
+              // 기존에 스토리지에 저장되어 있던 이미지가 변경 또는 제거되었다면 파일 삭제 처리
+              if (oldThumbnail && oldThumbnail !== newThumbnail) {
+                await deleteImageFromStorage(oldThumbnail);
+              }
+              if (oldBanner && oldBanner !== newBanner) {
+                await deleteImageFromStorage(oldBanner);
+              }
             }} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
