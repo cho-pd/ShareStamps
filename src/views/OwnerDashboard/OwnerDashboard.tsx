@@ -581,15 +581,25 @@ export const OwnerDashboard: React.FC = () => {
               // Base64를 Blob으로 역변환
               const blob = base64ToBlob(compressedBase64, 'image/jpeg');
               
-              const uploaded = await uploadBytes(storageRef(firebaseStorage, storagePath), blob, {
-                contentType: 'image/jpeg',
-                customMetadata: {
-                  storeId: safeStoreId,
-                  imageType: type,
-                  source: 'owner-dashboard'
-                }
-              });
-              const downloadUrl = await getDownloadURL(uploaded.ref);
+              // 3.5초 타임아웃 제한으로 클라우드 업로드 대기 (실패 시 즉시 로컬 데이터베이스 저장으로 자동 전환)
+              const uploadPromise = (async () => {
+                const uploaded = await uploadBytes(storageRef(firebaseStorage, storagePath), blob, {
+                  contentType: 'image/jpeg',
+                  customMetadata: {
+                    storeId: safeStoreId,
+                    imageType: type,
+                    source: 'owner-dashboard'
+                  }
+                });
+                return await getDownloadURL(uploaded.ref);
+              })();
+
+              const downloadUrl = await Promise.race([
+                uploadPromise,
+                new Promise<string>((_, reject) => 
+                  setTimeout(() => reject(new Error('Firebase Storage Upload Timeout')), 3500)
+                )
+              ]);
               
               if (type === 'thumbnail') {
                 setThumbnailUrl(downloadUrl);
