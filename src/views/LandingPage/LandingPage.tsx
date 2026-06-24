@@ -1,20 +1,21 @@
 import React, { useState } from 'react';
 import { useDatabase } from '../../context/DatabaseContext';
-import { 
-  Heart, Gift, Smartphone, Tablet, Coins, ArrowRight,
-  TrendingUp, Users, Megaphone, Landmark, HeartHandshake, Receipt, Award, Database, Zap
+import {
+  Heart, Gift, Smartphone, Tablet, ArrowRight,
+  TrendingUp, Users, HeartHandshake, Receipt, Award,
+  Package, MessageSquare, Share2, Bot, Send, Wallet, Trophy, Infinity as InfinityIcon
 } from 'lucide-react';
 
 const translations = {
   ko: {
-    badge: "💌 버려지는 모든 스탬프에 새로운 나눔을",
-    title1: "단 한 장의 스탬프도,",
-    title2: "기부하고 선물",
-    title3: "할 수 있습니다.",
-    desc: "7장을 전부 다 채우지 못해 실물 쿠폰을 버려보신 적이 있으신가요? ShareStamps는 미완성 상태의 낙전 스탬프에 실시간 금전 가치를 매겨 보존합니다. 이웃에게 따뜻한 기부를 건네고, 소중한 친구에게 한 장씩 선물해 보세요.",
-    
-    btnCustomer: "고객 PWA 체험",
-    btnStore: "매장 Kiosk/POS 체험",
+    badge: "🐝 AI 검색 시대, 손님이 만드는 우리 가게 마케팅",
+    title1: "손님이",
+    title2: "우리 가게를 홍보하게",
+    title3: "만드세요.",
+    desc: "손님이 AI 챗봇 샤비로 리뷰를 쓰면 페이스북·인스타그램·구글 비즈니스 등 모든 채널에 자동 배포되어, AI 검색에 우리 가게가 노출됩니다. 스탬프 보상으로 재방문까지 이어지는, 동네 가게를 위한 선순환 마케팅 엔진입니다.",
+
+    btnCustomer: "고객 앱 체험하기",
+    btnStore: "점주 — 우리 가게 시작하기",
     
     impactBtnTitle: "나의 나눔 임팩트 확인",
     impactBtnDesc: "기부한 스탬프와 이웃을 도운 내역을 확인해 보세요",
@@ -60,14 +61,14 @@ const translations = {
     m3Done: "♥ 스탬프 3장 기부 완료"
   },
   en: {
-    badge: "💌 Giving new life to every single stamp",
-    title1: "Even a single stamp,",
-    title2: "can be gifted and donated",
-    title3: "to make a difference.",
-    desc: "Have you ever thrown away a physical coupon because you couldn't collect all 7 stamps? ShareStamps preserves the real-time monetary value of unused stamps. Spread warmth by donating to neighbors or gift stamps one by one to your friends.",
-    
-    btnCustomer: "Customer PWA",
-    btnStore: "Store Kiosk/POS",
+    badge: "🐝 AI-era marketing your customers create for you",
+    title1: "Let your customers",
+    title2: "market your store",
+    title3: "for you.",
+    desc: "When customers write reviews with Sharbee (AI), they auto-publish to Facebook, Instagram, Google Business and more — surfacing your store in AI search. Stamp rewards keep them coming back: a virtuous marketing engine for local shops.",
+
+    btnCustomer: "Try the customer app",
+    btnStore: "For owners — Get started",
     
     impactBtnTitle: "See My Impact",
     impactBtnDesc: "Check your stamps and how you're helping neighbors",
@@ -114,30 +115,6 @@ const translations = {
   }
 };
 
-const benefits_ko = [
-  { icon: <TrendingUp size={20} color="#5f5ce6" />, title: '매출 증가', desc: '적립고객 재방문 비율 71%, 1년 평균 28회 방문 유도로 매장 매출이 비약적으로 향상됩니다.' },
-  { icon: <Users size={20} color="#10b981" />, title: '신규 고객', desc: '68%의 고객이 쿠폰·기부 경험으로 매장을 인지하고 새 손님을 데려옵니다.' },
-  { icon: <Megaphone size={20} color="#3b82f6" />, title: '홍보', desc: '착한가게 인증 판 + 언론 홍보 + 지도·플랫폼 노출로 저절로 홍보됩니다.' },
-  { icon: <Landmark size={20} color="#f59e0b" />, title: '소득공제', desc: '착한가게 인증 시 연말 소득공제 혜택이 있습니다.' },
-  { icon: <HeartHandshake size={20} color="#ec4899" />, title: '고객 충성', desc: '로열티 프로그램이 브랜드 관계 유지에 80% 이상 영향을 줍니다.' },
-  { icon: <Receipt size={20} color="#8b5cf6" />, title: '마케팅 비용 절감', desc: '재방문 유도 기능이 광고 효과를 대체해 비용이 줄어듭니다.' },
-  { icon: <Award size={20} color="#ef4444" />, title: '브랜드 이미지', desc: '“남은 1개도 기부” 철학이 지역사회·교회·NPO와 신뢰를 높입니다.' },
-  { icon: <Database size={20} color="#06b6d4" />, title: '데이터 관리', desc: '대시보드에서 방문 주기·기부 전환 비율을 확인해 프로모션 타임을 정확히 잡을 수 있습니다.' },
-  { icon: <Zap size={20} color="#10b981" />, title: '운영 효율', desc: '태블릿·POS 연동 시 수동 입력이 줄어 운영이 간단합니다.' }
-];
-
-const benefits_en = [
-  { icon: <TrendingUp size={20} color="#5f5ce6" />, title: 'Revenue Growth', desc: 'Customer return rate increases by 71%, driving an average of 28 annual visits, significantly boosting sales.' },
-  { icon: <Users size={20} color="#10b981" />, title: 'New Customers', desc: '68% of customers discover the store through coupon/donation shares and bring new guests along.' },
-  { icon: <Megaphone size={20} color="#3b82f6" />, title: 'Organic PR', desc: 'Receives a physical "Good Store" plaque, press PR support, and organic exposure on local maps and platforms.' },
-  { icon: <Landmark size={20} color="#f59e0b" />, title: 'Tax Deductions', desc: 'Official "Good Store" certification enables year-end tax write-offs and charity donation receipts.' },
-  { icon: <HeartHandshake size={20} color="#ec4899" />, title: 'Customer Loyalty', desc: 'A premium loyalty program coupled with philanthropy has an 80%+ positive impact on brand relationship retention.' },
-  { icon: <Receipt size={20} color="#8b5cf6" />, title: 'Reduced Costs', desc: 'Automated app pushes and return reminders replace expensive local flyers and ads, cutting promo costs.' },
-  { icon: <Award size={20} color="#ef4444" />, title: 'Brand Image', desc: 'The "single stamp donation" philosophy builds trust with local communities, churches, and NPOs.' },
-  { icon: <Database size={20} color="#06b6d4" />, title: 'Data Analytics', desc: 'Tracks visit cycles and donation conversion rates on the dashboard to run promotions at the perfect time.' },
-  { icon: <Zap size={20} color="#10b981" />, title: 'Operational Ease', desc: 'Cloud synchronization between tablet kiosk and POS enables immediate staff adoption with zero training.' }
-];
-
 export const LandingPage: React.FC = () => {
   const { stores, reviews } = useDatabase();
   const [showImpactModal, setShowImpactModal] = useState<boolean>(false);
@@ -159,171 +136,202 @@ export const LandingPage: React.FC = () => {
   };
 
   const t = translations[lang];
-  const activeBenefits = lang === 'en' ? benefits_en : benefits_ko;
+
+  // VISION / 비즈니스 구조 콘텐츠 (PDF deck 기반)
+  const viz = lang === 'ko' ? {
+    problem: {
+      eyebrow: '문제 정의', title: '소규모 매장의 생존은\n결국 홍보·마케팅이다',
+      points: [
+        'AI 시대 — 검색 결과를 클릭하지 않는 노클릭 서치(no-click search)가 늘었다',
+        '단순 SEO를 넘어 AEO(답변엔진 최적화) + GEO(생성엔진 최적화)가 필요하다',
+        '한 곳에 콘텐츠를 올리는 것으로는 한계 — 전방위(옴니채널) 배포가 필요하다',
+      ],
+    },
+    expose: { eyebrow: '노출 전략', title: 'AI가 우리 가게를 발견·이해하게', cards: [
+      { icon: Package, t: '브랜드명 일원화', d: '브랜드명·서브타이틀을 통일해 AI가 흩어진 콘텐츠를 같은 매장(엔티티)으로 인식하게 합니다.' },
+      { icon: MessageSquare, t: 'AI 맞춤형 FAQ', d: '홈피에 질문-답변(FAQ) 구조를 구축 — AEO의 핵심으로, AI 답변에 인용되게 합니다.' },
+      { icon: Share2, t: '옴니채널 배포', d: '일관된 브랜드 정보를 모든 채널·플랫폼에 동시 발행해 노출 빈도를 극대화합니다.' },
+    ] },
+    content: { eyebrow: '콘텐츠 생산', title: '손님이 콘텐츠를 만든다', cards: [
+      { icon: Bot, t: 'AI 챗봇(샤비) 리뷰', d: '손님이 샤비와 대화하며 질문-대답(Q&A) 방식으로 리뷰를 작성 — AI 검색에 최적화됩니다.' },
+      { icon: Send, t: '전채널 자동 배포', d: '생성된 리뷰가 페북·인스타·유튜브 쇼츠·틱톡·구글 비즈니스 등 전 채널에 자동 배포됩니다.' },
+    ] },
+    motive: { big: '7', label: 'STAMPS', title: '행동을 유발하는 확실한 보상', desc: '손님은 아무 이유 없이 리뷰를 쓰지 않습니다. 7개의 스탬프를 모으면 현금으로 보상하는 파격적인 제도로 확실한 참여 동기를 부여합니다.' },
+    paradox: { eyebrow: '경제 모델의 역설', title: '이 사업의 차별점', cards: [
+      { icon: Receipt, t: '기존 모델의 한계 (낙전)', d: '고객은 7장을 다 못 채울 걸 알아서 포기합니다. 사라지는 스탬프(낙전)는 전부 돈입니다.' },
+      { icon: TrendingUp, t: '점주의 진짜 이득', d: '돈을 안 줘서 이득이 아닙니다. 약간의 비용으로 손님이 단 한 번이라도 더 방문하면 그게 이득입니다.' },
+      { icon: Award, t: '압도적 가치 창출', d: '스탬프에 들어가는 비용보다, 단골이 되어 발생하는 재방문 가치가 훨씬 큽니다.' },
+    ] },
+    social: { eyebrow: '사회적 가치화', title: '스탬프 찍는 행위에 의미를 부여', cards: [
+      { icon: HeartHandshake, t: '비영리 단체 기부', d: '단 1개의 스탬프라도 내가 지정한 비영리 단체에 기부할 수 있습니다.' },
+      { icon: Gift, t: '친구에게 선물', d: '가족·연인·친구에게 내가 모은 스탬프를 선물해 함께 혜택을 나눕니다.' },
+      { icon: Wallet, t: '적립금 직접 사용', d: '물론 7개를 모아 본인이 직접 현금(적립금)으로 알뜰하게 쓸 수도 있습니다.' },
+    ] },
+    engine: {
+      eyebrow: '게임화 & 실행 엔진',
+      gam: { icon: Trophy, t: '게임화 — ShareChamp', items: ['게임처럼 지속 참여를 유도하는 ShareChamp 리스트 운영', '스탬프 활동이 뛰어난 챔피언(고객) 선정', '우수 매장을 챔피언 매장으로 선정·홍보'] },
+      staff: { icon: Users, t: '실행 엔진 — 직원 인센티브', items: ['스탬프를 찍게 만드는 현장의 핵심은 매장 내 서버(직원)', '스탬프 캐시 발행액의 약 10%를 직원에게 지급', '직원의 적극적·자발적인 스탬프 권유 문화 정착'] },
+    },
+    loop: { eyebrow: '귀결', title: '선한 영향력의 무한 루프', desc: '스탬프를 찍으면 자동 마케팅(AEO·GEO)이 되고, 그 혜택이 사회 기부로 이어지는 완벽한 상생 생태계입니다.', steps: ['손님 방문', '샤비 리뷰', '전채널 배포', 'AI 검색 노출', '보상·재방문'] },
+    table: { eyebrow: '생태계 혜택 요약', title: '모두가 이득인 구조', col: ['참여 주체', '주요 혜택 및 보상', '최종 결과'], rows: [
+      { who: '소상공인 (점주)', benefit: '자동화된 AEO/GEO 마케팅, 고객 재방문율 상승', result: "'좋은 가게' 현판 부여, 기부액에 따른 세금 공제 혜택" },
+      { who: '고객 (소비자)', benefit: '리뷰 작성을 통한 확실한 보상 (7개 모으면 현금)', result: '기부·선물·직접 사용 등 가치 있는 소비 경험' },
+      { who: '매장 직원 (서버)', benefit: '고객 스탬프 발행 시 10% 인센티브 적립', result: '업무 동기 부여 및 추가 수익 창출' },
+      { who: '사회단체', benefit: '점주·고객이 지정한 기부금 지속적 수령', result: '안정적인 후원 확보 및 지역 사회 발전 기여' },
+    ] },
+  } : {
+    problem: {
+      eyebrow: 'THE PROBLEM', title: 'A local shop lives or dies\nby its marketing',
+      points: [
+        'In the AI era, no-click search keeps users from ever clicking through',
+        'Beyond plain SEO you now need AEO (answer-engine) + GEO (generative-engine) optimization',
+        'Posting in one place is not enough — you need omni-channel distribution',
+      ],
+    },
+    expose: { eyebrow: 'GET FOUND BY AI', title: 'Make AI discover and understand you', cards: [
+      { icon: Package, t: 'Unified brand identity', d: 'One brand name and subtitle so AI recognizes scattered content as the same store entity.' },
+      { icon: MessageSquare, t: 'AI-ready FAQ', d: 'A question-answer FAQ on your page — the core of AEO, so AI quotes you in its answers.' },
+      { icon: Share2, t: 'Omni-channel reach', d: 'Publish consistent brand info to every channel at once to maximize exposure.' },
+    ] },
+    content: { eyebrow: 'CUSTOMERS CREATE IT', title: 'Your customers make the content', cards: [
+      { icon: Bot, t: 'AI chatbot (Sharbee) reviews', d: 'Customers chat with Sharbee to write reviews in a Q&A format — optimized for AI search.' },
+      { icon: Send, t: 'Auto cross-posting', d: 'Each review auto-publishes to Facebook, Instagram, YouTube Shorts, TikTok, Google Business and more.' },
+    ] },
+    motive: { big: '7', label: 'STAMPS', title: 'A reward strong enough to act', desc: 'Customers do not write reviews for nothing. Collect 7 stamps and get cash back — a bold reward that creates real motivation to participate.' },
+    paradox: { eyebrow: "THE TWIST", title: 'The economic paradox', cards: [
+      { icon: Receipt, t: 'The breakage trap', d: 'Customers give up knowing they will never fill all 7. Every abandoned stamp is real money.' },
+      { icon: TrendingUp, t: "The owner's real gain", d: 'The win is not unpaid stamps — for a small cost, one extra visit is already profit.' },
+      { icon: Award, t: 'Outsized value', d: 'The value of a returning regular far outweighs the small cost of the stamps.' },
+    ] },
+    social: { eyebrow: 'SOCIAL GOOD', title: 'Give the act of stamping meaning', cards: [
+      { icon: HeartHandshake, t: 'Donate to non-profits', d: 'Even a single stamp can be donated to a non-profit you choose.' },
+      { icon: Gift, t: 'Gift to friends', d: 'Send the stamps you collected to family and friends to share the reward.' },
+      { icon: Wallet, t: 'Use as cash', d: 'Or collect 7 and simply use them as cash credit for yourself.' },
+    ] },
+    engine: {
+      eyebrow: 'GAMIFICATION & ENGINE',
+      gam: { icon: Trophy, t: 'Gamification — ShareChamp', items: ['A ShareChamp leaderboard that keeps people coming back', 'Champion customers selected from top stamp activity', 'Top stores featured as champion stores'] },
+      staff: { icon: Users, t: 'Engine — staff incentive', items: ['The real driver of stamping is the in-store server (staff)', 'About 10% of issued stamp cash is paid to staff', 'A culture where staff actively encourage stamping'] },
+    },
+    loop: { eyebrow: 'THE RESULT', title: 'A virtuous, endless loop', desc: 'Stamping becomes automatic AEO/GEO marketing, and the reward flows back into social giving — a complete win-win ecosystem.', steps: ['Visit', 'Sharbee review', 'Cross-post', 'AI search', 'Reward & return'] },
+    table: { eyebrow: 'ECOSYSTEM BENEFITS', title: 'Everyone wins', col: ['Participant', 'Benefit & reward', 'Outcome'], rows: [
+      { who: 'Owner', benefit: 'Automated AEO/GEO marketing, higher return rate', result: "A 'Good Store' plaque and tax deductions on donations" },
+      { who: 'Customer', benefit: 'A real reward for reviews (cash at 7 stamps)', result: 'Meaningful spending: donate, gift, or use as cash' },
+      { who: 'Staff (server)', benefit: '10% incentive on issued stamp cash', result: 'Stronger motivation and extra income' },
+      { who: 'Non-profits', benefit: 'Steady donations directed by owners and customers', result: 'Reliable funding and local community impact' },
+    ] },
+  };
 
   return (
     <div className="landing-container" style={{
       minHeight: '100vh',
-      backgroundColor: '#f8f9fc',
-      color: '#1f1f24',
-      fontFamily: 'var(--font-sans)',
-      letterSpacing: '-0.025em',
+      backgroundColor: '#F3F0EE',
+      color: '#141413',
+      fontFamily: "'Sofia Sans', 'Pretendard', system-ui, -apple-system, sans-serif",
+      letterSpacing: '-0.01em',
       position: 'relative',
       overflowX: 'hidden',
       paddingBottom: '80px'
     }}>
-      {/* Background soft gradients (Optimized for Mobile/Performance) */}
-      <div style={{
+      {/* Ghost watermark headline (cream-on-cream, Mastercard signature) */}
+      <div aria-hidden="true" style={{
         position: 'absolute',
-        top: '-10%',
+        top: '120px',
         left: '50%',
         transform: 'translateX(-50%)',
         width: '100%',
-        maxWidth: '600px',
-        height: '400px',
-        borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(95, 92, 230, 0.06) 0%, rgba(255,255,255,0) 70%)',
+        textAlign: 'center',
+        fontSize: 'clamp(80px, 16vw, 200px)',
+        fontWeight: 500,
+        letterSpacing: '-0.04em',
+        lineHeight: 1,
+        color: '#E8E2DA',
         zIndex: 0,
-        pointerEvents: 'none'
-      }} />
+        pointerEvents: 'none',
+        userSelect: 'none',
+        whiteSpace: 'nowrap'
+      }}>
+        ShareStamps
+      </div>
 
-      {/* Top Header - Optimized for Mobile Spacing */}
+      {/* Floating Nav Pill (Mastercard signature) */}
       <header style={{
-        maxWidth: '1200px',
-        margin: '0 auto',
-        padding: '16px 20px',
+        maxWidth: '1120px',
+        margin: '24px auto 0 auto',
+        padding: '12px 16px 12px 22px',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         position: 'relative',
-        zIndex: 10
+        zIndex: 20,
+        backgroundColor: '#FFFFFF',
+        borderRadius: '999px',
+        boxShadow: 'rgba(0, 0, 0, 0.04) 0px 4px 24px 0px',
+        width: 'calc(100% - 40px)'
       }}>
         {/* Brand Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <img 
-            src="/favicon.png" 
-            alt="ShareStamps Logo" 
-            style={{
-              width: '32px',
-              height: '32px',
-              borderRadius: '9px',
-              boxShadow: '0 4px 10px rgba(95, 92, 230, 0.15)',
-              objectFit: 'contain'
-            }}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
+          <img
+            src="/favicon.png"
+            alt="ShareStamps Logo"
+            style={{ width: '30px', height: '30px', borderRadius: '50%', objectFit: 'contain' }}
           />
-          <span style={{ fontSize: '18px', fontWeight: 900, letterSpacing: '-0.5px', color: '#1f1f24', textTransform: 'none' }}>
+          <span style={{ fontSize: '18px', fontWeight: 500, letterSpacing: '-0.04em', color: '#141413' }}>
             ShareStamps
           </span>
         </div>
-        
-        {/* Language Selection Switch - Modern Pill Selector */}
-        <div style={{
-          display: 'flex',
-          backgroundColor: '#e4e4e7',
-          padding: '2px',
-          borderRadius: '20px',
-          boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.06)',
-          alignItems: 'center'
-        }}>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {/* Language Selection — ink/cream pill */}
+          <div style={{
+            display: 'flex',
+            backgroundColor: '#F3F0EE',
+            padding: '3px',
+            borderRadius: '999px',
+            alignItems: 'center'
+          }}>
+            {(['ko', 'en'] as const).map(lng => (
+              <button
+                key={lng}
+                onClick={() => setLang(lng)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '999px',
+                  border: 'none',
+                  backgroundColor: lang === lng ? '#141413' : 'transparent',
+                  color: lang === lng ? '#F3F0EE' : '#696969',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  letterSpacing: '-0.02em',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                {lng.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          {/* Primary nav CTA — "See My Impact" (customer app), Ink pill */}
           <button
-            onClick={() => setLang('ko')}
+            onClick={() => navigateTo('#/customer')}
             style={{
-              padding: '6px 14px',
-              borderRadius: '18px',
-              border: 'none',
-              backgroundColor: lang === 'ko' ? '#ffffff' : 'transparent',
-              color: lang === 'ko' ? '#5f5ce6' : '#71717a',
-              fontSize: '11px',
-              fontWeight: 800,
+              padding: '9px 22px',
+              borderRadius: '999px',
+              border: '1.5px solid #141413',
+              backgroundColor: '#141413',
+              color: '#F3F0EE',
+              fontSize: '14px',
+              fontWeight: 500,
+              letterSpacing: '-0.02em',
               cursor: 'pointer',
-              boxShadow: lang === 'ko' ? '0 2px 6px rgba(0,0,0,0.1)' : 'none',
-              transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
+              whiteSpace: 'nowrap'
             }}
           >
-            KO
-          </button>
-          <button
-            onClick={() => setLang('en')}
-            style={{
-              padding: '6px 14px',
-              borderRadius: '18px',
-              border: 'none',
-              backgroundColor: lang === 'en' ? '#ffffff' : 'transparent',
-              color: lang === 'en' ? '#5f5ce6' : '#71717a',
-              fontSize: '11px',
-              fontWeight: 800,
-              cursor: 'pointer',
-              boxShadow: lang === 'en' ? '0 2px 6px rgba(0,0,0,0.1)' : 'none',
-              transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
-            }}
-          >
-            EN
+            {t.impactBtnTitle}
           </button>
         </div>
       </header>
 
-      {/* 'See My Impact' Banner/Button Container - Placed in the red box area */}
-      <div style={{
-        maxWidth: '480px',
-        margin: '12px auto 8px auto',
-        padding: '0 20px',
-        textAlign: 'center',
-        position: 'relative',
-        zIndex: 10
-      }}>
-        <button
-          onClick={() => navigateTo('#/customer')}
-          className="see-my-impact-btn"
-          style={{
-            width: '100%',
-            padding: '14px 20px',
-            borderRadius: '20px',
-            border: 'none',
-            background: 'linear-gradient(135deg, #FF3B30 0%, #FF2D55 100%)',
-            color: '#ffffff',
-            cursor: 'pointer',
-            boxShadow: '0 8px 24px rgba(255, 45, 85, 0.25)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '12px',
-            transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-            transform: 'scale(1)'
-          }}
-          onMouseOver={(e) => {
-            e.currentTarget.style.transform = 'translateY(-2px)';
-            e.currentTarget.style.boxShadow = '0 12px 30px rgba(255, 45, 85, 0.35)';
-          }}
-          onMouseOut={(e) => {
-            e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.boxShadow = '0 8px 24px rgba(255, 45, 85, 0.25)';
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '50%',
-              backgroundColor: 'rgba(255, 255, 255, 0.2)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0
-            }}>
-              <Heart size={18} fill="#ffffff" strokeWidth={0} />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', textAlign: 'left' }}>
-              <span style={{ fontSize: '15px', fontWeight: 800, lineHeight: '1.2' }}>
-                {t.impactBtnTitle}
-              </span>
-              <span style={{ fontSize: '11px', fontWeight: 500, opacity: 0.9, marginTop: '4px', lineHeight: '1.2' }}>
-                {t.impactBtnDesc}
-              </span>
-            </div>
-          </div>
-          <ArrowRight size={18} style={{ flexShrink: 0, opacity: 0.9 }} />
-        </button>
-      </div>
 
       {/* Hero Section - Mobile-first layout */}
       <section style={{
@@ -334,210 +342,161 @@ export const LandingPage: React.FC = () => {
         position: 'relative',
         zIndex: 10
       }}>
-        {/* Sharbee Mascot Character */}
+        {/* Eyebrow — accent dot + label (Mastercard signature) */}
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}>
+          <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#CF4500', display: 'inline-block' }} />
+          <span style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', color: '#696969' }}>
+            {lang === 'ko' ? 'AI 검색 마케팅 엔진' : 'AI SEARCH MARKETING'}
+          </span>
+        </div>
+
+        {/* Mascot — circular portrait */}
         <div style={{
+          width: '152px',
+          height: '152px',
+          borderRadius: '50%',
+          backgroundColor: '#FCFBFA',
           display: 'flex',
-          flexDirection: 'column',
           alignItems: 'center',
-          marginBottom: '24px',
-          position: 'relative'
+          justifyContent: 'center',
+          margin: '0 auto 32px auto',
+          boxShadow: 'rgba(0, 0, 0, 0.08) 0px 24px 48px 0px'
         }}>
-          {/* Character Image */}
-          <img 
-            src="/sharbee/sharbee10.png" 
-            alt="Sharbee Mascot" 
-            className="hero-mascot-img"
-            style={{
-              objectFit: 'contain',
-              filter: 'drop-shadow(0 10px 24px rgba(95, 92, 230, 0.18))',
-              animation: 'bounceCharacter 3s ease-in-out infinite'
-            }}
+          <img
+            src="/sharbee/sharbee10.png"
+            alt="Sharbee Mascot"
+            style={{ width: '120px', height: '120px', objectFit: 'contain' }}
           />
         </div>
 
-        {/* Soft Badge */}
-        <div style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '6px',
-          padding: '6px 14px',
-          borderRadius: '30px',
-          backgroundColor: 'rgba(95, 92, 230, 0.08)',
-          border: '1px solid rgba(95, 92, 230, 0.16)',
-          color: '#5f5ce6',
-          fontSize: '12.5px',
-          fontWeight: 700,
-          marginBottom: '20px',
-          boxShadow: '0 4px 10px rgba(95, 92, 230, 0.02)'
+        {/* Hero headline — ink, weight 500, tight tracking */}
+        <h1 style={{
+          fontSize: 'clamp(34px, 6vw, 60px)',
+          fontWeight: 500,
+          lineHeight: 1.05,
+          marginBottom: '22px',
+          color: '#141413',
+          letterSpacing: '-0.03em'
         }}>
-          <span>{t.badge}</span>
-        </div>
-
-        {/* Main Title - Responsive sizing */}
-        <h1 className="hero-title" style={{
-          fontSize: '32px', // Default mobile size
-          fontWeight: 900,
-          lineHeight: '1.25',
-          marginBottom: '16px',
-          color: '#1f1f24',
-          letterSpacing: '-0.04em'
-        }}>
-          {t.title1}<br />
-          <span style={{ 
-            background: 'linear-gradient(90deg, #5f5ce6 0%, #10b981 100%)', 
-            WebkitBackgroundClip: 'text', 
-            WebkitTextFillColor: 'transparent',
-            fontWeight: 950
-          }}>{t.title2}</span> {t.title3}
+          {t.title1}<br />{t.title2} {t.title3}
         </h1>
 
-        {/* Hero description */}
+        {/* Hero description — body weight 450 */}
         <p style={{
-          fontSize: '14.5px',
-          color: '#4b5563',
-          fontWeight: 500,
-          lineHeight: '1.65',
-          maxWidth: '640px',
-          margin: '0 auto 28px auto',
-          letterSpacing: '-0.02em',
-          padding: '0 4px'
+          fontSize: '17px',
+          color: '#262627',
+          fontWeight: 450,
+          lineHeight: 1.5,
+          maxWidth: '580px',
+          margin: '0 auto 34px auto',
+          letterSpacing: '-0.01em'
         }}>
           {t.desc}
         </p>
 
-        {/* Quick buttons under Hero on Mobile */}
+        {/* Hero CTAs — ink pill primary + outlined pill secondary */}
         <div style={{
           display: 'flex',
-          flexDirection: 'column',
+          flexWrap: 'wrap',
           gap: '12px',
-          maxWidth: '320px',
-          margin: '0 auto 40px auto'
+          justifyContent: 'center',
+          marginBottom: '8px'
         }}>
-          <button 
-            onClick={() => navigateTo('#/customer')}
-            className="landing-nav-btn-purple"
-            style={{
-              padding: '14px 24px',
-              borderRadius: '16px',
-              border: 'none',
-              backgroundColor: '#5f5ce6',
-              color: '#ffffff',
-              fontSize: '14.5px',
-              fontWeight: 800,
-              cursor: 'pointer',
-              boxShadow: '0 4px 16px rgba(95, 92, 230, 0.25)',
-              transition: 'all 0.2s ease'
-            }}
-          >
-            {t.btnCustomer}
-          </button>
-          <button 
+          <button
             onClick={() => navigateTo('#/store')}
             style={{
-              padding: '14px 24px',
-              borderRadius: '16px',
-              border: '1px solid rgba(95, 92, 230, 0.2)',
-              backgroundColor: '#ffffff',
-              color: '#5f5ce6',
-              fontSize: '14.5px',
-              fontWeight: 800,
+              padding: '14px 32px',
+              borderRadius: '20px',
+              border: '1.5px solid #141413',
+              backgroundColor: '#141413',
+              color: '#F3F0EE',
+              fontSize: '16px',
+              fontWeight: 500,
+              letterSpacing: '-0.02em',
               cursor: 'pointer',
-              boxShadow: '0 2px 10px rgba(0,0,0,0.03)',
-              transition: 'all 0.2s ease'
+              transition: 'transform 0.15s ease'
             }}
+            onMouseDown={(e) => { e.currentTarget.style.transform = 'scale(0.98)'; }}
+            onMouseUp={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
           >
             {t.btnStore}
           </button>
+          <button
+            onClick={() => navigateTo('#/customer')}
+            style={{
+              padding: '14px 32px',
+              borderRadius: '20px',
+              border: '1.5px solid #141413',
+              backgroundColor: '#FFFFFF',
+              color: '#141413',
+              fontSize: '16px',
+              fontWeight: 450,
+              letterSpacing: '-0.02em',
+              cursor: 'pointer',
+              transition: 'transform 0.15s ease'
+            }}
+            onMouseDown={(e) => { e.currentTarget.style.transform = 'scale(0.98)'; }}
+            onMouseUp={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+          >
+            {t.btnCustomer}
+          </button>
         </div>
 
-      {/* Yelp-style Store Explorer Section */}
-      <section style={{
-        maxWidth: '800px',
-        margin: '0 auto 48px auto',
-        padding: '0 20px',
-        textAlign: 'left',
-        position: 'relative',
-        zIndex: 10
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h2 style={{ fontSize: '20px', fontWeight: 900, color: '#1f1f24', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-            <span>🏪</span> {lang === 'ko' ? '추천 착한 가맹점 미니홈피' : 'Explore Featured Stores'}
-          </h2>
-          <span style={{ fontSize: '12px', color: '#5f5ce6', fontWeight: 700 }}>
+      {/* Featured Stores (Mastercard) */}
+      <section style={{ maxWidth: '1120px', margin: '64px auto 0 auto', padding: '0 28px', position: 'relative', zIndex: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '24px', flexWrap: 'wrap', gap: '8px' }}>
+          <div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+              <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#CF4500' }} />
+              <span style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', color: '#696969' }}>{lang === 'ko' ? '추천 가맹점' : 'FEATURED STORES'}</span>
+            </div>
+            <h2 style={{ fontSize: 'clamp(24px, 3.4vw, 32px)', fontWeight: 500, letterSpacing: '-0.03em', color: '#141413', margin: 0 }}>{lang === 'ko' ? '착한 가맹점 미니홈피' : 'Good neighbor stores'}</h2>
+          </div>
+          <span style={{ fontSize: '13px', color: '#696969', fontWeight: 450 }}>
             {lang === 'ko' ? `총 ${stores.filter(s => !s.name.includes('호점')).length}개 매장` : `${stores.filter(s => !s.name.includes('호점')).length} stores`}
           </span>
         </div>
 
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr',
-          gap: '16px'
-        }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
           {stores.filter(s => !s.name.includes('호점')).map(store => {
             const { avg, count } = getStoreRatingInfo(store.id);
             return (
-              <div 
+              <div
                 key={store.id}
                 onClick={() => navigateTo(`#/store-home/${store.id}`)}
                 style={{
                   display: 'flex',
-                  backgroundColor: '#ffffff',
-                  borderRadius: '16px',
-                  border: '1px solid rgba(95, 92, 230, 0.1)',
-                  boxShadow: '0 4px 15px rgba(0,0,0,0.02)',
-                  overflow: 'hidden',
-                  cursor: 'pointer',
-                  transition: 'transform 0.2s, box-shadow 0.2s'
+                  gap: '18px',
+                  alignItems: 'center',
+                  backgroundColor: '#FCFBFA',
+                  borderRadius: '24px',
+                  padding: '20px',
+                  boxShadow: 'rgba(0,0,0,0.06) 0px 18px 40px 0px',
+                  cursor: 'pointer'
                 }}
-                className="landing-card-white"
               >
-                {/* Store Thumbnail */}
-                <div style={{ width: '100px', height: '100px', flexShrink: 0, backgroundColor: '#f1f3f9' }}>
-                  <img 
-                    src={store.thumbnailUrl || 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=300'} 
-                    alt={store.name} 
+                <div style={{ width: '76px', height: '76px', flexShrink: 0, borderRadius: '50%', overflow: 'hidden', backgroundColor: '#F3F0EE' }}>
+                  <img
+                    src={store.thumbnailUrl || 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=300'}
+                    alt={store.name}
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   />
                 </div>
-
-                {/* Store Text details */}
-                <div style={{ flex: 1, padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', overflow: 'hidden' }}>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                      <h3 style={{ fontSize: '15px', fontWeight: 800, margin: 0, color: '#1f1f24', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {store.name}
-                      </h3>
-                      <span style={{ 
-                        fontSize: '10px', 
-                        fontWeight: 700, 
-                        color: '#5f5ce6', 
-                        backgroundColor: 'rgba(95, 92, 230, 0.08)',
-                        padding: '2px 6px',
-                        borderRadius: '20px',
-                        flexShrink: 0
-                      }}>
-                        {store.category.split(' ')[0]}
-                      </span>
-                    </div>
-                    
-                    {/* Star Rating */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
-                      <span style={{ color: '#ffb800', fontSize: '13px' }}>★</span>
-                      <span style={{ fontSize: '12px', fontWeight: 800, color: '#1f1f24' }}>{avg.toFixed(1)}</span>
-                      <span style={{ fontSize: '11px', color: '#71717a' }}>({count})</span>
-                    </div>
-
-                    <p style={{ fontSize: '12.5px', color: '#52525b', margin: '6px 0 0 0', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                      {store.description || (lang === 'ko' ? '기분 좋은 서비스와 혜택을 드리는 가맹점입니다.' : 'A good store with nice service and stamp rewards.')}
-                    </p>
+                <div style={{ flex: 1, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                    <h3 style={{ fontSize: '17px', fontWeight: 500, letterSpacing: '-0.02em', margin: 0, color: '#141413', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{store.name}</h3>
+                    <span style={{ fontSize: '11px', fontWeight: 450, color: '#696969', backgroundColor: '#F3F0EE', padding: '3px 10px', borderRadius: '999px', flexShrink: 0 }}>{store.category.split(' ')[0]}</span>
                   </div>
-
-                  <div style={{ fontSize: '11px', color: '#71717a', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px' }}>
-                    <span>📍</span>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {store.address || (lang === 'ko' ? '서울시 강남구' : 'Seoul, Korea')}
-                    </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '5px' }}>
+                    <span style={{ color: '#F37338', fontSize: '13px' }}>★</span>
+                    <span style={{ fontSize: '12px', fontWeight: 500, color: '#141413' }}>{avg.toFixed(1)}</span>
+                    <span style={{ fontSize: '11px', color: '#696969' }}>({count})</span>
                   </div>
+                  <p style={{ fontSize: '13px', color: '#565656', margin: '7px 0 0 0', lineHeight: 1.45, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                    {store.description || (lang === 'ko' ? '기분 좋은 서비스와 혜택을 드리는 가맹점입니다.' : 'A good store with nice service and stamp rewards.')}
+                  </p>
                 </div>
               </div>
             );
@@ -545,386 +504,275 @@ export const LandingPage: React.FC = () => {
         </div>
       </section>
 
-        {/* Grid Container for Cards */}
-        <div className="landing-grid" style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr', // Mobile first: 1 column
-          gap: '20px',
-          maxWidth: '680px',
-          margin: '0 auto',
-          textAlign: 'left'
-        }}>
-          {/* Card 1: Customer PWA */}
-          <div 
-            onClick={() => navigateTo('#/customer')}
-            className="landing-card-white"
-            style={{
-              padding: '24px',
-              borderRadius: '20px',
-              backgroundColor: '#ffffff',
-              border: '1px solid rgba(95, 92, 230, 0.1)',
-              cursor: 'pointer',
-              transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.02)'
-            }}
-          >
-            <div style={{
-              width: '42px',
-              height: '42px',
-              borderRadius: '12px',
-              backgroundColor: 'rgba(95, 92, 230, 0.08)',
-              border: '1px solid rgba(95, 92, 230, 0.15)',
-              color: '#5f5ce6',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginBottom: '16px'
-            }}>
-              <Smartphone size={20} />
-            </div>
-            <h3 style={{ fontSize: '17px', fontWeight: 800, color: '#1f1f24', marginBottom: '8px' }}>{t.card1Title}</h3>
-            <p style={{ fontSize: '13px', color: '#52525b', lineHeight: '1.5', marginBottom: '16px' }}>
-              {t.card1Desc}
-            </p>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#5f5ce6', fontSize: '13px', fontWeight: 800 }}>
-              <span>{t.card1Action}</span>
-              <ArrowRight size={12} />
-            </div>
-          </div>
-
-          {/* Card 2: Tablet Kiosk */}
-          <div 
-            onClick={() => navigateTo('#/kiosk')}
-            className="landing-card-white"
-            style={{
-              padding: '24px',
-              borderRadius: '20px',
-              backgroundColor: '#ffffff',
-              border: '1px solid rgba(95, 92, 230, 0.1)',
-              cursor: 'pointer',
-              transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.02)'
-            }}
-          >
-            <div style={{
-              width: '42px',
-              height: '42px',
-              borderRadius: '12px',
-              backgroundColor: 'rgba(16, 185, 129, 0.08)',
-              border: '1px solid rgba(16, 185, 129, 0.15)',
-              color: '#10b981',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginBottom: '16px'
-            }}>
-              <Tablet size={20} />
-            </div>
-            <h3 style={{ fontSize: '17px', fontWeight: 800, color: '#1f1f24', marginBottom: '8px' }}>{t.card2Title}</h3>
-            <p style={{ fontSize: '13px', color: '#52525b', lineHeight: '1.5', marginBottom: '16px' }}>
-              {t.card2Desc}
-            </p>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#10b981', fontSize: '13px', fontWeight: 800 }}>
-              <span>{t.card2Action}</span>
-              <ArrowRight size={12} />
-            </div>
-          </div>
+      {/* Experience the app (Mastercard) */}
+      <section style={{ maxWidth: '1120px', margin: '56px auto 0 auto', padding: '0 28px' }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+          <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#CF4500' }} />
+          <span style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', color: '#696969' }}>{lang === 'ko' ? '직접 체험' : 'TRY IT'}</span>
         </div>
-      </section>
-
-      {/* "사장님이 얻는 이익" Section - Transformed dynamically for Mobile */}
-      <section style={{
-        maxWidth: '960px',
-        margin: '60px auto 60px auto',
-        padding: '0 20px',
-        position: 'relative',
-        zIndex: 10
-      }}>
-        <div style={{
-          textAlign: 'center',
-          marginBottom: '32px'
-        }}>
-          <h2 style={{ fontSize: '24px', fontWeight: 900, letterSpacing: '-0.04em', color: '#1f1f24' }}>
-            {t.benefitsTitle}
-          </h2>
-          <p style={{ color: '#52525b', fontSize: '13.5px', marginTop: '6px', fontWeight: 500, lineHeight: 1.4 }}>
-            {t.benefitsSub}
-          </p>
-        </div>
-
-        {/* Benefits Table - Mobile block-card layout & Desktop clean grid */}
-        <div className="benefits-table-wrapper" style={{
-          backgroundColor: '#ffffff',
-          borderRadius: '20px',
-          border: '1px solid rgba(95, 92, 230, 0.1)',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.02)',
-          overflow: 'hidden'
-        }}>
-          {/* Table Header (hidden in mobile style via CSS below) */}
-          <div className="benefits-table-header" style={{
-            backgroundColor: '#f1f3f9',
-            padding: '14px 20px',
-            borderBottom: '1px solid rgba(95, 92, 230, 0.08)',
-            fontWeight: 800,
-            fontSize: '13.5px',
-            color: '#4b5563'
-          }}>
-            <div className="col-cat" style={{ width: '130px', flexShrink: 0 }}>{t.colTitle}</div>
-            <div className="col-desc" style={{ flex: 1, paddingLeft: '16px' }}>{t.colDesc}</div>
-          </div>
-
-          {/* Table Body Rows */}
-          {activeBenefits.map((benefit, idx) => (
-            <div 
-              key={idx} 
-              className="benefit-row"
-              style={{
-                borderBottom: idx === activeBenefits.length - 1 ? 'none' : '1px solid rgba(95, 92, 230, 0.06)',
-                transition: 'all 0.2s ease'
-              }}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+          {[
+            { icon: Smartphone, title: t.card1Title, desc: t.card1Desc, action: t.card1Action, go: '#/customer' },
+            { icon: Tablet, title: t.card2Title, desc: t.card2Desc, action: t.card2Action, go: '#/kiosk' },
+          ].map(card => (
+            <div
+              key={card.title}
+              onClick={() => navigateTo(card.go)}
+              style={{ backgroundColor: '#FCFBFA', borderRadius: '24px', padding: '32px 30px', boxShadow: 'rgba(0,0,0,0.06) 0px 18px 40px 0px', cursor: 'pointer' }}
             >
-              <div className="benefit-row-inner" style={{
-                display: 'flex',
-                alignItems: 'center',
-                padding: '16px 20px',
-                fontSize: '13.5px'
-              }}>
-                {/* Category with Icon */}
-                <div className="benefit-col-category" style={{ width: '130px', display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                  {benefit.icon}
-                  <span style={{ fontWeight: 800, color: '#1f1f24' }}>{benefit.title}</span>
-                </div>
-                
-                {/* Details */}
-                <div className="benefit-col-desc" style={{ flex: 1, paddingLeft: '16px', color: '#4b5563', lineHeight: 1.45, fontWeight: 500 }}>
-                  {benefit.desc}
-                </div>
+              <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: '#F3F0EE', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '18px' }}>
+                <card.icon size={22} color="#141413" />
+              </div>
+              <h3 style={{ fontSize: '20px', fontWeight: 500, letterSpacing: '-0.02em', color: '#141413', margin: '0 0 10px' }}>{card.title}</h3>
+              <p style={{ fontSize: '14px', fontWeight: 450, color: '#565656', lineHeight: 1.5, margin: '0 0 18px' }}>{card.desc}</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#141413', fontSize: '14px', fontWeight: 500 }}>
+                <span>{card.action}</span>
+                <ArrowRight size={15} />
               </div>
             </div>
           ))}
         </div>
+      </section>
+      </section>
 
-        {/* Sharbee Tip Banner */}
-        <div style={{
-          marginTop: '24px',
-          padding: '20px',
-          borderRadius: '20px',
-          backgroundColor: 'rgba(95, 92, 230, 0.04)',
-          border: '1px dashed rgba(95, 92, 230, 0.25)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '16px',
-          textAlign: 'left'
-        }}>
-          <img 
-            src="/sharbee/sharbee8.png" 
-            alt="Sharbee recommendation" 
-            style={{ width: '64px', height: '64px', objectFit: 'contain', flexShrink: 0 }}
-          />
+      {/* ===== VISION A. 문제 정의 ===== */}
+      <section style={{ maxWidth: '1120px', margin: '0 auto', padding: '76px 28px 44px', position: 'relative', zIndex: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '40px', alignItems: 'start' }}>
           <div>
-            <h4 style={{ fontSize: '14px', fontWeight: 800, color: '#5f5ce6', margin: '0 0 4px 0' }}>
-              {lang === 'ko' ? '🐝 스탬프 요정 샤비의 한마디!' : '🐝 A quick word from Sharbee!'}
-            </h4>
-            <p style={{ fontSize: '12.5px', color: '#4b5563', margin: 0, fontWeight: 500, lineHeight: 1.45 }}>
-              {lang === 'ko' 
-                ? '낙전으로 사라지던 스탬프가 가치 있는 포인트와 기부금으로 순환되면, 매장 단골 고객이 2.5배 더 자주 방문해요! 샤비와 함께 따뜻하고 현명한 매장을 만들어봐요.' 
-                : 'When loose stamps circulate as valuable points and donations, store loyalty visits increase by 2.5x! Let’s build a warmer and smarter store together with Sharbee.'}
-            </p>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+              <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#CF4500' }} />
+              <span style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', color: '#696969' }}>{viz.problem.eyebrow}</span>
+            </div>
+            <h2 style={{ fontSize: 'clamp(28px, 4vw, 40px)', fontWeight: 500, letterSpacing: '-0.03em', lineHeight: 1.12, color: '#141413', margin: 0, whiteSpace: 'pre-line' }}>{viz.problem.title}</h2>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', paddingTop: '6px' }}>
+            {viz.problem.points.map((p, i) => (
+              <div key={i} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                <span style={{ flexShrink: 0, marginTop: '1px', color: '#CF4500' }}><ArrowRight size={18} /></span>
+                <span style={{ fontSize: '16px', fontWeight: 450, lineHeight: 1.5, color: '#262627' }}>{p}</span>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* Feature Philosophy Detailed Section - Compact for Mobile */}
-      <section style={{
-        maxWidth: '800px',
-        margin: '0 auto',
-        padding: '0 20px',
-        position: 'relative',
-        zIndex: 10
-      }}>
-        <div style={{
-          textAlign: 'center',
-          marginBottom: '36px'
-        }}>
-          <h2 style={{ fontSize: '24px', fontWeight: 900, letterSpacing: '-0.04em', color: '#1f1f24' }}>
-            {t.mechTitle}
+      {/* ===== VISION B. 노출 전략 (3 cards) ===== */}
+      <section style={{ maxWidth: '1120px', margin: '0 auto', padding: '44px 28px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#CF4500' }} />
+            <span style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', color: '#696969' }}>{viz.expose.eyebrow}</span>
+          </div>
+          <h2 style={{ fontSize: 'clamp(26px, 3.6vw, 36px)', fontWeight: 500, letterSpacing: '-0.03em', lineHeight: 1.15, color: '#141413', margin: 0 }}>{viz.expose.title}</h2>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(248px, 1fr))', gap: '20px' }}>
+          {viz.expose.cards.map(card => (
+            <div key={card.t} style={{ backgroundColor: '#FCFBFA', borderRadius: '24px', padding: '32px 28px', boxShadow: 'rgba(0,0,0,0.06) 0px 18px 40px 0px' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#F3F0EE', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
+                <card.icon size={24} color="#141413" />
+              </div>
+              <h3 style={{ fontSize: '20px', fontWeight: 500, letterSpacing: '-0.02em', color: '#141413', margin: '0 0 10px' }}>{card.t}</h3>
+              <p style={{ fontSize: '15px', fontWeight: 450, lineHeight: 1.55, color: '#565656', margin: 0 }}>{card.d}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ===== VISION D. 콘텐츠 메커니즘 (2 cards) ===== */}
+      <section style={{ maxWidth: '1120px', margin: '0 auto', padding: '44px 28px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#CF4500' }} />
+            <span style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', color: '#696969' }}>{viz.content.eyebrow}</span>
+          </div>
+          <h2 style={{ fontSize: 'clamp(26px, 3.6vw, 36px)', fontWeight: 500, letterSpacing: '-0.03em', lineHeight: 1.15, color: '#141413', margin: 0 }}>{viz.content.title}</h2>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', maxWidth: '760px', margin: '0 auto' }}>
+          {viz.content.cards.map(card => (
+            <div key={card.t} style={{ backgroundColor: '#FCFBFA', borderRadius: '24px', padding: '32px 28px', boxShadow: 'rgba(0,0,0,0.06) 0px 18px 40px 0px' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#F3F0EE', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
+                <card.icon size={24} color="#141413" />
+              </div>
+              <h3 style={{ fontSize: '20px', fontWeight: 500, letterSpacing: '-0.02em', color: '#141413', margin: '0 0 10px' }}>{card.t}</h3>
+              <p style={{ fontSize: '15px', fontWeight: 450, lineHeight: 1.55, color: '#565656', margin: 0 }}>{card.d}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ===== VISION E. 동기 (7 stamps) ===== */}
+      <section style={{ maxWidth: '900px', margin: '0 auto', padding: '52px 28px', textAlign: 'center' }}>
+        <div style={{ fontSize: 'clamp(96px, 16vw, 160px)', fontWeight: 500, letterSpacing: '-0.05em', lineHeight: 0.9, color: '#141413' }}>{viz.motive.big}</div>
+        <div style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '0.3em', color: '#CF4500', marginBottom: '24px' }}>{viz.motive.label}</div>
+        <h2 style={{ fontSize: 'clamp(24px, 3.4vw, 32px)', fontWeight: 500, letterSpacing: '-0.02em', color: '#141413', margin: '0 0 14px' }}>{viz.motive.title}</h2>
+        <p style={{ fontSize: '17px', fontWeight: 450, lineHeight: 1.5, color: '#565656', maxWidth: '560px', margin: '0 auto' }}>{viz.motive.desc}</p>
+      </section>
+
+      {/* ===== VISION F. 경제 모델의 역설 (3 cards) ===== */}
+      <section style={{ maxWidth: '1120px', margin: '0 auto', padding: '44px 28px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#CF4500' }} />
+            <span style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', color: '#696969' }}>{viz.paradox.eyebrow}</span>
+          </div>
+          <h2 style={{ fontSize: 'clamp(26px, 3.6vw, 36px)', fontWeight: 500, letterSpacing: '-0.03em', lineHeight: 1.15, color: '#141413', margin: 0 }}>{viz.paradox.title}</h2>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(248px, 1fr))', gap: '20px' }}>
+          {viz.paradox.cards.map(card => (
+            <div key={card.t} style={{ backgroundColor: '#FCFBFA', borderRadius: '24px', padding: '32px 28px', boxShadow: 'rgba(0,0,0,0.06) 0px 18px 40px 0px' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#F3F0EE', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
+                <card.icon size={24} color="#141413" />
+              </div>
+              <h3 style={{ fontSize: '20px', fontWeight: 500, letterSpacing: '-0.02em', color: '#141413', margin: '0 0 10px' }}>{card.t}</h3>
+              <p style={{ fontSize: '15px', fontWeight: 450, lineHeight: 1.55, color: '#565656', margin: 0 }}>{card.d}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ===== VISION G. 사회적 가치화 (3 cards) ===== */}
+      <section style={{ maxWidth: '1120px', margin: '0 auto', padding: '44px 28px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#CF4500' }} />
+            <span style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', color: '#696969' }}>{viz.social.eyebrow}</span>
+          </div>
+          <h2 style={{ fontSize: 'clamp(26px, 3.6vw, 36px)', fontWeight: 500, letterSpacing: '-0.03em', lineHeight: 1.15, color: '#141413', margin: 0 }}>{viz.social.title}</h2>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(248px, 1fr))', gap: '20px' }}>
+          {viz.social.cards.map(card => (
+            <div key={card.t} style={{ backgroundColor: '#FCFBFA', borderRadius: '24px', padding: '32px 28px', boxShadow: 'rgba(0,0,0,0.06) 0px 18px 40px 0px' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#F3F0EE', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
+                <card.icon size={24} color="#141413" />
+              </div>
+              <h3 style={{ fontSize: '20px', fontWeight: 500, letterSpacing: '-0.02em', color: '#141413', margin: '0 0 10px' }}>{card.t}</h3>
+              <p style={{ fontSize: '15px', fontWeight: 450, lineHeight: 1.55, color: '#565656', margin: 0 }}>{card.d}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ===== VISION H & I. 게임화 & 실행 엔진 (2 cols) ===== */}
+      <section style={{ maxWidth: '1120px', margin: '0 auto', padding: '44px 28px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#CF4500' }} />
+            <span style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', color: '#696969' }}>{viz.engine.eyebrow}</span>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+          {[viz.engine.gam, viz.engine.staff].map(col => (
+            <div key={col.t} style={{ backgroundColor: '#FCFBFA', borderRadius: '24px', padding: '34px 30px', boxShadow: 'rgba(0,0,0,0.06) 0px 18px 40px 0px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px' }}>
+                <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: '#F3F0EE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <col.icon size={22} color="#141413" />
+                </div>
+                <h3 style={{ fontSize: '20px', fontWeight: 500, letterSpacing: '-0.02em', color: '#141413', margin: 0 }}>{col.t}</h3>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {col.items.map((it, i) => (
+                  <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                    <span style={{ flexShrink: 0, marginTop: '1px', color: '#CF4500' }}><ArrowRight size={16} /></span>
+                    <span style={{ fontSize: '15px', fontWeight: 450, lineHeight: 1.5, color: '#565656' }}>{it}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ===== VISION J. 선한 영향력의 무한 루프 (ink band) ===== */}
+      <section style={{ maxWidth: '1120px', margin: '0 auto', padding: '44px 28px' }}>
+        <div style={{ backgroundColor: '#141413', borderRadius: '40px', padding: 'clamp(44px, 7vw, 80px) 28px', textAlign: 'center' }}>
+          <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(243,240,238,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
+            <InfinityIcon size={30} color="#F3F0EE" />
+          </div>
+          <h2 style={{ fontSize: 'clamp(28px, 4.4vw, 44px)', fontWeight: 500, letterSpacing: '-0.03em', color: '#F3F0EE', margin: '0 0 16px' }}>{viz.loop.title}</h2>
+          <p style={{ fontSize: '16px', fontWeight: 450, lineHeight: 1.5, color: '#B4B0AB', maxWidth: '560px', margin: '0 auto 32px' }}>{viz.loop.desc}</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center', alignItems: 'center' }}>
+            {viz.loop.steps.map((s, i) => (
+              <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ padding: '9px 18px', borderRadius: '999px', border: '1px solid rgba(243,240,238,0.25)', color: '#F3F0EE', fontSize: '14px', fontWeight: 450 }}>{s}</span>
+                {i < viz.loop.steps.length - 1 && <ArrowRight size={16} color="#F37338" />}
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ===== VISION 생태계 혜택 요약 (table) ===== */}
+      <section style={{ maxWidth: '1120px', margin: '0 auto', padding: '44px 28px 80px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#CF4500' }} />
+            <span style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', color: '#696969' }}>{viz.table.eyebrow}</span>
+          </div>
+          <h2 style={{ fontSize: 'clamp(26px, 3.6vw, 36px)', fontWeight: 500, letterSpacing: '-0.03em', color: '#141413', margin: 0 }}>{viz.table.title}</h2>
+        </div>
+        <div style={{ backgroundColor: '#FCFBFA', borderRadius: '24px', overflow: 'hidden', boxShadow: 'rgba(0,0,0,0.06) 0px 18px 40px 0px' }}>
+          <div className="eco-row eco-head" style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1.5fr', gap: '16px', padding: '16px 28px', borderBottom: '1px solid #E8E2DA' }}>
+            {viz.table.col.map(c => (
+              <span key={c} style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '0.06em', color: '#696969' }}>{c}</span>
+            ))}
+          </div>
+          {viz.table.rows.map((r, i) => (
+            <div key={r.who} className="eco-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1.5fr', gap: '16px', padding: '20px 28px', borderBottom: i < viz.table.rows.length - 1 ? '1px solid #EFEAE4' : 'none', alignItems: 'start' }}>
+              <span style={{ fontSize: '15px', fontWeight: 500, color: '#141413' }}>{r.who}</span>
+              <span style={{ fontSize: '14px', fontWeight: 450, lineHeight: 1.5, color: '#565656' }}>{r.benefit}</span>
+              <span style={{ fontSize: '14px', fontWeight: 450, lineHeight: 1.5, color: '#565656' }}>{r.result}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Ink Footer (Mastercard signature) */}
+      <footer style={{ backgroundColor: '#141413', color: '#FFFFFF', borderRadius: '40px 40px 0 0', marginTop: '40px', padding: 'clamp(48px, 7vw, 88px) 28px 56px' }}>
+        <div style={{ maxWidth: '1120px', margin: '0 auto' }}>
+          <h2 style={{ fontSize: 'clamp(28px, 4.2vw, 44px)', fontWeight: 500, letterSpacing: '-0.03em', lineHeight: 1.12, color: '#F3F0EE', margin: '0 0 32px', maxWidth: '640px' }}>
+            {lang === 'ko' ? '동네 가게의 마케팅,\n손님과 함께 자라납니다.' : "Local marketing that grows\nwith your customers."}
           </h2>
-          <p style={{ color: '#52525b', fontSize: '13.5px', marginTop: '6px', fontWeight: 500 }}>
-            {t.mechSub}
-          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '48px' }}>
+            <button
+              onClick={() => navigateTo('#/store')}
+              style={{ padding: '13px 30px', borderRadius: '20px', border: '1.5px solid #F3F0EE', backgroundColor: '#F3F0EE', color: '#141413', fontSize: '15px', fontWeight: 500, letterSpacing: '-0.02em', cursor: 'pointer' }}
+            >
+              {t.btnStore}
+            </button>
+            <button
+              onClick={() => navigateTo('#/customer')}
+              style={{ padding: '13px 30px', borderRadius: '20px', border: '1.5px solid rgba(243,240,238,0.4)', backgroundColor: 'transparent', color: '#F3F0EE', fontSize: '15px', fontWeight: 450, letterSpacing: '-0.02em', cursor: 'pointer' }}
+            >
+              {t.btnCustomer}
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '28px', borderTop: '1px solid rgba(243,240,238,0.18)', paddingTop: '36px' }}>
+            {[
+              { h: lang === 'ko' ? '서비스' : 'Product', items: [{ t: t.card1Title, go: '#/customer' }, { t: t.card2Title, go: '#/kiosk' }, { t: lang === 'ko' ? '점주 대시보드' : 'Owner dashboard', go: '#/store' }] },
+              { h: lang === 'ko' ? '둘러보기' : 'Explore', items: [{ t: lang === 'ko' ? '가맹점' : 'Stores', go: '#/' }, { t: lang === 'ko' ? '본사 관리자' : 'HQ admin', go: '#/admin' }] },
+            ].map(col => (
+              <div key={col.h}>
+                <div style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '0.06em', color: '#888780', marginBottom: '14px' }}>{col.h}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {col.items.map(it => (
+                    <span key={it.t} onClick={() => navigateTo(it.go)} style={{ fontSize: '14px', fontWeight: 450, color: '#D3D1C7', cursor: 'pointer' }}>{it.t}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <div style={{ minWidth: '160px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '9px', marginBottom: '14px' }}>
+                <img src="/favicon.png" alt="ShareStamps" style={{ width: '26px', height: '26px', borderRadius: '50%', objectFit: 'contain' }} />
+                <span style={{ fontSize: '16px', fontWeight: 500, letterSpacing: '-0.03em', color: '#F3F0EE' }}>ShareStamps</span>
+              </div>
+              <p style={{ fontSize: '13px', fontWeight: 450, lineHeight: 1.5, color: '#888780', margin: 0 }}>
+                {lang === 'ko' ? '소상공인·고객·사회를 잇는 상생 마케팅 플랫폼' : 'A win-win marketing platform for shops, customers and community.'}
+              </p>
+            </div>
+          </div>
+          <div style={{ fontSize: '12px', color: '#696969', marginTop: '40px' }}>© {new Date().getFullYear()} ShareStamps</div>
         </div>
-
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '20px'
-        }}>
-          {/* Detail Item 1 */}
-          <div style={{
-            padding: '24px',
-            paddingRight: '76px', // space for mascot
-            borderRadius: '20px',
-            backgroundColor: '#ffffff',
-            border: '1px solid rgba(95, 92, 230, 0.1)',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.01)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px',
-            position: 'relative',
-            overflow: 'hidden'
-          }}>
-            <img 
-              src="/sharbee/sharbee2.png" 
-              alt="Sharbee" 
-              style={{
-                position: 'absolute',
-                right: '16px',
-                top: '16px',
-                width: '56px',
-                height: '56px',
-                objectFit: 'contain'
-              }}
-            />
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#5f5ce6' }}>
-              <Coins size={16} />
-              <span style={{ fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t.m1Badge}</span>
-            </div>
-            <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#1f1f24', margin: 0 }}>
-              {t.m1Title}
-            </h3>
-            <p style={{ color: '#52525b', fontSize: '13px', lineHeight: '1.55', margin: 0, fontWeight: 500 }}>
-              {t.m1Desc}
-            </p>
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '16px',
-              borderRadius: '16px',
-              backgroundColor: '#f8f9fc',
-              border: '1px solid rgba(95, 92, 230, 0.06)'
-            }}>
-              <div style={{ fontSize: '11.5px', color: '#5f5ce6', fontWeight: 800, marginBottom: '6px' }}>{t.m1Label}</div>
-              <div style={{ fontSize: '28px', fontWeight: 950, color: '#10b981' }}>$10.57</div>
-              <div style={{ fontSize: '10.5px', color: '#71717a', marginTop: '4px', fontWeight: 500 }}>{t.m1Sub}</div>
-            </div>
-          </div>
-
-          {/* Detail Item 2 */}
-          <div style={{
-            padding: '24px',
-            paddingRight: '76px', // space for mascot
-            borderRadius: '20px',
-            backgroundColor: '#ffffff',
-            border: '1px solid rgba(95, 92, 230, 0.1)',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.01)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px',
-            position: 'relative',
-            overflow: 'hidden'
-          }}>
-            <img 
-              src="/sharbee/sharbee3.png" 
-              alt="Sharbee" 
-              style={{
-                position: 'absolute',
-                right: '16px',
-                top: '16px',
-                width: '56px',
-                height: '56px',
-                objectFit: 'contain'
-              }}
-            />
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981' }}>
-              <Gift size={16} />
-              <span style={{ fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t.m2Badge}</span>
-            </div>
-            <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#1f1f24', margin: 0 }}>
-              {t.m2Title}
-            </h3>
-            <p style={{ color: '#52525b', fontSize: '13px', lineHeight: '1.55', margin: 0, fontWeight: 500 }}>
-              {t.m2Desc}
-            </p>
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px',
-              padding: '16px',
-              borderRadius: '16px',
-              backgroundColor: '#f8f9fc',
-              border: '1px solid rgba(95, 92, 230, 0.06)'
-            }}>
-              <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between', fontSize: '11.5px', color: '#71717a' }}>
-                <span>{t.m2Sender}</span>
-                <span style={{ color: '#1e1e24', fontWeight: 700 }}>010-1234-5678</span>
-              </div>
-              <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between', fontSize: '11.5px', color: '#71717a' }}>
-                <span>{t.m2Recip}</span>
-                <span style={{ color: '#1e1e24', fontWeight: 700 }}>010-5555-6666</span>
-              </div>
-              <div style={{ height: '1px', backgroundColor: 'rgba(95, 92, 230, 0.06)' }} />
-              <div style={{ textAlign: 'center', color: '#10b981', fontWeight: 800, fontSize: '12px' }}>
-                {t.m2Done}
-              </div>
-            </div>
-          </div>
-
-          {/* Detail Item 3 */}
-          <div style={{
-            padding: '24px',
-            paddingRight: '76px', // space for mascot
-            borderRadius: '20px',
-            backgroundColor: '#ffffff',
-            border: '1px solid rgba(95, 92, 230, 0.1)',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.01)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px',
-            position: 'relative',
-            overflow: 'hidden'
-          }}>
-            <img 
-              src="/sharbee/sharbee5.png" 
-              alt="Sharbee" 
-              style={{
-                position: 'absolute',
-                right: '16px',
-                top: '16px',
-                width: '56px',
-                height: '56px',
-                objectFit: 'contain'
-              }}
-            />
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444' }}>
-              <Heart size={16} fill="#ef4444" color="#ef4444" />
-              <span style={{ fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t.m3Badge}</span>
-            </div>
-            <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#1f1f24', margin: 0 }}>
-              {t.m3Title}
-            </h3>
-            <p style={{ color: '#52525b', fontSize: '13px', lineHeight: '1.55', margin: 0, fontWeight: 500 }}>
-              {t.m3Desc}
-            </p>
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '16px',
-              borderRadius: '16px',
-              backgroundColor: '#f8f9fc',
-              border: '1px solid rgba(95, 92, 230, 0.06)',
-              gap: '4px'
-            }}>
-              <span style={{ fontSize: '11.5px', color: '#71717a' }}>{t.m3Target}</span>
-              <span style={{ fontSize: '13.5px', fontWeight: 800, color: '#1e1e24' }}>{t.m3TargetName}</span>
-              <span style={{ fontSize: '15px', fontWeight: 900, color: '#ef4444', marginTop: '4px' }}>{t.m3Done}</span>
-            </div>
-          </div>
-        </div>
-      </section>
+      </footer>
 
       {/* Responsive Styles Injection */}
       <style>{`
