@@ -3155,47 +3155,58 @@ export const OwnerDashboard: React.FC = () => {
             </h3>
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'left', margin: '0 0 14px 0', lineHeight: 1.45 }}>
               {language === 'ko'
-                ? '손님이 자기 SNS에 우리 매장 리뷰를 올리고 제출한 링크입니다. 확인 후 승인/반려할 수 있어요. (반려해도 이미 지급된 스탬프는 회수되지 않습니다.)'
-                : 'Links customers submitted after posting our store on their own SNS. Verify or reject after checking.'}
+                ? '손님이 자기 SNS에 우리 매장 리뷰를 올린 기록입니다. 그 게시물 링크를 타고 들어온 방문이 잡히면 "게시 확인됨"으로 자동 표시됩니다. (인스타는 링크 추적이 막혀 "대기"로 남을 수 있어요.)'
+                : 'Records of customers sharing our store on their SNS. When a visit arrives via that post link, it is auto-marked "Post confirmed". (Instagram blocks link tracking, so it may stay "Pending".)'}
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '280px', overflowY: 'auto', paddingRight: '4px' }}>
               {(snsShareSubmissions || []).filter(s => s.storeId === selectedStoreId).length > 0 ? (
-                (snsShareSubmissions || []).filter(s => s.storeId === selectedStoreId).map(sub => (
-                  <div key={sub.id} style={{ padding: '12px', border: '1px solid var(--border-color)', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: '#F8F9FF', textAlign: 'left' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                        👤 @{sub.userNickname} · <span style={{ textTransform: 'capitalize' }}>{sub.platform}</span>
-                      </span>
-                      <span style={{
-                        fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '6px',
-                        backgroundColor: sub.status === 'verified' ? 'rgba(52,199,89,0.1)' : sub.status === 'rejected' ? 'rgba(226,75,74,0.1)' : 'rgba(142,142,147,0.12)',
-                        color: sub.status === 'verified' ? '#1D9E75' : sub.status === 'rejected' ? '#E24B4A' : '#8E8E93'
-                      }}>
-                        {sub.status === 'verified' ? (language === 'ko' ? '승인됨' : 'Verified') : sub.status === 'rejected' ? (language === 'ko' ? '반려됨' : 'Rejected') : (language === 'ko' ? '대기' : 'Pending')}
-                        {sub.stampAwarded ? ' · 🎯' : ''}
-                      </span>
+                (snsShareSubmissions || []).filter(s => s.storeId === selectedStoreId).map(sub => {
+                  const platLabelKo: Record<string, string> = { facebook: '페이스북', instagram: '인스타그램', threads: '스레드', x: 'X', linkedin: '링크드인', youtube: '유튜브', tiktok: '틱톡', blog: '블로그' };
+                  const verifiedByReferrer = sub.status === 'verified' && !!sub.verifiedPlatform;
+                  const platName = sub.verifiedPlatform ? (language === 'ko' ? (platLabelKo[sub.verifiedPlatform] || sub.verifiedPlatform) : sub.verifiedPlatform) : '';
+                  const statusLabel = verifiedByReferrer
+                    ? (language === 'ko' ? `✅ 게시 확인됨 (${platName})` : `✅ Post confirmed (${platName})`)
+                    : sub.status === 'verified'
+                      ? (language === 'ko' ? '✅ 승인됨' : '✅ Verified')
+                      : sub.status === 'rejected'
+                        ? (language === 'ko' ? '반려됨' : 'Rejected')
+                        : (language === 'ko' ? '⏳ 게시 확인 대기' : '⏳ Pending');
+                  const isOk = sub.status === 'verified';
+                  return (
+                    <div key={sub.id} style={{ padding: '12px', border: '1px solid var(--border-color)', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: '#F8F9FF', textAlign: 'left' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                          👤 @{sub.userNickname}
+                        </span>
+                        <span style={{
+                          fontSize: '10px', fontWeight: 800, padding: '3px 9px', borderRadius: '6px', whiteSpace: 'nowrap',
+                          backgroundColor: isOk ? 'rgba(52,199,89,0.1)' : sub.status === 'rejected' ? 'rgba(226,75,74,0.1)' : 'rgba(142,142,147,0.12)',
+                          color: isOk ? '#1D9E75' : sub.status === 'rejected' ? '#E24B4A' : '#8E8E93'
+                        }}>
+                          {statusLabel}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                          {new Date(sub.createdAt).toLocaleString()} · {language === 'ko' ? `유입 ${sub.referralVisits || 0}` : `${sub.referralVisits || 0} visits`}
+                        </span>
+                        {sub.status === 'pending' && (
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button onClick={() => verifySnsShare(sub.id, 'verified')} style={{ fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '6px', border: '1px solid #1D9E75', color: '#1D9E75', backgroundColor: '#fff', cursor: 'pointer' }}>
+                              {language === 'ko' ? '수동 승인' : 'Verify'}
+                            </button>
+                            <button onClick={() => verifySnsShare(sub.id, 'rejected')} style={{ fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '6px', border: '1px solid #E24B4A', color: '#E24B4A', backgroundColor: '#fff', cursor: 'pointer' }}>
+                              {language === 'ko' ? '반려' : 'Reject'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <a href={sub.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '11.5px', color: 'var(--primary-color)', wordBreak: 'break-all', textDecoration: 'underline' }}>
-                      {sub.url}
-                    </a>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{new Date(sub.createdAt).toLocaleString()}</span>
-                      {sub.status === 'pending' && (
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <button onClick={() => verifySnsShare(sub.id, 'verified')} style={{ fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '6px', border: '1px solid #1D9E75', color: '#1D9E75', backgroundColor: '#fff', cursor: 'pointer' }}>
-                            {language === 'ko' ? '승인' : 'Verify'}
-                          </button>
-                          <button onClick={() => verifySnsShare(sub.id, 'rejected')} style={{ fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '6px', border: '1px solid #E24B4A', color: '#E24B4A', backgroundColor: '#fff', cursor: 'pointer' }}>
-                            {language === 'ko' ? '반려' : 'Reject'}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '12px', padding: '16px 0', backgroundColor: 'var(--background-color)', borderRadius: '8px' }}>
-                  {language === 'ko' ? '아직 제출된 SNS 공유가 없습니다.' : 'No SNS shares submitted yet.'}
+                  {language === 'ko' ? '아직 SNS 공유 기록이 없습니다.' : 'No SNS shares yet.'}
                 </div>
               )}
             </div>

@@ -1,35 +1,85 @@
 import React, { useState, useEffect } from 'react';
 import { useDatabase } from '../../context/DatabaseContext';
-import { 
-  ArrowLeft, MapPin, Phone, Clock, Award, Star, Image as ImageIcon, Sparkles, MessageSquarePlus, X
+import {
+  ArrowLeft, MapPin, Phone, Clock, Award, Star, Image as ImageIcon, Sparkles, MessageSquarePlus, X, Send
 } from 'lucide-react';
 
 export const StoreMiniHome: React.FC = () => {
-  const { 
-    stores, 
-    reviews, 
-    addReview, 
-    donations, 
+  const {
+    stores,
+    reviews,
+    addReview,
+    donations,
     language,
+    currentUser,
+    submitSnsShare,
+    recordSnsReferral,
     setCustomerSelectedStoreId
   } = useDatabase();
 
-  const [storeId, setStoreId] = useState<string>(() => {
-    const hash = window.location.hash;
-    return hash.split('/').pop() || 'store_id_1';
-  });
+  const [sharingReviewId, setSharingReviewId] = useState<string | null>(null);
+  const [shareToast, setShareToast] = useState<string | null>(null);
+
+  // 내 리뷰를 내 SNS로 원탭 공유 → +1 스탬프 (하루 1장/매장).
+  // navigator.share는 클릭 직후 동기로(앞에 await 없이) 호출해야 공유 시트가 뜬다.
+  const shareReviewToSns = async (review: { id: string; storeId: string; comment: string; photoUrl?: string }, storeName: string) => {
+    const refLink = `${window.location.origin}/#/store-home/${review.storeId}?ref=${currentUser?.id || ''}`;
+    const caption = `${review.comment}\n\n📍 ${storeName}\n${refLink}`;
+    const nav = navigator as any;
+    let opened = false;
+    if (nav.share) {
+      setSharingReviewId(review.id);
+      try {
+        await nav.share({ title: storeName, text: caption, url: refLink });
+        opened = true;
+      } catch (e: any) {
+        setSharingReviewId(null);
+        if (e && e.name === 'AbortError') return; // 취소 → 스탬프 미지급
+      }
+      setSharingReviewId(null);
+    }
+    try { navigator.clipboard?.writeText(caption); } catch (e) { /* ignore */ }
+    const res = submitSnsShare(review.storeId, 'other', refLink);
+    const okMsg = res.stampAwarded ? (language === 'ko' ? 'SNS 공유 완료! 스탬프 1장 적립 🎉' : 'Shared! +1 stamp 🎉') : res.message;
+    setShareToast(
+      opened
+        ? okMsg
+        : (language === 'ko'
+            ? `이 브라우저는 공유창 미지원(폰/크롬에서 됨). 캡션 복사됨 — SNS에 붙여넣어 올려주세요.${res.stampAwarded ? ' (+1)' : ''}`
+            : `Share sheet not supported here. Caption copied — paste on your SNS.${res.stampAwarded ? ' (+1)' : ''}`)
+    );
+    setTimeout(() => setShareToast(null), opened ? 2800 : 4500);
+  };
+
+  // 해시에서 매장ID 추출 (?ref 같은 쿼리는 제거)
+  const parseStoreIdFromHash = () => ((window.location.hash.split('/').pop() || 'store_id_1').split('?')[0]);
+
+  const [storeId, setStoreId] = useState<string>(parseStoreIdFromHash);
 
   // Listen to hash changes in case of navigation
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
       if (hash.includes('store-home')) {
-        setStoreId(hash.split('/').pop() || 'store_id_1');
+        setStoreId(parseStoreIdFromHash());
       }
     };
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
+
+  // 공유 링크(?ref)를 타고 들어온 방문이면 → 게시 확인/유입 기록 (세션당 1회)
+  useEffect(() => {
+    const query = (window.location.hash.split('?')[1]) || '';
+    const ref = new URLSearchParams(query).get('ref');
+    if (!ref || !storeId) return;
+    const guardKey = `snsref_${ref}_${storeId}`;
+    if (sessionStorage.getItem(guardKey)) return;
+    let referrerHost = '';
+    try { referrerHost = document.referrer ? new URL(document.referrer).hostname : ''; } catch (e) { /* ignore */ }
+    sessionStorage.setItem(guardKey, '1');
+    recordSnsReferral(ref, storeId, referrerHost);
+  }, [storeId]);
 
   const store = stores.find(s => s.id === storeId) || stores[0] || {
     id: 'store_id_1',
@@ -534,16 +584,29 @@ export const StoreMiniHome: React.FC = () => {
                         </div>
                       </div>
                       
-                      {/* Rating stars */}
-                      <div style={{ display: 'flex', gap: '1px' }}>
-                        {Array.from({ length: 5 }).map((_, i) => (
-                          <Star 
-                            key={i} 
-                            size={12} 
-                            fill={i < review.rating ? '#ffb800' : 'none'} 
-                            color={i < review.rating ? '#ffb800' : '#e4e4e7'} 
-                          />
-                        ))}
+                      {/* Rating stars + 내 리뷰 공유 버튼 */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ display: 'flex', gap: '1px' }}>
+                          {Array.from({ length: 5 }).map((_, i) => (
+                            <Star
+                              key={i}
+                              size={12}
+                              fill={i < review.rating ? '#ffb800' : 'none'}
+                              color={i < review.rating ? '#ffb800' : '#e4e4e7'}
+                            />
+                          ))}
+                        </div>
+                        {currentUser && review.userId === currentUser.id && (
+                          <button
+                            type="button"
+                            disabled={sharingReviewId === review.id}
+                            onClick={() => shareReviewToSns(review, store.name)}
+                            title={language === 'ko' ? 'SNS에 공유하고 스탬프 받기' : 'Share to SNS for a stamp'}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 9px', borderRadius: '999px', border: '1px solid var(--primary-color)', backgroundColor: 'var(--primary-light)', color: 'var(--primary-color)', fontSize: '10.5px', fontWeight: 800, cursor: 'pointer' }}
+                          >
+                            <Send size={11} /> {language === 'ko' ? '공유 +1' : 'Share +1'}
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -845,6 +908,12 @@ export const StoreMiniHome: React.FC = () => {
               </button>
             </form>
           </div>
+        </div>
+      )}
+
+      {shareToast && (
+        <div style={{ position: 'fixed', left: '50%', bottom: '28px', transform: 'translateX(-50%)', backgroundColor: '#141413', color: '#fff', padding: '10px 18px', borderRadius: '999px', fontSize: '12.5px', fontWeight: 700, zIndex: 2000, boxShadow: '0 6px 20px rgba(0,0,0,0.25)', whiteSpace: 'nowrap' }}>
+          {shareToast}
         </div>
       )}
     </div>

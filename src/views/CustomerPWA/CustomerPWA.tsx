@@ -59,12 +59,58 @@ export const CustomerPWA: React.FC = () => {
     customerSelectedStoreId, setCustomerSelectedStoreId
   } = useDatabase();
 
-  // P1: SNS 공유 스탬프 제출 모달 상태
-  const [showSnsShareModal, setShowSnsShareModal] = useState<boolean>(false);
-  const [snsSharefPlatform, setSnsSharePlatform] = useState<'facebook' | 'instagram' | 'threads' | 'linkedin' | 'youtube' | 'tiktok' | 'google' | 'blog' | 'other'>('instagram');
-  const [snsShareUrl, setSnsShareUrl] = useState<string>('');
-  const [snsShareMsg, setSnsShareMsg] = useState<string | null>(null);
-  const [snsShareBusy, setSnsShareBusy] = useState<boolean>(false);
+  // SNS 공유: 리뷰 완료 후 원탭 네이티브 공유로 +1 스탬프
+  const [sharePrompt, setSharePrompt] = useState<{ storeId: string; storeName: string; comment: string; photoUrl?: string } | null>(null);
+  const [sharePromptFile, setSharePromptFile] = useState<File | null>(null);
+  const [sharing, setSharing] = useState<boolean>(false);
+
+  // 공유 프롬프트가 뜨면 이미지를 미리 File로 받아둔다 (클릭 시점엔 await 없이 바로 공유해야 시트가 뜸)
+  useEffect(() => {
+    let cancelled = false;
+    setSharePromptFile(null);
+    if (sharePrompt?.photoUrl) {
+      fetch(sharePrompt.photoUrl)
+        .then(r => r.blob())
+        .then(b => { if (!cancelled) setSharePromptFile(new File([b], 'review.jpg', { type: b.type || 'image/jpeg' })); })
+        .catch(() => { /* 이미지 없이도 공유 진행 */ });
+    }
+    return () => { cancelled = true; };
+  }, [sharePrompt]);
+
+  // 고객 자신의 SNS로 원탭 공유. navigator.share는 클릭 직후 동기로(앞에 await 없이) 호출해야 공유 시트가 뜬다.
+  const shareReviewToSns = async (opts: { storeId: string; storeName: string; comment: string; photoUrl?: string }, file?: File | null) => {
+    const refLink = `${window.location.origin}/#/store-home/${opts.storeId}?ref=${currentUser?.id || ''}`;
+    const caption = `${opts.comment}\n\n📍 ${opts.storeName}\n${refLink}`;
+    const nav = navigator as any;
+    let opened = false;
+    if (nav.share) {
+      const data: any = { title: opts.storeName, text: caption, url: refLink };
+      if (file && nav.canShare && nav.canShare({ files: [file] })) data.files = [file];
+      setSharing(true);
+      try {
+        await nav.share(data); // ← 첫 await여야 함 (앞에 await가 있으면 사용자 제스처가 만료돼 시트가 안 뜸)
+        opened = true;
+      } catch (e: any) {
+        setSharing(false);
+        if (e && e.name === 'AbortError') return; // 취소 → 스탬프 미지급
+        // 그 외(NotAllowedError 등) → 아래 폴백
+      }
+      setSharing(false);
+    }
+    try { navigator.clipboard?.writeText(caption); } catch (e) { /* ignore */ }
+    const res = submitSnsShare(opts.storeId, 'other', refLink);
+    const okMsg = res.stampAwarded
+      ? (language === 'ko' ? 'SNS 공유 완료! 스탬프 1장이 적립되었습니다 🎉' : 'Shared! +1 stamp 🎉')
+      : res.message;
+    setGiftingSuccessMessage(
+      opened
+        ? okMsg
+        : (language === 'ko'
+            ? `이 브라우저는 공유창을 지원하지 않아요(폰/크롬에서 열면 떠요). 캡션을 복사했으니 SNS에 붙여넣어 올려주세요.${res.stampAwarded ? ' (스탬프 1장 적립)' : ''}`
+            : `Share sheet isn't supported in this browser (works on phone/Chrome). Caption copied — paste it on your SNS.${res.stampAwarded ? ' (+1 stamp)' : ''}`)
+    );
+    setTimeout(() => setGiftingSuccessMessage(null), opened ? 2800 : 4500);
+  };
 
 
   const activeAds = adBanners.filter(ad => ad.status === 'active');
@@ -1615,16 +1661,13 @@ Human-like review body:`;
 
       setSharbeeSubmitting(false);
       setShowSharbeeReview(false);
-      setClaimMessage({ 
-        success: true, 
-        text: `${result.stampAwarded 
-          ? result.message 
-          : (language === 'ko' ? '\uB9AC\uBDF0\uAC00 \uBBF8\uB2C8\uD648\uD53C\uC5D0 \uB4F1\uB85D\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uC624\uB298 \uB9AC\uBDF0 \uC2A4\uD0EC\uD504\uB294 \uC774\uBBF8 \uBC1B\uC558\uC5B4\uC694.' : 'Review posted to mini-home. Review stamp already earned today.')}`
+      // \uB9AC\uBDF0 \uB4F1\uB85D \uC9C1\uD6C4 \u2192 "\uB0B4 SNS\uC5D0\uB3C4 \uC62C\uB9AC\uACE0 +1\uC7A5" \uC6D0\uD0ED \uACF5\uC720 \uD504\uB86C\uD504\uD2B8
+      setSharePrompt({
+        storeId: selectedStore.id,
+        storeName: selectedStore.name,
+        comment: sharbeeDraft.trim(),
+        photoUrl: sharbeePhotoUrl || undefined
       });
-      window.setTimeout(() => {
-        window.location.hash = `#/store-home/${selectedStore.id}`;
-      }, 1600);
-      setTimeout(() => setClaimMessage(null), 3500);
     } catch (error) {
       console.error('Sharbee media upload failed:', error);
       setSharbeeSubmitting(false);
@@ -2839,36 +2882,6 @@ Human-like review body:`;
                   <span>{language === 'ko' ? '\uC0E4\uBE44\uC640 \uB9AC\uBDF0 \uC4F0\uACE0 \uC2A4\uD0EC\uD504 \uBC1B\uAE30' : 'Write with Sharbee'}</span>
                 </button>
               )}
-              {!isUnassignedStoreView && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSnsShareUrl('');
-                    setSnsShareMsg(null);
-                    setSnsSharePlatform('instagram');
-                    setShowSnsShareModal(true);
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    borderRadius: '8px',
-                    border: '1px solid rgba(95, 92, 230, 0.35)',
-                    backgroundColor: 'rgba(95, 92, 230, 0.06)',
-                    color: 'var(--primary-color)',
-                    fontWeight: 800,
-                    fontSize: '12.5px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px'
-                  }}
-                >
-                  <Send size={16} />
-                  <span>{language === 'ko' ? '\uB0B4 SNS\uC5D0 \uACF5\uC720\uD558\uACE0 \uC2A4\uD0EC\uD504 \uBC1B\uAE30' : 'Share on my SNS for a stamp'}</span>
-                </button>
-              )}
             </div>
 
             {/* 박스 3 (캐시 사용 카드) */}
@@ -3733,82 +3746,42 @@ Human-like review body:`;
         </div>
       )}
 
-      {/* --- P1: SNS 공유 스탬프 제출 모달 --- */}
-      {showSnsShareModal && (
-        <div className="bottom-sheet-overlay" onClick={() => setShowSnsShareModal(false)} style={{ alignItems: 'center' }}>
+      {/* --- 리뷰 등록 후 SNS 공유 프롬프트 (원탭 공유로 +1장) --- */}
+      {sharePrompt && (
+        <div
+          className="bottom-sheet-overlay"
+          onClick={() => { const sid = sharePrompt.storeId; setSharePrompt(null); window.location.hash = `#/store-home/${sid}`; }}
+          style={{ alignItems: 'center' }}
+        >
           <div
             className="imin-card"
             onClick={e => e.stopPropagation()}
-            style={{ width: '88%', maxWidth: '330px', padding: '22px', borderRadius: 'var(--border-radius-lg)', display: 'flex', flexDirection: 'column', gap: '14px' }}
+            style={{ width: '88%', maxWidth: '330px', padding: '24px 22px', borderRadius: 'var(--border-radius-lg)', display: 'flex', flexDirection: 'column', gap: '14px', textAlign: 'center', alignItems: 'center' }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: 800, margin: 0, color: 'var(--primary-color)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Send size={16} /> {language === 'ko' ? '내 SNS 공유 인증' : 'Verify My SNS Share'}
-              </h3>
-              <button onClick={() => setShowSnsShareModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '13px' }}>
-                {language === 'ko' ? '닫기' : 'Close'}
-              </button>
+            <div style={{ width: '52px', height: '52px', borderRadius: '50%', backgroundColor: 'rgba(52,199,89,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <CheckCircle2 size={28} color="#34C759" />
             </div>
-
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
+            <h3 style={{ fontSize: '17px', fontWeight: 800, margin: 0, color: '#1c1c1e' }}>
+              {language === 'ko' ? '리뷰가 등록되었어요!' : 'Review posted!'}
+            </h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
               {language === 'ko'
-                ? `${selectedStore.name} 리뷰를 내 SNS에 올리고 그 게시물 링크를 붙여넣어 주세요. 매장당 하루 1장 스탬프를 드립니다.`
-                : `Post a review of ${selectedStore.name} on your SNS and paste the post link. 1 stamp per store per day.`}
+                ? '방금 만든 리뷰를 내 SNS(인스타·스레드·페북 등) 한 곳이라도 올리면 스탬프 1장을 더 드려요. 사진은 자동 첨부, 글은 복사돼 붙여넣기만 하면 됩니다.'
+                : 'Share this review to any of your SNS (Instagram, Threads, Facebook…) for 1 more stamp. The photo is attached and the caption is copied for you.'}
             </p>
-
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>{language === 'ko' ? '플랫폼' : 'Platform'}</label>
-              <select
-                value={snsSharefPlatform}
-                onChange={(e) => setSnsSharePlatform(e.target.value as typeof snsSharefPlatform)}
-                style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '4px', fontSize: '13px', fontWeight: 600 }}
-              >
-                <option value="instagram">Instagram</option>
-                <option value="facebook">Facebook</option>
-                <option value="threads">Threads</option>
-                <option value="linkedin">LinkedIn</option>
-                <option value="youtube">YouTube</option>
-                <option value="tiktok">TikTok</option>
-                <option value="google">Google</option>
-                <option value="blog">{language === 'ko' ? '블로그' : 'Blog'}</option>
-                <option value="other">{language === 'ko' ? '기타' : 'Other'}</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>{language === 'ko' ? '게시물 링크 (URL)' : 'Post link (URL)'}</label>
-              <input
-                type="url"
-                value={snsShareUrl}
-                onChange={(e) => { setSnsShareUrl(e.target.value); setSnsShareMsg(null); }}
-                placeholder="https://..."
-                className="imin-input"
-                style={{ marginTop: '4px', fontSize: '13px' }}
-              />
-            </div>
-
-            {snsShareMsg && (
-              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent-red)' }}>{snsShareMsg}</div>
-            )}
-
             <button
-              disabled={snsShareBusy}
-              onClick={() => {
-                setSnsShareBusy(true);
-                const res = submitSnsShare(selectedStore.id, snsSharefPlatform, snsShareUrl);
-                setSnsShareBusy(false);
-                if (res.success) {
-                  setShowSnsShareModal(false);
-                  setGiftingSuccessMessage(res.message);
-                  setTimeout(() => setGiftingSuccessMessage(null), 2500);
-                } else {
-                  setSnsShareMsg(res.message);
-                }
-              }}
+              disabled={sharing}
+              onClick={async () => { const sid = sharePrompt.storeId; await shareReviewToSns(sharePrompt, sharePromptFile); setSharePrompt(null); window.location.hash = `#/store-home/${sid}`; }}
               className="imin-btn imin-btn-primary"
-              style={{ padding: '12px', fontSize: '14px', fontWeight: 700 }}
+              style={{ width: '100%', padding: '13px', fontSize: '14px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
             >
-              {language === 'ko' ? '제출하고 스탬프 받기' : 'Submit & get stamp'}
+              <Send size={16} /> {language === 'ko' ? 'SNS에 공유하고 +1 스탬프' : 'Share & get +1 stamp'}
+            </button>
+            <button
+              onClick={() => { const sid = sharePrompt.storeId; setSharePrompt(null); window.location.hash = `#/store-home/${sid}`; }}
+              style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+            >
+              {language === 'ko' ? '나중에 할게요' : 'Maybe later'}
             </button>
           </div>
         </div>

@@ -248,6 +248,10 @@ export interface SnsShareSubmission {
   stampAwarded: boolean;
   createdAt: string;
   updatedAt?: string;
+  // 검증: 고객 게시물의 링크를 타고 들어온 방문(referrer)으로 "실제 게시" 확인
+  verifiedPlatform?: string; // referrer로 감지된 SNS (예: 'facebook')
+  verifiedAt?: string;
+  referralVisits?: number;   // 공유 링크를 통해 들어온 방문 수
 }
 
 
@@ -432,6 +436,7 @@ interface DatabaseContextProps {
   snsShareSubmissions: SnsShareSubmission[];
   submitSnsShare: (storeId: string, platform: SnsPlatform, url: string) => { success: boolean; stampAwarded: boolean; message: string };
   verifySnsShare: (submissionId: string, status: 'verified' | 'rejected') => void;
+  recordSnsReferral: (refUserId: string, storeId: string, referrerHost: string) => void;
   updateStoreMiniHome: (storeId: string, updates: Partial<Store>) => void;
   
   // 로그인 상태 및 디바이스
@@ -3310,6 +3315,44 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     updateDbState({ ...dbState, snsShareSubmissions: updated });
   };
 
+  // 공유 링크(?ref)를 타고 들어온 방문 기록. referrer가 SNS면 해당 공유를 "게시 확인됨"으로 검증.
+  const recordSnsReferral = (refUserId: string, storeId: string, referrerHost: string) => {
+    if (!dbState || !refUserId || !storeId) return;
+    // referrer 호스트 → SNS 플랫폼 매핑 (링크 클릭이 가능한 플랫폼 위주)
+    const detectPlatform = (host: string): string | null => {
+      const h = (host || '').toLowerCase();
+      if (!h) return null;
+      if (h.includes('facebook.com') || h.includes('fb.com') || h.includes('fb.me')) return 'facebook';
+      if (h.includes('threads.net') || h.includes('threads.com')) return 'threads';
+      if (h.includes('twitter.com') || h === 'x.com' || h.endsWith('.x.com') || h.includes('t.co')) return 'x';
+      if (h.includes('linkedin.com') || h.includes('lnkd.in')) return 'linkedin';
+      if (h.includes('youtube.com') || h.includes('youtu.be')) return 'youtube';
+      if (h.includes('tiktok.com')) return 'tiktok';
+      if (h.includes('instagram.com')) return 'instagram';
+      if (h.includes('blog') || h.includes('tistory') || h.includes('naver.com')) return 'blog';
+      return null;
+    };
+
+    const subs = (dbState.snsShareSubmissions || [])
+      .filter(s => s.userId === refUserId && s.storeId === storeId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    if (subs.length === 0) return;
+    const target = subs[0]; // 가장 최근 공유
+    const platform = detectPlatform(referrerHost);
+
+    const updated = (dbState.snsShareSubmissions || []).map(s => {
+      if (s.id !== target.id) return s;
+      const next = { ...s, referralVisits: (s.referralVisits || 0) + 1, updatedAt: getSkewCorrectedIsoString() };
+      if (platform && s.status === 'pending') {
+        next.status = 'verified';
+        next.verifiedPlatform = platform;
+        next.verifiedAt = getSkewCorrectedIsoString();
+      }
+      return next;
+    });
+    updateDbState({ ...dbState, snsShareSubmissions: updated });
+  };
+
   const deductStampsByOwner = (customerId: string, storeId: string, count: number) => {
     if (!dbState) return { success: false, message: 'DB Error' };
     const customer = dbState.users.find(u => u.id === customerId);
@@ -4482,6 +4525,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     snsShareSubmissions: dbState?.snsShareSubmissions || [],
     submitSnsShare,
     verifySnsShare,
+    recordSnsReferral,
     updateStoreMiniHome,
     giftCards: dbState?.giftCards || [],
     giftCardTransactions: dbState?.giftCardTransactions || [],
