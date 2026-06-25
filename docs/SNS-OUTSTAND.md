@@ -54,16 +54,27 @@ body: {
 - `netlify/functions/_outstand.mjs` — 어댑터(키는 `process.env.OUTSTAND_API_KEY`)
 - `netlify/functions/sns-connect-url.mjs` — 연결 URL 생성
 - `netlify/functions/sns-status.mjs` — 매장별 연결상태
-- `netlify/functions/sns-post.mjs` — 게시(검증된 형식으로 수정 완료)
+- `netlify/functions/sns-post.mjs` — 게시(검증된 형식). 응답에 `postedNetworks`(시도된 네트워크) 추가.
+- `src/lib/snsApi.ts` — **프런트 클라이언트 래퍼**. 함수 호출 + `SNS_PLATFORMS` 매핑(settingKey↔network↔shareKey),
+  `enabledNetworks()`, `requestSnsConnectUrl()`, `fetchSnsStatus()`, `postReviewToSns()`.
+- `OwnerDashboard.tsx` — ① 완료. 가짜 연동 패널 제거 → **실제 채널 연결 패널**(연동하기→authUrl 새 창,
+  새로고침→`fetchSnsStatus`로 실제 연결상태 표시). 위쪽 on/off 토글(`snsSettings`)은 자동게시 대상 선택용으로 유지.
+- `CustomerPWA.tsx` + `DatabaseContext.tsx` — ② 완료. 샤비 리뷰 등록 시 **Firebase 업로드 완료(공개 URL) 후**
+  `postReviewToSns` 호출. 결과를 새 DB 메서드 `updateReviewSnsShared(reviewId, snsShared)`로 리뷰에 기록
+  (실제 게시된 네트워크만 true). 미디어 없으면 텍스트로 바로 게시. blob 미리보기 URL은 Outstand가 못 읽으니 주의.
 - **`OUTSTAND_API_KEY` 는 Netlify 환경변수에 설정됨** (깃·번들엔 없음). ⚠️ **노출된 키라 나중에 재발급 교체 필요.**
 
 ## 다음 작업 (남은 것)
-1. **점주 대시보드**(`OwnerDashboard.tsx`) 의 가짜 "SNS 자동 배포" 카드 → **진짜 연동 UI**:
-   - "연동하기" → `POST /functions/sns-connect-url {storeId, network}` → 반환 `authUrl` 새 창으로 열기 (tenant_id=storeId 로 매장 분리)
-   - 연결 상태 → `GET /functions/sns-status?storeId=` 결과로 실제 표시 (가짜 "연동됨" 제거)
-2. **자동 게시**: 샤비 리뷰 등록 시 → `POST /functions/sns-post {storeId, content, mediaUrls:[리뷰사진URL], networks:[켜진것]}` 호출. `review.snsShared` 에 결과 저장(현재 항상 빈 객체).
-3. **배포**: functions 포함해 `netlify deploy --prod` (⚠️ 사용자 승인 후에만).
+1. ~~점주 대시보드 진짜 연동 UI~~ ✅ 완료 (위 참조).
+2. ~~리뷰 등록 시 자동 게시 배선~~ ✅ 완료 (위 참조). (개선여지: 현재 `postedNetworks`로 "시도됨"만 기록.
+   실제 published/failed는 비동기라, 필요하면 `GET /posts/{id}` 폴링으로 확정 상태 갱신.)
+3. **배포**: functions 포함해 `netlify deploy --prod` (⚠️ 사용자 승인 후에만). 미배포 상태에선 `/.netlify/functions/*`가
+   없어 대시보드 상태조회/게시가 조용히 실패(에러 표시)하는 게 정상 — 로컬 `npm run dev`만으론 검증 불가.
 4. **정리**: ShareStamps 페북/인스타에 올라간 테스트 글 삭제. 노출된 OUTSTAND_API_KEY 재발급.
+
+## 클라이언트 호출 경로
+프런트는 `src/lib/snsApi.ts`를 통해 `/.netlify/functions/{sns-connect-url,sns-status,sns-post}`를 호출한다
+(별도 `/functions/*` 리다이렉트는 두지 않음). 실패해도 throw 안 하고 success:false 로 처리해 리뷰 등록을 막지 않는다.
 
 ## 함정
 - 게시 함수가 `/posts/`(끝슬래시) + `accounts` + `media:[{filename,url,content_type}]` 형식이어야 함.

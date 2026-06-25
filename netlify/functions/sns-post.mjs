@@ -28,6 +28,7 @@ export const handler = async (event) => {
     list = list.filter((a) => networks.includes(a.network));
   }
   const accountIds = list.map((a) => a.id).filter(Boolean);
+  const postedNetworks = [...new Set(list.map((a) => a.network).filter(Boolean))];
   if (!accountIds.length) return json(400, { error: '이 매장에 연결된(또는 켜진) SNS 계정이 없습니다.' });
 
   // 미디어: 외부 공개 URL을 인라인 객체로 (인스타는 이미지 필수)
@@ -49,5 +50,5 @@ export const handler = async (event) => {
   if (!r.ok || r.data?.success === false) {
     return json(r.status || 502, { error: '게시 실패', details: r.data });
   }
-  return json(200, { success: true, postId: r.data?.post?.id, postedTo: accountIds.length });
+  return json(200, { success: true, postId: r.data?.post?.id, postedTo: accountIds.length, postedNetworks });
 };

@@ -433,6 +433,7 @@ interface DatabaseContextProps {
     }
   ) => { reviewId: string; stampAwarded: boolean; message: string };
   updateReviewMedia: (reviewId: string, media: { photoUrl?: string; videoUrl?: string }) => void;
+  updateReviewSnsShared: (reviewId: string, snsShared: StoreReview['snsShared']) => void;
   snsShareSubmissions: SnsShareSubmission[];
   submitSnsShare: (storeId: string, platform: SnsPlatform, url: string) => { success: boolean; stampAwarded: boolean; message: string };
   verifySnsShare: (submissionId: string, status: 'verified' | 'rejected') => void;
@@ -3188,6 +3189,29 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  // D3: 자동 SNS 게시 결과를 리뷰에 기록 (실제로 게시된 네트워크만 true). 게시는 비동기라 등록 직후 갱신.
+  const updateReviewSnsShared = (reviewId: string, snsShared: StoreReview['snsShared']) => {
+    if (!reviewId || !snsShared) return;
+    try {
+      const latestRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
+      const latestState = latestRaw ? JSON.parse(latestRaw) : dbState;
+      if (!latestState?.reviews) return;
+      if (!latestState.reviews.some((review: StoreReview) => review.id === reviewId)) return;
+
+      const updatedState = {
+        ...latestState,
+        reviews: latestState.reviews.map((review: StoreReview) => (
+          review.id === reviewId
+            ? { ...review, snsShared: { ...(review.snsShared || {}), ...snsShared } }
+            : review
+        ))
+      };
+      updateDbState(updatedState, true);
+    } catch (error) {
+      console.error('Failed to update review snsShared:', error);
+    }
+  };
+
   // P1: 손님이 자기 SNS에 매장 리뷰를 올리고 링크를 제출 → 매장당 하루 1장 스탬프 (명예 신고형 MVP)
   const submitSnsShare = (storeId: string, platform: SnsPlatform, url: string) => {
     if (!dbState || !currentUser) {
@@ -4522,6 +4546,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     reviews: dbState?.reviews || [],
     addReview,
     updateReviewMedia,
+    updateReviewSnsShared,
     snsShareSubmissions: dbState?.snsShareSubmissions || [],
     submitSnsShare,
     verifySnsShare,

@@ -3,6 +3,7 @@ import { useDatabase } from '../../context/DatabaseContext';
 import { Users, Award, Heart, Printer, ArrowRight, Clock, LogOut, Search, CreditCard, Tablet, Globe, Star, Upload, ImageIcon, X, Loader2 } from 'lucide-react';
 import { storage as firebaseStorage } from '../../firebase';
 import { getDownloadURL, ref as storageRef, uploadBytes, deleteObject } from 'firebase/storage';
+import { SNS_PLATFORMS, fetchSnsStatus, requestSnsConnectUrl } from '../../lib/snsApi';
 
 
 const formatInterval = (minutes: number, lang: string = 'ko') => {
@@ -56,6 +57,38 @@ export const OwnerDashboard: React.FC = () => {
   
   // 상태 관리
   const [approveCustomMessage, setApproveCustomMessage] = useState<string>('');
+
+  // SNS 실제 연동 상태 (Outstand, tenant_id = 매장ID)
+  const [snsConnected, setSnsConnected] = useState<string[]>([]);
+  const [snsLoading, setSnsLoading] = useState(false);
+  const [snsError, setSnsError] = useState('');
+  const [snsConnecting, setSnsConnecting] = useState<string>('');
+
+  const refreshSnsStatus = React.useCallback(() => {
+    if (!selectedStoreId) return;
+    setSnsLoading(true);
+    setSnsError('');
+    fetchSnsStatus(selectedStoreId)
+      .then((s) => setSnsConnected(s.connectedNetworks))
+      .catch((e) => setSnsError(e?.message || '상태 조회 실패'))
+      .finally(() => setSnsLoading(false));
+  }, [selectedStoreId]);
+
+  useEffect(() => { refreshSnsStatus(); }, [refreshSnsStatus]);
+
+  const handleSnsConnect = async (network: string) => {
+    if (!selectedStoreId) return;
+    setSnsConnecting(network);
+    setSnsError('');
+    try {
+      const authUrl = await requestSnsConnectUrl(selectedStoreId, network);
+      window.open(authUrl, '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      setSnsError((e as Error)?.message || '연결 URL 생성 실패');
+    } finally {
+      setSnsConnecting('');
+    }
+  };
 
   const pendingRequests = paymentRequests.filter(
     r => r.storeId === selectedStoreId && r.status === 'pending'
@@ -2534,537 +2567,100 @@ export const OwnerDashboard: React.FC = () => {
               })}
             </div>
 
-            {/* ⚙️ 자동 배포 채널 상세 설정 */}
-            <div style={{ 
-              backgroundColor: '#f8fafc', 
-              borderRadius: '12px', 
-              padding: '16px', 
-              border: '1px solid var(--border-color)', 
+            {/* ⚙️ 채널 연결 관리 (Outstand 실제 OAuth 연결 + 상태) */}
+            <div style={{
+              backgroundColor: '#f8fafc',
+              borderRadius: '12px',
+              padding: '16px',
+              border: '1px solid var(--border-color)',
               marginBottom: '24px',
               textAlign: 'left'
             }}>
-              <h4 style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 14px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                ⚙️ {language === 'ko' ? '자동 배포 및 크로스 포스팅 상세 설정' : 'Detailed Auto-Posting & Connection Settings'}
-              </h4>
-              
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
-                {/* Google Business Profile 설정 */}
-                <div style={{ 
-                  backgroundColor: 'white', 
-                  padding: '14px', 
-                  borderRadius: '10px', 
-                  border: '1px solid var(--border-color)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '10px',
-                  opacity: selectedStore.snsSettings?.googleEnabled ? 1 : 0.6
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      🏢 Google Business Profile
-                    </span>
-                    <span style={{ 
-                      fontSize: '10px', 
-                      fontWeight: 700, 
-                      color: selectedStore.snsConfig?.googleConnected ? '#34C759' : '#8e8e93',
-                      backgroundColor: selectedStore.snsConfig?.googleConnected ? 'rgba(52,199,89,0.1)' : 'rgba(142,142,147,0.1)',
-                      padding: '2px 6px',
-                      borderRadius: '4px'
-                    }}>
-                      {selectedStore.snsConfig?.googleConnected 
-                        ? (language === 'ko' ? '● 연동됨' : '● Connected') 
-                        : (language === 'ko' ? '○ 미연동' : '○ Not Connected')}
-                    </span>
-                  </div>
-                  
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                      {language === 'ko' ? '구글 플레이스 ID (Place ID)' : 'Google Place ID'}
-                    </label>
-                    <input 
-                      type="text" 
-                      placeholder="ChIJ3Ry... (Place ID)" 
-                      value={selectedStore.snsConfig?.googlePlaceId || ''}
-                      disabled={!selectedStore.snsSettings?.googleEnabled}
-                      onChange={(e) => {
-                        const config = selectedStore.snsConfig || {};
-                        updateStoreMiniHome(selectedStoreId, {
-                          snsConfig: { ...config, googlePlaceId: e.target.value }
-                        });
-                      }}
-                      className="imin-input"
-                      style={{ fontSize: '11px', padding: '6px 10px' }}
-                    />
-                  </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0 0 12px 0' }}>
+                <h4 style={{ fontSize: '13.5px', fontWeight: 800, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  ⚙️ {language === 'ko' ? '채널 연결 관리' : 'Channel Connections'}
+                </h4>
+                <button
+                  type="button"
+                  onClick={refreshSnsStatus}
+                  disabled={snsLoading}
+                  className="imin-btn"
+                  style={{ fontSize: '11px', padding: '5px 10px', backgroundColor: 'transparent', color: 'var(--primary-color)', border: '1px solid var(--border-color)' }}
+                >
+                  {snsLoading ? (language === 'ko' ? '확인 중…' : 'Checking…') : (language === 'ko' ? '↻ 새로고침' : '↻ Refresh')}
+                </button>
+              </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                      {language === 'ko' ? '리뷰 작성 다이렉트 링크' : 'Direct Review URL'}
-                    </label>
-                    <input 
-                      type="text" 
-                      placeholder="https://g.page/r/..." 
-                      value={selectedStore.snsConfig?.googleReviewUrl || ''}
-                      disabled={!selectedStore.snsSettings?.googleEnabled}
-                      onChange={(e) => {
-                        const config = selectedStore.snsConfig || {};
-                        updateStoreMiniHome(selectedStoreId, {
-                          snsConfig: { ...config, googleReviewUrl: e.target.value }
-                        });
-                      }}
-                      className="imin-input"
-                      style={{ fontSize: '11px', padding: '6px 10px' }}
-                    />
-                  </div>
-                  
-                  <button
-                    type="button"
-                    disabled={!selectedStore.snsSettings?.googleEnabled}
-                    onClick={() => {
-                      const config = selectedStore.snsConfig || {};
-                      const isConnected = !config.googleConnected;
-                      updateStoreMiniHome(selectedStoreId, {
-                        snsConfig: { 
-                          ...config, 
-                          googleConnected: isConnected,
-                          // 임시 연동 정보 채워주기
-                          googlePlaceId: isConnected ? (config.googlePlaceId || 'ChIJs8_8M62pfDURP_KqWc516mY') : '',
-                          googleReviewUrl: isConnected ? (config.googleReviewUrl || 'https://search.google.com/local/writereview?placeid=ChIJs8_8M62pfDURP_KqWc516mY') : ''
-                        }
-                      });
-                    }}
-                    className="imin-btn"
-                    style={{ 
-                      fontSize: '11px', 
-                      padding: '6px 10px', 
-                      marginTop: '4px',
-                      backgroundColor: selectedStore.snsConfig?.googleConnected ? 'rgba(255, 59, 48, 0.08)' : 'var(--primary-color)',
-                      color: selectedStore.snsConfig?.googleConnected ? 'var(--accent-red)' : 'white',
-                      border: selectedStore.snsConfig?.googleConnected ? '1px solid rgba(255,59,48,0.2)' : 'none'
-                    }}
-                  >
-                    {selectedStore.snsConfig?.googleConnected 
-                      ? (language === 'ko' ? '구글 계정 연동 해제' : 'Disconnect Google Account') 
-                      : (language === 'ko' ? '구글 계정 연동하기' : 'Connect Google Account')}
-                  </button>
+              <p style={{ fontSize: '11.5px', color: 'var(--text-secondary)', lineHeight: 1.45, margin: '0 0 14px 0' }}>
+                {language === 'ko'
+                  ? '"연동하기"를 누르면 해당 채널 로그인 창이 열립니다. 로그인·권한 허용 후 이 창으로 돌아와 "새로고침"을 누르면 연결 상태가 표시됩니다. (위 토글로 켠 채널만 자동 게시됩니다.)'
+                  : 'Click "Connect" to open that channel’s login. After authorizing, return here and click "Refresh". (Only channels toggled on above are auto-posted.)'}
+              </p>
+
+              {snsError && (
+                <div style={{ fontSize: '11.5px', color: 'var(--accent-red)', backgroundColor: 'rgba(255,59,48,0.08)', padding: '8px 10px', borderRadius: '8px', marginBottom: '12px' }}>
+                  {snsError}
                 </div>
+              )}
 
-                {/* Facebook / Instagram 설정 */}
-                <div style={{ 
-                  backgroundColor: 'white', 
-                  padding: '14px', 
-                  borderRadius: '10px', 
-                  border: '1px solid var(--border-color)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '10px',
-                  opacity: (selectedStore.snsSettings?.facebookEnabled || selectedStore.snsSettings?.instagramEnabled) ? 1 : 0.6
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      🔵 Meta (Facebook / IG)
-                    </span>
-                    <span style={{ 
-                      fontSize: '10px', 
-                      fontWeight: 700, 
-                      color: selectedStore.snsConfig?.facebookConnected ? '#34C759' : '#8e8e93',
-                      backgroundColor: selectedStore.snsConfig?.facebookConnected ? 'rgba(52,199,89,0.1)' : 'rgba(142,142,147,0.1)',
-                      padding: '2px 6px',
-                      borderRadius: '4px'
-                    }}>
-                      {selectedStore.snsConfig?.facebookConnected 
-                        ? (language === 'ko' ? '● 연동됨' : '● Connected') 
-                        : (language === 'ko' ? '○ 미연동' : '○ Not Connected')}
-                    </span>
-                  </div>
-                  
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                      {language === 'ko' ? '연동할 페이스북 페이지 ID' : 'Facebook Page ID'}
-                    </label>
-                    <input 
-                      type="text" 
-                      placeholder="102948... (Page ID)" 
-                      value={selectedStore.snsConfig?.facebookPageId || ''}
-                      disabled={!(selectedStore.snsSettings?.facebookEnabled || selectedStore.snsSettings?.instagramEnabled)}
-                      onChange={(e) => {
-                        const config = selectedStore.snsConfig || {};
-                        updateStoreMiniHome(selectedStoreId, {
-                          snsConfig: { ...config, facebookPageId: e.target.value }
-                        });
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+                {SNS_PLATFORMS.map((p) => {
+                  const isEnabled = selectedStore.snsSettings?.[p.settingKey as keyof typeof selectedStore.snsSettings] ?? false;
+                  const isConnected = snsConnected.includes(p.network);
+                  return (
+                    <div
+                      key={p.network}
+                      style={{
+                        backgroundColor: 'white',
+                        padding: '14px',
+                        borderRadius: '10px',
+                        border: '1px solid var(--border-color)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '10px',
+                        opacity: isEnabled ? 1 : 0.6
                       }}
-                      className="imin-input"
-                      style={{ fontSize: '11px', padding: '6px 10px' }}
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                      {language === 'ko' ? '페이스북 페이지 이름' : 'Facebook Page Name'}
-                    </label>
-                    <input 
-                      type="text" 
-                      placeholder="My Store Official" 
-                      value={selectedStore.snsConfig?.facebookPageName || ''}
-                      disabled={!(selectedStore.snsSettings?.facebookEnabled || selectedStore.snsSettings?.instagramEnabled)}
-                      onChange={(e) => {
-                        const config = selectedStore.snsConfig || {};
-                        updateStoreMiniHome(selectedStoreId, {
-                          snsConfig: { ...config, facebookPageName: e.target.value }
-                        });
-                      }}
-                      className="imin-input"
-                      style={{ fontSize: '11px', padding: '6px 10px' }}
-                    />
-                  </div>
-                  
-                  <button
-                    type="button"
-                    disabled={!(selectedStore.snsSettings?.facebookEnabled || selectedStore.snsSettings?.instagramEnabled)}
-                    onClick={() => {
-                      const config = selectedStore.snsConfig || {};
-                      const isConnected = !config.facebookConnected;
-                      updateStoreMiniHome(selectedStoreId, {
-                        snsConfig: { 
-                          ...config, 
-                          facebookConnected: isConnected,
-                          // 임시 연동 정보 채워주기
-                          facebookPageId: isConnected ? (config.facebookPageId || '1048291058291') : '',
-                          facebookPageName: isConnected ? (config.facebookPageName || selectedStore.name) : ''
-                        }
-                      });
-                    }}
-                    className="imin-btn"
-                    style={{ 
-                      fontSize: '11px', 
-                      padding: '6px 10px', 
-                      marginTop: '4px',
-                      backgroundColor: selectedStore.snsConfig?.facebookConnected ? 'rgba(255, 59, 48, 0.08)' : 'var(--primary-color)',
-                      color: selectedStore.snsConfig?.facebookConnected ? 'var(--accent-red)' : 'white',
-                      border: selectedStore.snsConfig?.facebookConnected ? '1px solid rgba(255,59,48,0.2)' : 'none'
-                    }}
-                  >
-                    {selectedStore.snsConfig?.facebookConnected 
-                      ? (language === 'ko' ? '페이스북 연동 해제' : 'Disconnect Facebook') 
-                      : (language === 'ko' ? '페이스북 연동하기' : 'Connect Facebook')}
-                  </button>
-                </div>
-
-                {/* Threads 설정 */}
-                <div style={{ 
-                  backgroundColor: 'white', 
-                  padding: '14px', 
-                  borderRadius: '10px', 
-                  border: '1px solid var(--border-color)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '10px',
-                  opacity: selectedStore.snsSettings?.threadsEnabled ? 1 : 0.6
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      💬 Threads Feed
-                    </span>
-                    <span style={{ 
-                      fontSize: '10px', 
-                      fontWeight: 700, 
-                      color: selectedStore.snsConfig?.threadsConnected ? '#34C759' : '#8e8e93',
-                      backgroundColor: selectedStore.snsConfig?.threadsConnected ? 'rgba(52,199,89,0.1)' : 'rgba(142,142,147,0.1)',
-                      padding: '2px 6px',
-                      borderRadius: '4px'
-                    }}>
-                      {selectedStore.snsConfig?.threadsConnected 
-                        ? (language === 'ko' ? '● 연동됨' : '● Connected') 
-                        : (language === 'ko' ? '○ 미연동' : '○ Not Connected')}
-                    </span>
-                  </div>
-                  
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                      {language === 'ko' ? '스레드 사용자 아이디' : 'Threads Username'}
-                    </label>
-                    <input 
-                      type="text" 
-                      placeholder="@username" 
-                      value={selectedStore.snsConfig?.threadsUsername || ''}
-                      disabled={!selectedStore.snsSettings?.threadsEnabled}
-                      onChange={(e) => {
-                        const config = selectedStore.snsConfig || {};
-                        updateStoreMiniHome(selectedStoreId, {
-                          snsConfig: { ...config, threadsUsername: e.target.value }
-                        });
-                      }}
-                      className="imin-input"
-                      style={{ fontSize: '11px', padding: '6px 10px' }}
-                    />
-                  </div>
-                  
-                  <button
-                    type="button"
-                    disabled={!selectedStore.snsSettings?.threadsEnabled}
-                    onClick={() => {
-                      const config = selectedStore.snsConfig || {};
-                      const isConnected = !config.threadsConnected;
-                      updateStoreMiniHome(selectedStoreId, {
-                        snsConfig: { 
-                          ...config, 
-                          threadsConnected: isConnected,
-                          threadsUsername: isConnected ? (config.threadsUsername || 'sharestamp_official') : ''
-                        }
-                      });
-                    }}
-                    className="imin-btn"
-                    style={{ 
-                      fontSize: '11px', 
-                      padding: '6px 10px', 
-                      marginTop: 'auto',
-                      backgroundColor: selectedStore.snsConfig?.threadsConnected ? 'rgba(255, 59, 48, 0.08)' : 'var(--primary-color)',
-                      color: selectedStore.snsConfig?.threadsConnected ? 'var(--accent-red)' : 'white',
-                      border: selectedStore.snsConfig?.threadsConnected ? '1px solid rgba(255,59,48,0.2)' : 'none'
-                    }}
-                  >
-                    {selectedStore.snsConfig?.threadsConnected 
-                      ? (language === 'ko' ? '스레드 연동 해제' : 'Disconnect Threads') 
-                      : (language === 'ko' ? '스레드 연동하기' : 'Connect Threads')}
-                  </button>
-                </div>
-
-                {/* LinkedIn 설정 */}
-                <div style={{ 
-                  backgroundColor: 'white', 
-                  padding: '14px', 
-                  borderRadius: '10px', 
-                  border: '1px solid var(--border-color)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '10px',
-                  opacity: selectedStore.snsSettings?.linkedinEnabled ? 1 : 0.6
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      💼 LinkedIn Post
-                    </span>
-                    <span style={{ 
-                      fontSize: '10px', 
-                      fontWeight: 700, 
-                      color: selectedStore.snsConfig?.linkedinConnected ? '#34C759' : '#8e8e93',
-                      backgroundColor: selectedStore.snsConfig?.linkedinConnected ? 'rgba(52,199,89,0.1)' : 'rgba(142,142,147,0.1)',
-                      padding: '2px 6px',
-                      borderRadius: '4px'
-                    }}>
-                      {selectedStore.snsConfig?.linkedinConnected 
-                        ? (language === 'ko' ? '● 연동됨' : '● Connected') 
-                        : (language === 'ko' ? '○ 미연동' : '○ Not Connected')}
-                    </span>
-                  </div>
-                  
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                      {language === 'ko' ? '링크드인 페이지 ID' : 'LinkedIn Page ID'}
-                    </label>
-                    <input 
-                      type="text" 
-                      placeholder="linkedin-page-1234" 
-                      value={selectedStore.snsConfig?.linkedinPageId || ''}
-                      disabled={!selectedStore.snsSettings?.linkedinEnabled}
-                      onChange={(e) => {
-                        const config = selectedStore.snsConfig || {};
-                        updateStoreMiniHome(selectedStoreId, {
-                          snsConfig: { ...config, linkedinPageId: e.target.value }
-                        });
-                      }}
-                      className="imin-input"
-                      style={{ fontSize: '11px', padding: '6px 10px' }}
-                    />
-                  </div>
-                  
-                  <button
-                    type="button"
-                    disabled={!selectedStore.snsSettings?.linkedinEnabled}
-                    onClick={() => {
-                      const config = selectedStore.snsConfig || {};
-                      const isConnected = !config.linkedinConnected;
-                      updateStoreMiniHome(selectedStoreId, {
-                        snsConfig: { 
-                          ...config, 
-                          linkedinConnected: isConnected,
-                          linkedinPageId: isConnected ? (config.linkedinPageId || 'urn:li:organization:729381') : ''
-                        }
-                      });
-                    }}
-                    className="imin-btn"
-                    style={{ 
-                      fontSize: '11px', 
-                      padding: '6px 10px', 
-                      marginTop: 'auto',
-                      backgroundColor: selectedStore.snsConfig?.linkedinConnected ? 'rgba(255, 59, 48, 0.08)' : 'var(--primary-color)',
-                      color: selectedStore.snsConfig?.linkedinConnected ? 'var(--accent-red)' : 'white',
-                      border: selectedStore.snsConfig?.linkedinConnected ? '1px solid rgba(255,59,48,0.2)' : 'none'
-                    }}
-                  >
-                    {selectedStore.snsConfig?.linkedinConnected 
-                      ? (language === 'ko' ? '링크드인 연동 해제' : 'Disconnect LinkedIn') 
-                      : (language === 'ko' ? '링크드인 연동하기' : 'Connect LinkedIn')}
-                  </button>
-                </div>
-
-                {/* YouTube 설정 */}
-                <div style={{ 
-                  backgroundColor: 'white', 
-                  padding: '14px', 
-                  borderRadius: '10px', 
-                  border: '1px solid var(--border-color)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '10px',
-                  opacity: selectedStore.snsSettings?.youtubeEnabled ? 1 : 0.6
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      🔴 YouTube Shorts
-                    </span>
-                    <span style={{ 
-                      fontSize: '10px', 
-                      fontWeight: 700, 
-                      color: selectedStore.snsConfig?.youtubeConnected ? '#34C759' : '#8e8e93',
-                      backgroundColor: selectedStore.snsConfig?.youtubeConnected ? 'rgba(52,199,89,0.1)' : 'rgba(142,142,147,0.1)',
-                      padding: '2px 6px',
-                      borderRadius: '4px'
-                    }}>
-                      {selectedStore.snsConfig?.youtubeConnected 
-                        ? (language === 'ko' ? '● 연동됨' : '● Connected') 
-                        : (language === 'ko' ? '○ 미연동' : '○ Not Connected')}
-                    </span>
-                  </div>
-                  
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                      {language === 'ko' ? '유튜브 채널 ID' : 'YouTube Channel ID'}
-                    </label>
-                    <input 
-                      type="text" 
-                      placeholder="UC-some-channel-id" 
-                      value={selectedStore.snsConfig?.youtubeChannelId || ''}
-                      disabled={!selectedStore.snsSettings?.youtubeEnabled}
-                      onChange={(e) => {
-                        const config = selectedStore.snsConfig || {};
-                        updateStoreMiniHome(selectedStoreId, {
-                          snsConfig: { ...config, youtubeChannelId: e.target.value }
-                        });
-                      }}
-                      className="imin-input"
-                      style={{ fontSize: '11px', padding: '6px 10px' }}
-                    />
-                  </div>
-                  
-                  <button
-                    type="button"
-                    disabled={!selectedStore.snsSettings?.youtubeEnabled}
-                    onClick={() => {
-                      const config = selectedStore.snsConfig || {};
-                      const isConnected = !config.youtubeConnected;
-                      updateStoreMiniHome(selectedStoreId, {
-                        snsConfig: { 
-                          ...config, 
-                          youtubeConnected: isConnected,
-                          youtubeChannelId: isConnected ? (config.youtubeChannelId || 'UCs7x56k9O-T3Zl9c8x9Y2fg') : ''
-                        }
-                      });
-                    }}
-                    className="imin-btn"
-                    style={{ 
-                      fontSize: '11px', 
-                      padding: '6px 10px', 
-                      marginTop: 'auto',
-                      backgroundColor: selectedStore.snsConfig?.youtubeConnected ? 'rgba(255, 59, 48, 0.08)' : 'var(--primary-color)',
-                      color: selectedStore.snsConfig?.youtubeConnected ? 'var(--accent-red)' : 'white',
-                      border: selectedStore.snsConfig?.youtubeConnected ? '1px solid rgba(255,59,48,0.2)' : 'none'
-                    }}
-                  >
-                    {selectedStore.snsConfig?.youtubeConnected 
-                      ? (language === 'ko' ? '유튜브 연동 해제' : 'Disconnect YouTube') 
-                      : (language === 'ko' ? '유튜브 연동하기' : 'Connect YouTube')}
-                  </button>
-                </div>
-
-                {/* TikTok 설정 */}
-                <div style={{ 
-                  backgroundColor: 'white', 
-                  padding: '14px', 
-                  borderRadius: '10px', 
-                  border: '1px solid var(--border-color)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '10px',
-                  opacity: selectedStore.snsSettings?.tiktokEnabled ? 1 : 0.6
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      🎵 TikTok Video
-                    </span>
-                    <span style={{ 
-                      fontSize: '10px', 
-                      fontWeight: 700, 
-                      color: selectedStore.snsConfig?.tiktokConnected ? '#34C759' : '#8e8e93',
-                      backgroundColor: selectedStore.snsConfig?.tiktokConnected ? 'rgba(52,199,89,0.1)' : 'rgba(142,142,147,0.1)',
-                      padding: '2px 6px',
-                      borderRadius: '4px'
-                    }}>
-                      {selectedStore.snsConfig?.tiktokConnected 
-                        ? (language === 'ko' ? '● 연동됨' : '● Connected') 
-                        : (language === 'ko' ? '○ 미연동' : '○ Not Connected')}
-                    </span>
-                  </div>
-                  
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                      {language === 'ko' ? '틱톡 사용자 이름' : 'TikTok Username'}
-                    </label>
-                    <input 
-                      type="text" 
-                      placeholder="@tiktok_user" 
-                      value={selectedStore.snsConfig?.tiktokUsername || ''}
-                      disabled={!selectedStore.snsSettings?.tiktokEnabled}
-                      onChange={(e) => {
-                        const config = selectedStore.snsConfig || {};
-                        updateStoreMiniHome(selectedStoreId, {
-                          snsConfig: { ...config, tiktokUsername: e.target.value }
-                        });
-                      }}
-                      className="imin-input"
-                      style={{ fontSize: '11px', padding: '6px 10px' }}
-                    />
-                  </div>
-                  
-                  <button
-                    type="button"
-                    disabled={!selectedStore.snsSettings?.tiktokEnabled}
-                    onClick={() => {
-                      const config = selectedStore.snsConfig || {};
-                      const isConnected = !config.tiktokConnected;
-                      updateStoreMiniHome(selectedStoreId, {
-                        snsConfig: { 
-                          ...config, 
-                          tiktokConnected: isConnected,
-                          tiktokUsername: isConnected ? (config.tiktokUsername || 'sharestamp_tiktok') : ''
-                        }
-                      });
-                    }}
-                    className="imin-btn"
-                    style={{ 
-                      fontSize: '11px', 
-                      padding: '6px 10px', 
-                      marginTop: 'auto',
-                      backgroundColor: selectedStore.snsConfig?.tiktokConnected ? 'rgba(255, 59, 48, 0.08)' : 'var(--primary-color)',
-                      color: selectedStore.snsConfig?.tiktokConnected ? 'var(--accent-red)' : 'white',
-                      border: selectedStore.snsConfig?.tiktokConnected ? '1px solid rgba(255,59,48,0.2)' : 'none'
-                    }}
-                  >
-                    {selectedStore.snsConfig?.tiktokConnected 
-                      ? (language === 'ko' ? '틱톡 연동 해제' : 'Disconnect TikTok') 
-                      : (language === 'ko' ? '틱톡 연동하기' : 'Connect TikTok')}
-                  </button>
-                </div>
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          {p.icon} {p.label}
+                        </span>
+                        <span style={{
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          color: isConnected ? '#34C759' : '#8e8e93',
+                          backgroundColor: isConnected ? 'rgba(52,199,89,0.1)' : 'rgba(142,142,147,0.1)',
+                          padding: '2px 6px',
+                          borderRadius: '4px'
+                        }}>
+                          {isConnected
+                            ? (language === 'ko' ? '● 연동됨' : '● Connected')
+                            : (language === 'ko' ? '○ 미연동' : '○ Not Connected')}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={snsConnecting === p.network}
+                        onClick={() => handleSnsConnect(p.network)}
+                        className="imin-btn"
+                        style={{
+                          fontSize: '11px',
+                          padding: '6px 10px',
+                          marginTop: 'auto',
+                          backgroundColor: isConnected ? 'rgba(95,92,230,0.08)' : 'var(--primary-color)',
+                          color: isConnected ? 'var(--primary-color)' : 'white',
+                          border: isConnected ? '1px solid var(--border-color)' : 'none'
+                        }}
+                      >
+                        {snsConnecting === p.network
+                          ? (language === 'ko' ? '여는 중…' : 'Opening…')
+                          : isConnected
+                            ? (language === 'ko' ? '다시 연동' : 'Reconnect')
+                            : (language === 'ko' ? '연동하기' : 'Connect')}
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 

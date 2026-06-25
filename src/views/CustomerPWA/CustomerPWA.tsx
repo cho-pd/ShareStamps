@@ -25,6 +25,7 @@ const formatUSPhoneNumber = (value: string) => {
 };
 import { useDatabase } from '../../context/DatabaseContext';
 import type { User } from '../../context/DatabaseContext';
+import { postReviewToSns, enabledNetworks } from '../../lib/snsApi';
 import { playVoiceGuidance } from '../../utils/voice';
 import { storage as firebaseStorage } from '../../firebase';
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
@@ -55,6 +56,7 @@ export const CustomerPWA: React.FC = () => {
     paymentRequests, requestPayment, cancelPaymentRequest,
     adBanners, stampTransactions, pointTransactions,
     users, gifts, acceptGift, declineGift, convertStampsToCash, addReview, updateReviewMedia,
+    updateReviewSnsShared,
     submitSnsShare,
     customerSelectedStoreId, setCustomerSelectedStoreId
   } = useDatabase();
@@ -1618,6 +1620,7 @@ Human-like review body:`;
       const photoToUpload = sharbeePhotoBlob;
       const videoToUpload = sharbeeVideoFile;
       const videoExtension = ((videoToUpload?.name.split('.').pop() || 'mp4').toLowerCase());
+      // snsShared 는 비워두고(빈 객체 X), 실제 자동게시가 끝난 뒤 게시된 네트워크만 기록한다.
       const result = addReview(
         selectedStore.id,
         sharbeeRating,
@@ -1626,16 +1629,22 @@ Human-like review body:`;
         true,
         sharbeeVideoUrl || undefined,
         sharbeeLogs.filter(log => log.sender === 'user').map((log, index) => ({ q: `Sharbee ${index + 1}`, a: log.text })),
-        {
-          facebook: selectedStore.snsSettings?.facebookEnabled ?? true,
-          instagram: selectedStore.snsSettings?.instagramEnabled ?? true,
-          threads: selectedStore.snsSettings?.threadsEnabled ?? true,
-          linkedin: selectedStore.snsSettings?.linkedinEnabled ?? false,
-          youtube: selectedStore.snsSettings?.youtubeEnabled ?? false,
-          tiktok: selectedStore.snsSettings?.tiktokEnabled ?? true,
-          google: selectedStore.snsSettings?.googleEnabled ?? true
-        }
+        undefined
       );
+
+      // D3: 매장의 공식 SNS 채널에 자동 게시. Outstand 는 공개 URL이 필요하므로 (blob 미리보기 X)
+      // Firebase 업로드가 끝난 뒤의 공개 URL로 게시한다. 미디어가 없으면 텍스트로 바로 게시.
+      const networks = enabledNetworks(selectedStore.snsSettings as Record<string, boolean> | undefined);
+      const reviewText = sharbeeDraft.trim();
+      const autoPost = (mediaUrls: string[]) => {
+        if (!result.reviewId || !networks.length) return;
+        postReviewToSns({ storeId: selectedStore.id, content: reviewText, mediaUrls, networks })
+          .then((r) => {
+            if (r.success && Object.keys(r.snsShared).length) {
+              updateReviewSnsShared(result.reviewId, r.snsShared);
+            }
+          });
+      };
 
       if (result.reviewId && (photoToUpload || videoToUpload)) {
         Promise.allSettled([
@@ -1656,7 +1665,12 @@ Human-like review body:`;
               video: videoUploadResult
             });
           }
+          // 공개 URL 확보 후 자동게시 (사진 우선, 없으면 영상)
+          autoPost([uploadedPhotoUrl || uploadedVideoUrl].filter(Boolean) as string[]);
         });
+      } else {
+        // 미디어 없는 텍스트 리뷰는 바로 게시 (단, 인스타는 이미지 필수라 실패할 수 있음 → 서버가 건별 처리)
+        autoPost([]);
       }
 
       setSharbeeSubmitting(false);
