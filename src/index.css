@@ -236,6 +236,15 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  /* fixed 포지션 모달이 폰 화면(스크롤)이 아닌 폰 프레임 기준으로 고정되도록 컨테이닝 블록 생성 */
+  transform: translateZ(0);
+}
+
+/* 폰 내부 바텀시트/모달은 스크롤과 무관하게 폰 화면 중앙에 고정 표시 */
+.phone-frame-wrapper .bottom-sheet-overlay {
+  position: fixed;
+  align-items: center;
+  padding: 16px;
 }
 
 .phone-screen {
