@@ -57,62 +57,11 @@ export const CustomerPWA: React.FC = () => {
     adBanners, stampTransactions, pointTransactions,
     users, gifts, acceptGift, declineGift, convertStampsToCash, addReview, updateReviewMedia,
     updateReviewSnsShared,
-    submitSnsShare,
     customerSelectedStoreId, setCustomerSelectedStoreId
   } = useDatabase();
 
-  // SNS 공유: 리뷰 완료 후 원탭 네이티브 공유로 +1 스탬프
+  // 리뷰 등록 후 안내 팝업 (SNS 공유 유도). 실제 공유/스탬프는 리뷰 화면의 '내 SNS에 연결' 버튼에서 처리한다.
   const [sharePrompt, setSharePrompt] = useState<{ storeId: string; storeName: string; comment: string; photoUrl?: string } | null>(null);
-  const [sharePromptFile, setSharePromptFile] = useState<File | null>(null);
-  const [sharing, setSharing] = useState<boolean>(false);
-
-  // 공유 프롬프트가 뜨면 이미지를 미리 File로 받아둔다 (클릭 시점엔 await 없이 바로 공유해야 시트가 뜸)
-  useEffect(() => {
-    let cancelled = false;
-    setSharePromptFile(null);
-    if (sharePrompt?.photoUrl) {
-      fetch(sharePrompt.photoUrl)
-        .then(r => r.blob())
-        .then(b => { if (!cancelled) setSharePromptFile(new File([b], 'review.jpg', { type: b.type || 'image/jpeg' })); })
-        .catch(() => { /* 이미지 없이도 공유 진행 */ });
-    }
-    return () => { cancelled = true; };
-  }, [sharePrompt]);
-
-  // 고객 자신의 SNS로 원탭 공유. navigator.share는 클릭 직후 동기로(앞에 await 없이) 호출해야 공유 시트가 뜬다.
-  const shareReviewToSns = async (opts: { storeId: string; storeName: string; comment: string; photoUrl?: string }, file?: File | null) => {
-    const refLink = `${window.location.origin}/#/store-home/${opts.storeId}?ref=${currentUser?.id || ''}`;
-    const caption = `${opts.comment}\n\n📍 ${opts.storeName}\n${refLink}`;
-    const nav = navigator as any;
-    let opened = false;
-    if (nav.share) {
-      const data: any = { title: opts.storeName, text: caption, url: refLink };
-      if (file && nav.canShare && nav.canShare({ files: [file] })) data.files = [file];
-      setSharing(true);
-      try {
-        await nav.share(data); // ← 첫 await여야 함 (앞에 await가 있으면 사용자 제스처가 만료돼 시트가 안 뜸)
-        opened = true;
-      } catch (e: any) {
-        setSharing(false);
-        if (e && e.name === 'AbortError') return; // 취소 → 스탬프 미지급
-        // 그 외(NotAllowedError 등) → 아래 폴백
-      }
-      setSharing(false);
-    }
-    try { navigator.clipboard?.writeText(caption); } catch (e) { /* ignore */ }
-    const res = submitSnsShare(opts.storeId, 'other', refLink);
-    const okMsg = res.stampAwarded
-      ? (language === 'ko' ? 'SNS 공유 완료! 스탬프 1장이 적립되었습니다 🎉' : 'Shared! +1 stamp 🎉')
-      : res.message;
-    setGiftingSuccessMessage(
-      opened
-        ? okMsg
-        : (language === 'ko'
-            ? `이 브라우저는 공유창을 지원하지 않아요(폰/크롬에서 열면 떠요). 캡션을 복사했으니 SNS에 붙여넣어 올려주세요.${res.stampAwarded ? ' (스탬프 1장 적립)' : ''}`
-            : `Share sheet isn't supported in this browser (works on phone/Chrome). Caption copied — paste it on your SNS.${res.stampAwarded ? ' (+1 stamp)' : ''}`)
-    );
-    setTimeout(() => setGiftingSuccessMessage(null), opened ? 2800 : 4500);
-  };
 
 
   const activeAds = adBanners.filter(ad => ad.status === 'active');
@@ -3764,7 +3713,7 @@ Human-like review body:`;
       {sharePrompt && (
         <div
           className="bottom-sheet-overlay"
-          onClick={() => { const sid = sharePrompt.storeId; setSharePrompt(null); window.location.hash = `#/store-home/${sid}`; }}
+          onClick={() => { const sid = sharePrompt.storeId; setSharePrompt(null); window.location.hash = `#/store-home/${sid}?tab=reviews`; }}
           style={{ alignItems: 'center' }}
         >
           <div
@@ -3776,26 +3725,19 @@ Human-like review body:`;
               <CheckCircle2 size={28} color="#34C759" />
             </div>
             <h3 style={{ fontSize: '17px', fontWeight: 800, margin: 0, color: '#1c1c1e' }}>
-              {language === 'ko' ? '리뷰가 등록되었어요!' : 'Review posted!'}
+              {language === 'ko' ? '리뷰가 등록됐어요!' : 'Review posted!'}
             </h3>
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
               {language === 'ko'
-                ? '방금 만든 리뷰를 내 SNS(인스타·스레드·페북 등) 한 곳이라도 올리면 스탬프 1장을 더 드려요. 사진은 자동 첨부, 글은 복사돼 붙여넣기만 하면 됩니다.'
-                : 'Share this review to any of your SNS (Instagram, Threads, Facebook…) for 1 more stamp. The photo is attached and the caption is copied for you.'}
+                ? '작성해 주셔서 감사해요. 이 리뷰를 내 SNS에도 공유하면 스탬프 1장을 더 받을 수 있어요. 리뷰 화면에서 \'내 SNS에 연결\' 버튼을 눌러 주세요.'
+                : 'Thanks for your review. Share it to your own SNS for 1 more stamp — tap the "Connect SNS" button on your review.'}
             </p>
             <button
-              disabled={sharing}
-              onClick={async () => { const sid = sharePrompt.storeId; await shareReviewToSns(sharePrompt, sharePromptFile); setSharePrompt(null); window.location.hash = `#/store-home/${sid}`; }}
+              onClick={() => { const sid = sharePrompt.storeId; setSharePrompt(null); window.location.hash = `#/store-home/${sid}?tab=reviews`; }}
               className="imin-btn imin-btn-primary"
               style={{ width: '100%', padding: '13px', fontSize: '14px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
             >
-              <Send size={16} /> {language === 'ko' ? 'SNS에 공유하고 +1 스탬프' : 'Share & get +1 stamp'}
-            </button>
-            <button
-              onClick={() => { const sid = sharePrompt.storeId; setSharePrompt(null); window.location.hash = `#/store-home/${sid}`; }}
-              style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
-            >
-              {language === 'ko' ? '나중에 할게요' : 'Maybe later'}
+              {language === 'ko' ? '리뷰 확인하기' : 'View my review'}
             </button>
           </div>
         </div>

@@ -1887,9 +1887,9 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // \uC2A4\uD0EC\uD504 \uC801\uB9BD \uC77C\uC77C \uD55C\uB3C4 (\uB9E4\uC7A5\uBCC4 / \uD604\uC9C0 \uC790\uC815 0\uC2DC \uAE30\uC900 \uB9AC\uC14B / \uC885\uB958\uBCC4 \uB3C5\uB9BD)
-  const QR_DAILY_LIMIT = 3;      // QR \uC801\uB9BD: \uB9E4\uC7A5\uB2F9 \uD558\uB8E8 3\uC7A5 (\uC778\uD130\uBC8C \uD0C0\uC784 \uBCC4\uB3C4 \uC801\uC6A9)
-  const REVIEW_DAILY_LIMIT = 1;  // \uB9AC\uBDF0 \uC791\uC131: \uB9E4\uC7A5\uB2F9 \uD558\uB8E8 1\uC7A5
-  const SNS_DAILY_LIMIT = 1;     // SNS \uACF5\uC720: \uB9E4\uC7A5\uB2F9 \uD558\uB8E8 1\uC7A5
+  const QR_DAILY_LIMIT = 2;      // QR \uC801\uB9BD: \uB9E4\uC7A5\uB2F9 \uD558\uB8E8 3\uC7A5 (\uC778\uD130\uBC8C \uD0C0\uC784 \uBCC4\uB3C4 \uC801\uC6A9)
+  const REVIEW_DAILY_LIMIT = 2;  // \uB9AC\uBDF0 \uC791\uC131: \uB9E4\uC7A5\uB2F9 \uD558\uB8E8 1\uC7A5
+  const SNS_DAILY_LIMIT = 2;     // SNS \uACF5\uC720: \uB9E4\uC7A5\uB2F9 \uD558\uB8E8 1\uC7A5
 
   // \uD2B9\uC815 \uC720\uC800\uAC00 \uD2B9\uC815 \uB9E4\uC7A5\uC5D0\uC11C \uC624\uB298(\uD604\uC9C0 \uC790\uC815 \uAE30\uC900) \uD574\uB2F9 \uC18C\uC2A4\uB85C \uC801\uB9BD\uD55C \uC2A4\uD0EC\uD504 \uC218
   const getDailyStoreStampCount = (
@@ -1911,6 +1911,26 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const created = new Date(t.createdAt).getTime();
       return created >= start && created < end;
     }).reduce((sum, t) => sum + t.amount, 0);
+  };
+
+  // 종류별 재적립 인터벌 체크. 방문(QR)·리뷰·SNS 모두 점주가 정한 store.earningIntervalMinutes 를
+  // "종류별로" 적용한다 → 한 방문에 방문·리뷰·SNS 각 1장(최대 3장), 인터벌(=실제 재방문) 뒤 다시 가능.
+  // 차단 중이면 남은 분, 통과면 0 을 돌려준다.
+  const getIntervalRemaining = (
+    txList: StampTransaction[],
+    userId: string,
+    storeId: string,
+    source: NonNullable<StampTransaction['source']>,
+    intervalMinutes: number
+  ) => {
+    if (!(intervalMinutes > 0)) return 0;
+    const last = txList
+      .filter(t => t.userId === userId && t.storeId === storeId && t.type === 'earn' && t.amount > 0 &&
+        (source === 'receipt_qr' ? (t.source === 'receipt_qr' || !t.source) : t.source === source))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+    if (!last) return 0;
+    const diff = Math.floor((Date.now() - new Date(last.createdAt).getTime()) / 60000);
+    return diff < intervalMinutes ? (intervalMinutes - diff) : 0;
   };
 
   const getDailyLimitMessage = (kind: 'qr' | 'review' | 'sns') => {
@@ -3086,12 +3106,15 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     let newStampTxs = [...dbState.stampTransactions];
     let stampAwarded = false;
 
-    if (isAIContent && currentUser) {
-      // 리뷰 스탬프: 매장당 하루 1장 (현지 자정 기준 리셋)
+    if (currentUser) {
+      // 리뷰 스탬프: 샤비·미니홈피 통합. 매장당 하루 REVIEW_DAILY_LIMIT 장 + 점주 인터벌(종류별) 적용.
+      const reviewStore = dbState.stores.find(s => s.id === storeId);
+      const reviewIntervalMin = typeof reviewStore?.earningIntervalMinutes === 'number' ? reviewStore.earningIntervalMinutes : 60;
+      const reviewIntervalRemaining = getIntervalRemaining(newStampTxs, currentUser.id, storeId, 'ai_review', reviewIntervalMin);
       const reviewTodayCount = getDailyStoreStampCount(newStampTxs, currentUser.id, storeId, 'ai_review');
       const cardIdx = updatedCards.findIndex(c => c.userId === currentUser.id && c.storeId === storeId);
       const current = cardIdx > -1 ? updatedCards[cardIdx].currentStamps : 0;
-      const shouldAwardReviewStamp = current < 7 && reviewTodayCount < REVIEW_DAILY_LIMIT;
+      const shouldAwardReviewStamp = current < 7 && reviewIntervalRemaining === 0 && reviewTodayCount < REVIEW_DAILY_LIMIT;
       if (shouldAwardReviewStamp) {
         const store = dbState.stores.find(s => s.id === storeId);
         const rewardPer7 = store ? store.pointRewardPer7Stamps : 5;
@@ -3238,6 +3261,15 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     // 매장당 하루 1장 한도 (현지 자정 기준)
+    // 점주 인터벌(종류별) 체크 — 방문/리뷰와 동일하게 store.earningIntervalMinutes 적용
+    const snsStore = dbState.stores.find(s => s.id === storeId);
+    const snsIntervalMin = typeof snsStore?.earningIntervalMinutes === 'number' ? snsStore.earningIntervalMinutes : 60;
+    const snsIntervalRemaining = getIntervalRemaining(dbState.stampTransactions, currentUser.id, storeId, 'sns_share', snsIntervalMin);
+    if (snsIntervalRemaining > 0) {
+      return { success: false, stampAwarded: false, message: language === 'ko'
+        ? `재적립 대기 중이에요. ${formatInterval(snsIntervalRemaining)} 후 다시 공유하면 적립돼요.`
+        : `Please wait ${formatInterval(snsIntervalRemaining, 'en')} before earning again.` };
+    }
     const snsTodayCount = getDailyStoreStampCount(dbState.stampTransactions, currentUser.id, storeId, 'sns_share');
     if (snsTodayCount >= SNS_DAILY_LIMIT) {
       return { success: false, stampAwarded: false, message: getDailyLimitMessage('sns') };

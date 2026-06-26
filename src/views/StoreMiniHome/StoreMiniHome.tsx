@@ -531,7 +531,7 @@ export const StoreMiniHome: React.FC = () => {
                   {currentUser && review.userId === currentUser.id && (
                     <button type="button" disabled={sharingReviewId === review.id} onClick={() => shareReviewToSns(review, store.name)} style={{ border: 'none', background: 'transparent', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', color: 'var(--primary-color)', fontSize: '12px', fontWeight: 800 }}>
                       <Send size={26} color="var(--primary-color)" />
-                      {language === 'ko' ? '공유 +1' : 'Share +1'}
+                      {language === 'ko' ? '내 SNS에 연결 +1' : 'Connect SNS +1'}
                     </button>
                   )}
                 </div>
@@ -911,7 +911,7 @@ export const StoreMiniHome: React.FC = () => {
                       {currentUser && review.userId === currentUser.id && (
                         <button type="button" disabled={sharingReviewId === review.id} onClick={() => shareReviewToSns(review, store.name)} style={{ border: 'none', background: 'transparent', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', color: 'var(--primary-color)', fontSize: '12px', fontWeight: 800 }}>
                           <Send size={26} color="var(--primary-color)" />
-                          {language === 'ko' ? '공유 +1' : 'Share +1'}
+                          {language === 'ko' ? '내 SNS에 연결 +1' : 'Connect SNS +1'}
                         </button>
                       )}
                     </div>
