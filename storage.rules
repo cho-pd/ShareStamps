@@ -1,0 +1,23 @@
+rules_version = '2';
+
+// Firebase Storage 보안 규칙 (운영 프로젝트: sharestamp-hcho-2606, 버킷: sharestamp-hcho-2606.firebasestorage.app)
+//
+// ⚠️ 이 규칙은 Firebase 콘솔에 "게시"된 규칙의 버전관리 사본이다. 콘솔에서 직접 바꾸면 이 파일과 어긋난다.
+//    리뷰 사진 업로드(고객앱 샤비 + 매장 미니홈피)가 이 규칙에 의존한다. 함부로 좁히면 사진/SNS 자동게시가 깨진다.
+//
+// 이 앱은 Firebase Auth 를 쓰지 않으므로(자체 세션) 익명 업로드를 허용하되,
+// reviews/ 경로 + 이미지/영상 + 15MB 미만으로 제한한 출시 전(MVP) 규칙이다.
+// (콘솔에 firebase CLI 설치 시 `firebase deploy --only storage` 로 이 파일을 배포 가능)
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /reviews/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.resource.size < 15 * 1024 * 1024
+                   && request.resource.contentType.matches('(image|video)/.*');
+    }
+    match /{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}

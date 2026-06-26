@@ -65,11 +65,20 @@ netlify deploy --prod --dir=dist
 - `.env`의 `VITE_GEMINI_API_KEY`는 Vite가 클라이언트 번들에 그대로 박아 노출시킨다.
   운영 전 서버 측 프록시로 옮기거나 도메인 제한 키로 교체 필요. (`.env`는 `.gitignore`에 등록돼 추적 안 됨)
 - `firebaseConfig.ts`의 Firebase 웹 config는 공개돼도 무방한 값이지만, Firestore **보안 규칙**으로
-  쓰기를 제한하는 것이 단일 공유 문서 구조에서 특히 중요하다(현재 규칙 파일은 저장소에 없음).
+  쓰기를 제한하는 것이 단일 공유 문서 구조에서 특히 중요하다(Firestore 규칙은 아직 저장소에 없음).
+- `OUTSTAND_API_KEY`(SNS 자동게시용)는 **Netlify 환경변수**에만 있고 번들/깃엔 없다. 단, 과거 테스트로
+  **노출된 키라 출시 전 재발급** 필요. (`netlify env:get OUTSTAND_API_KEY`로 확인 가능)
 
-### 5. 미완성/목업 기능 주의
-- 점주 대시보드의 "SNS 자동 배포/크로스 포스팅"은 **UI와 상태만 있고 실제 외부 연동은 없다.**
-  `review.snsShared`는 현재 항상 빈 객체로 저장된다. 출시 전 실제 API 연동 예정.
+### 5. SNS 자동게시 & 리뷰 사진 — 라이브 (깨지기 쉬우니 주의)
+- 리뷰 등록 시 매장 연동 채널(페북/인스타 등)에 **실제 자동 게시된다** (Outstand 경유, `netlify/functions/sns-*`).
+  배선: `CustomerPWA`(샤비) + `StoreMiniHome`(미니홈피) 둘 다 → `src/lib/snsApi.ts`. `review.snsShared`에 발행 네트워크 기록.
+- ⚠️ **이 흐름은 Firebase Storage 에 의존한다.** 리뷰 사진을 Storage에 올려 **공개 URL**을 만든 뒤 그 URL로 게시한다.
+  - **Storage가 비활성/규칙이 좁으면 전부 깨진다**: 업로드 실패 → 사진이 `blob:` URL로 남아 **다른 기기에서 깨지고**,
+    SNS엔 이미지가 안 가 **인스타(이미지 필수) 포함 게시가 통째로 실패**한다. (이 증상으로 한참 헤맸음)
+  - Storage 규칙은 **`storage.rules`(저장소 루트)** 에 버전관리됨. 버킷 `sharestamp-hcho-2606.firebasestorage.app`.
+    콘솔에서 규칙을 함부로 바꾸지 말 것. 리뷰 사진은 `data:`/`blob:`이 아니라 `https://firebasestorage...` URL로 저장돼야 정상.
+- ⚠️ **멀티테넌트 누수(미해결)**: Outstand `?tenant_id=` 필터가 서버에서 무시돼 org의 전 계정을 반환한다.
+  매장이 둘 이상 SNS를 연결하면 한 리뷰가 다른 매장 채널에도 게시될 수 있음. 현재 단일 매장이라 영향 없음. 출시 전 처리.
 
 ## 알려진 이슈 / 히스토리
 
@@ -77,3 +86,10 @@ netlify deploy --prod --dir=dist
   `onSnapshot` self-heal 비교에서 `mergeStates`가 매번 `updatedAt`을 새로 찍어 항상 "변경됨"으로
   판정 → 매 스냅샷마다 `setDoc` 되쓰기 → 무한 쓰기 루프 → `resource-exhausted`로 쓰기 큐 고갈 →
   "적립하기"가 반영 안 되던 증상. 비교 시 `updatedAt`을 제외하도록 수정.
+
+- **리뷰가 올라갔다 사라짐 (해결됨, 커밋 `wire-minihome-sns-autopost-bump-photo-1080-and-fix-review-sync`)**:
+  단일 공유 문서의 비원자적 read-merge-write 가 동시 쓰기에서 lost-update 발생 → 방금 등록한 리뷰를
+  옛 스냅샷이 덮어써 사라짐. `updateDbState`를 `runTransaction`으로 원자화 + 리뷰 미디어/SNS 갱신의
+  `forceOverwrite` 제거(병합) + 리뷰에 `updatedAt` 추가로 해결.
+- **사진/SNS가 다른 기기에서 안 보임 (해결됨)**: 위 §5 — Firebase Storage 미활성화가 근본 원인이었다.
+  콘솔에서 Storage 활성화 + `storage.rules` 게시로 해결. 기존 `blob:` URL 옛 리뷰는 소급 복구 불가.
