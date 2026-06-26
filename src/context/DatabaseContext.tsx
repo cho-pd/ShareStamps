@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { playVoiceGuidance } from '../utils/voice';
 import { db as firestoreDb } from '../firebase';
-import { doc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, runTransaction } from 'firebase/firestore';
 
 let clockOffsetMs = 0;
 export const getSkewCorrectedIsoString = () => {
@@ -223,6 +223,7 @@ export interface StoreReview {
   isAIContent?: boolean;
   videoUrl?: string;
   aiQuestionsAnswers?: { q: string; a: string }[];
+  updatedAt?: string; // 병합 시 최신본 판별용 (mergeCollections tie-break)
   snsShared?: {
     facebook?: boolean;
     instagram?: boolean;
@@ -1385,50 +1386,57 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       
       if (firestoreDb) {
         const docRef = doc(firestoreDb, 'sharestamps', 'database');
-        
-        // 1. 서버의 최신 문서를 비동기로 1회 조회
-        const docSnap = await getDoc(docRef);
-        let finalState = { ...stateWithTimestamp };
-        
-        if (docSnap.exists()) {
-          const serverData = docSnap.data() as any;
-          if (serverData && serverData.state) {
-            const serverState = serverData.state;
-            updateClockOffset(serverState.updatedAt);
-            
-            const serverResetAt = serverState.resetAt || '';
-            const localResetAt = stateWithTimestamp.resetAt || '';
 
-            if (serverResetAt !== localResetAt) {
-              if (serverResetAt > localResetAt) {
-                // 서버의 리셋 정보가 최신이면 수용
-                finalState = { ...serverState };
-              } else {
-                // 로컬의 리셋 정보가 최신이면 로컬 강제 유지
-                finalState = { ...stateWithTimestamp };
-              }
-            } else {
-              // 2. 서버 데이터와 로컬 변경 사항 정밀 병합
-              if (forceOverwrite) {
-                finalState = { ...stateWithTimestamp };
-              } else {
-                let adjustedLocalState = { ...stateWithTimestamp };
-                const serverTime = new Date(serverState.updatedAt || 0).getTime();
-                const localTime = new Date(stateWithTimestamp.updatedAt || 0).getTime();
-                if (serverTime >= localTime) {
-                  const adjustedTime = new Date(serverTime + 1000).toISOString();
-                  adjustedLocalState.updatedAt = adjustedTime;
+        // 단일 공유 문서의 동시 쓰기 유실(lost update)을 막기 위해 읽기→병합→쓰기를
+        // 트랜잭션으로 원자화한다. 다른 클라이언트가 그 사이 문서를 바꾸면 Firestore가
+        // 콜백을 자동 재실행하므로, 방금 등록한 리뷰가 옛 스냅샷에 덮어써져 사라지지 않는다.
+        let serverUpdatedAt: string | undefined;
+        const finalState = await runTransaction(firestoreDb, async (tx) => {
+          const docSnap = await tx.get(docRef);
+          let computed: any = { ...stateWithTimestamp };
+
+          if (docSnap.exists()) {
+            const serverData = docSnap.data() as any;
+            if (serverData && serverData.state) {
+              const serverState = serverData.state;
+              serverUpdatedAt = serverState.updatedAt;
+
+              const serverResetAt = serverState.resetAt || '';
+              const localResetAt = stateWithTimestamp.resetAt || '';
+
+              if (serverResetAt !== localResetAt) {
+                if (serverResetAt > localResetAt) {
+                  // 서버의 리셋 정보가 최신이면 수용
+                  computed = { ...serverState };
+                } else {
+                  // 로컬의 리셋 정보가 최신이면 로컬 강제 유지
+                  computed = { ...stateWithTimestamp };
                 }
-                finalState = mergeStates(serverState, adjustedLocalState);
+              } else {
+                // 서버 데이터와 로컬 변경 사항 정밀 병합
+                if (forceOverwrite) {
+                  computed = { ...stateWithTimestamp };
+                } else {
+                  let adjustedLocalState = { ...stateWithTimestamp };
+                  const serverTime = new Date(serverState.updatedAt || 0).getTime();
+                  const localTime = new Date(stateWithTimestamp.updatedAt || 0).getTime();
+                  if (serverTime >= localTime) {
+                    const adjustedTime = new Date(serverTime + 1000).toISOString();
+                    adjustedLocalState.updatedAt = adjustedTime;
+                  }
+                  computed = mergeStates(serverState, adjustedLocalState);
+                }
               }
             }
           }
-        }
-        
-        // 3. 병합된 상태를 최종 업로드
-        await setDoc(docRef, { state: finalState });
-        
-        // 4. 로컬 상태 최신 갱신
+
+          tx.set(docRef, { state: computed });
+          return computed;
+        });
+
+        if (serverUpdatedAt) updateClockOffset(serverUpdatedAt);
+
+        // 로컬 상태 최신 갱신
         setDbState(finalState);
         localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(finalState));
       }
@@ -3066,6 +3074,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       comment,
       photoUrl,
       createdAt: getSkewCorrectedIsoString(),
+      updatedAt: getSkewCorrectedIsoString(),
       isAIContent,
       videoUrl,
       aiQuestionsAnswers,
@@ -3177,13 +3186,16 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             ? {
                 ...review,
                 photoUrl: media.photoUrl || review.photoUrl,
-                videoUrl: media.videoUrl || review.videoUrl
+                videoUrl: media.videoUrl || review.videoUrl,
+                updatedAt: getSkewCorrectedIsoString()
               }
             : review
         ))
       };
 
-      updateDbState(updatedState, true);
+      // 병합 모드로 저장(forceOverwrite 금지): 동시에 다른 클라이언트가 올린
+      // 변경을 덮어쓰지 않도록 한다. updatedAt 갱신으로 이 리뷰만 최신본 채택됨.
+      updateDbState(updatedState);
     } catch (error) {
       console.error('Failed to update review media:', error);
     }
@@ -3202,11 +3214,12 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         ...latestState,
         reviews: latestState.reviews.map((review: StoreReview) => (
           review.id === reviewId
-            ? { ...review, snsShared: { ...(review.snsShared || {}), ...snsShared } }
+            ? { ...review, snsShared: { ...(review.snsShared || {}), ...snsShared }, updatedAt: getSkewCorrectedIsoString() }
             : review
         ))
       };
-      updateDbState(updatedState, true);
+      // 병합 모드로 저장(forceOverwrite 금지). updatedAt 갱신으로 이 리뷰만 최신본 채택.
+      updateDbState(updatedState);
     } catch (error) {
       console.error('Failed to update review snsShared:', error);
     }

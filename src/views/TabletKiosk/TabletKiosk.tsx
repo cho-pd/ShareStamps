@@ -455,14 +455,19 @@ export const TabletKiosk: React.FC = () => {
         language
       );
 
-      // 5초 후 자동 리셋하여 카메라 화면으로 복귀
-      const timer = setTimeout(() => {
-        handleResetKiosk();
-      }, 5000);
-      
-      return () => clearTimeout(timer);
     }
   }, [receiptScans, qrToken, scanStatus]);
+
+  // 적립 완료 화면은 3초만 보여준 뒤 카메라 모드로 복귀
+  useEffect(() => {
+    if (scanStatus !== 'success') return;
+
+    const timer = setTimeout(() => {
+      handleResetKiosk();
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [scanStatus]);
 
   // QR 만료 화면 노출 시 5초 후 자동으로 카메라 모드 복귀
   useEffect(() => {
@@ -510,13 +515,13 @@ export const TabletKiosk: React.FC = () => {
     }, 3000);
   };
 
-  const handleResetKiosk = () => {
+  function handleResetKiosk() {
     setScanStatus('scanning');
     setIsAnalyzing(false);
     setQrToken(null);
     setQrCountdown(0);
     setLastActivityTime(Date.now());
-  };
+  }
 
   // 바코드 스캔 할인 기능 제거됨
 

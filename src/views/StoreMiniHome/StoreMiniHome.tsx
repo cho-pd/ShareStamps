@@ -1,7 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useDatabase } from '../../context/DatabaseContext';
+import { postReviewToSns, enabledNetworks } from '../../lib/snsApi';
+import { storage as firebaseStorage } from '../../firebase';
+import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
 import {
-  ArrowLeft, MapPin, Phone, Clock, Award, Star, Image as ImageIcon, Sparkles, MessageSquarePlus, X, Send
+  ArrowLeft, Phone, Clock, Award, Star, Image as ImageIcon, Sparkles, MessageSquarePlus, X, Send, HelpCircle,
+  Bookmark, Share2, MoreVertical, Search, SlidersHorizontal, ThumbsUp
 } from 'lucide-react';
 
 export const StoreMiniHome: React.FC = () => {
@@ -9,6 +13,7 @@ export const StoreMiniHome: React.FC = () => {
     stores,
     reviews,
     addReview,
+    updateReviewSnsShared,
     donations,
     language,
     currentUser,
@@ -62,6 +67,7 @@ export const StoreMiniHome: React.FC = () => {
       const hash = window.location.hash;
       if (hash.includes('store-home')) {
         setStoreId(parseStoreIdFromHash());
+        setActiveTab(getInitialTab());
       }
     };
     window.addEventListener('hashchange', handleHashChange);
@@ -98,6 +104,7 @@ export const StoreMiniHome: React.FC = () => {
   };
 
   const storeReviews = reviews.filter(r => r.storeId === store.id);
+  const visibleStoreReviews = storeReviews.slice(0, 5);
   const storeDonations = donations.filter(d => d.storeId === store.id);
   const totalStampsDonated = storeDonations.reduce((acc, d) => acc + d.stampCount, 0);
   const totalMoneyDonated = storeDonations.reduce((acc, d) => acc + d.monetaryValue, 0);
@@ -106,8 +113,23 @@ export const StoreMiniHome: React.FC = () => {
     ? parseFloat((storeReviews.reduce((sum, r) => sum + r.rating, 0) / storeReviews.length).toFixed(1))
     : 5.0;
 
-  const [activeTab, setActiveTab] = useState<'info' | 'esg' | 'reviews'>('reviews');
+  const getInitialTab = (): 'menu' | 'ask' | 'info' | 'faq' | 'reviews' => {
+    const query = (window.location.hash.split('?')[1]) || '';
+    const tab = new URLSearchParams(query).get('tab');
+    if (tab === 'menu' || tab === 'ask' || tab === 'info' || tab === 'faq' || tab === 'reviews') return tab;
+    return 'menu';
+  };
+
+  const [activeTab, setActiveTab] = useState<'menu' | 'ask' | 'info' | 'faq' | 'reviews'>(getInitialTab);
   const [showReviewModal, setShowReviewModal] = useState<boolean>(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (activeTab !== 'reviews') return;
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ top: 0 });
+    });
+  }, [activeTab, storeId]);
 
   // Review Form States
   const [rating, setRating] = useState<number>(5);
@@ -130,7 +152,7 @@ export const StoreMiniHome: React.FC = () => {
     ko: [
       "☕ 매장의 분위기와 대표 메뉴 맛은 어떠셨나요?",
       "💇 사장님/디자이너님의 친절도나 시술 만족도를 남겨주세요!",
-      "🍱 맛과 영양, 포장 위생 상태 등에 대해 써주시면 큰 힘이 됩니다.",
+      "🍱 맛과 양, 매장 청결 상태 등에 대해 써주시면 큰 힘이 됩니다.",
       "✨ 스탬프 기부나 적립 경험이 마음에 드셨는지 표현해 보세요!"
     ],
     en: [
@@ -159,7 +181,19 @@ export const StoreMiniHome: React.FC = () => {
     }
   };
 
-  const handleReviewSubmit = (e: React.FormEvent) => {
+  // base64 미리보기(데이터 URL)는 Outstand가 가져갈 수 없으므로, 게시 전에
+  // Firebase Storage에 올려 공개 URL을 확보한다. (인스타는 이미지 필수)
+  const uploadReviewPhotoForSns = async (dataUrl: string): Promise<string> => {
+    if (!firebaseStorage || !dataUrl.startsWith('data:')) return '';
+    const blob = await (await fetch(dataUrl)).blob();
+    const safeUserId = currentUser?.id || 'guest';
+    const fileName = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}.jpg`;
+    const path = `reviews/${store.id}/${safeUserId}/photo/${fileName}`;
+    const uploaded = await uploadBytes(storageRef(firebaseStorage, path), blob, { contentType: 'image/jpeg' });
+    return getDownloadURL(uploaded.ref);
+  };
+
+  const handleReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
@@ -181,19 +215,57 @@ export const StoreMiniHome: React.FC = () => {
       return;
     }
 
-    addReview(store.id, rating, comment, selectedPhotoUrl);
-    
-    // Reset Form
+    // 리셋 전에 등록/게시에 쓸 값 캡처
+    const reviewComment = comment.trim();
+    const reviewRating = rating;
+    const reviewPhotoBase64 = selectedPhotoUrl;
+
+    // 폼 즉시 닫기 (낙관적 UX)
     setRating(5);
     setComment('');
     setSelectedPhotoUrl('');
     setShowReviewModal(false);
+
+    // 사진을 Firebase Storage에 올려 공개 URL을 확보한다.
+    // → 리뷰엔 큰 base64 대신 URL만 저장(공유 Firestore 문서 비대화 방지),
+    //   같은 공개 URL을 인스타/페북 자동게시에 그대로 사용. 업로드 실패 시에만 base64 폴백.
+    let publicPhotoUrl = '';
+    try {
+      publicPhotoUrl = await uploadReviewPhotoForSns(reviewPhotoBase64);
+    } catch (err) {
+      console.error('Review photo upload failed, using inline image:', err);
+    }
+
+    const result = addReview(store.id, reviewRating, reviewComment, publicPhotoUrl || reviewPhotoBase64);
+
+    // 매장이 연동한 SNS 채널(페이스북/인스타 등)에 자동 게시.
+    // 게시 실패가 리뷰 등록을 막지 않도록 throw하지 않고 조용히 처리한다.
+    const networks = enabledNetworks(store.snsSettings as Record<string, boolean> | undefined);
+    if (result.reviewId && networks.length) {
+      try {
+        const r = await postReviewToSns({
+          storeId: store.id,
+          content: reviewComment,
+          mediaUrls: publicPhotoUrl ? [publicPhotoUrl] : [],
+          networks,
+        });
+        if (r.success && Object.keys(r.snsShared).length) {
+          updateReviewSnsShared(result.reviewId, r.snsShared);
+        } else if (!r.success) {
+          console.warn('SNS auto-post from mini-home returned no posted networks.', { networks });
+        }
+      } catch (err) {
+        console.error('SNS auto-post from mini-home failed:', err);
+      }
+    }
   };
 
   const t = {
     title: language === 'ko' ? '매장 미니홈피' : 'Store Mini-Home',
+    menuTab: language === 'ko' ? '메뉴' : 'Menu',
+    askTab: language === 'ko' ? 'Ask' : 'Ask',
     infoTab: language === 'ko' ? '정보·메뉴' : 'Info & Menu',
-    esgTab: language === 'ko' ? '나눔공헌' : 'Impact',
+    faqTab: language === 'ko' ? 'FAQ' : 'FAQ',
     reviewsTab: language === 'ko' ? '리뷰 피드' : 'Reviews',
     menuTitle: language === 'ko' ? '🍽️ 대표 메뉴' : '🍽️ Signature Menu',
     contactTitle: language === 'ko' ? '📞 연락처 및 안내' : '📞 Contact Info',
@@ -214,416 +286,598 @@ export const StoreMiniHome: React.FC = () => {
     backBtn: language === 'ko' ? '이전' : 'Back',
   };
 
+  const primaryMenu = store.menuItems?.[0];
+  const topReview = storeReviews[0];
+  const faqItems = language === 'ko' ? [
+    {
+      q: `${store.name}은 어떤 매장인가요?`,
+      a: store.description || `${store.name}은 ${store.category.split(' ')[0]} 카테고리의 ShareStamps 가맹점입니다.`
+    },
+    {
+      q: `${store.name}의 대표 메뉴는 무엇인가요?`,
+      a: primaryMenu
+        ? `대표 메뉴로 ${primaryMenu.name}${primaryMenu.price ? `($${primaryMenu.price.toFixed(2)})` : ''}을 추천합니다.${primaryMenu.description ? ` ${primaryMenu.description}` : ''}`
+        : '아직 등록된 대표 메뉴 정보가 없습니다. 매장 정보가 업데이트되면 메뉴를 확인할 수 있습니다.'
+    },
+    {
+      q: `${store.name} 영업시간은 어떻게 되나요?`,
+      a: store.hours || '영업시간 정보는 아직 등록되지 않았습니다. 방문 전 매장에 확인해 주세요.'
+    },
+    {
+      q: `${store.name} 위치와 연락처는 무엇인가요?`,
+      a: `${store.address || '주소 정보가 등록되지 않았습니다.'} ${store.phone ? `전화번호는 ${store.phone}입니다.` : '전화번호 정보는 아직 등록되지 않았습니다.'}`
+    },
+    {
+      q: `${store.name} 리뷰 평점은 어떤가요?`,
+      a: `${storeReviews.length > 0 ? `${storeReviews.length}개 리뷰 기준 평균 ${avgRating.toFixed(1)}점입니다.` : '아직 고객 리뷰가 많지 않습니다.'}${topReview ? ` 최근 리뷰에서는 “${topReview.comment.slice(0, 80)}${topReview.comment.length > 80 ? '...' : ''}”라고 말했습니다.` : ''}`
+    },
+    {
+      q: `${store.name}에서 ShareStamps 스탬프를 받을 수 있나요?`,
+      a: `네. 이 매장은 7개 스탬프 완성 시 ${store.currency || 'USD'} ${store.pointRewardPer7Stamps.toFixed(2)} 상당의 보상을 제공하는 ShareStamps 가맹점입니다.`
+    }
+  ] : [
+    {
+      q: `What kind of business is ${store.name}?`,
+      a: store.description || `${store.name} is a ShareStamps partner in the ${store.category.split(' ')[0]} category.`
+    },
+    {
+      q: `What is the signature menu at ${store.name}?`,
+      a: primaryMenu
+        ? `A popular item is ${primaryMenu.name}${primaryMenu.price ? ` ($${primaryMenu.price.toFixed(2)})` : ''}.${primaryMenu.description ? ` ${primaryMenu.description}` : ''}`
+        : 'Signature menu information has not been added yet.'
+    },
+    {
+      q: `What are the hours for ${store.name}?`,
+      a: store.hours || 'Hours have not been added yet. Please check with the store before visiting.'
+    },
+    {
+      q: `Where is ${store.name} and how can I contact it?`,
+      a: `${store.address || 'Address information has not been added yet.'} ${store.phone ? `Phone: ${store.phone}.` : 'Phone information has not been added yet.'}`
+    },
+    {
+      q: `How are the reviews for ${store.name}?`,
+      a: `${storeReviews.length > 0 ? `${store.name} has an average rating of ${avgRating.toFixed(1)} from ${storeReviews.length} reviews.` : 'There are not many customer reviews yet.'}${topReview ? ` A recent review says: “${topReview.comment.slice(0, 80)}${topReview.comment.length > 80 ? '...' : ''}”` : ''}`
+    },
+    {
+      q: `Can customers earn ShareStamps at ${store.name}?`,
+      a: `Yes. Customers can collect stamps here and receive a ${store.currency || 'USD'} ${store.pointRewardPer7Stamps.toFixed(2)} reward after completing 7 stamps.`
+    }
+  ];
+
+  const faqJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faqItems.map(item => ({
+      '@type': 'Question',
+      name: item.q,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: item.a
+      }
+    }))
+  };
+
+  const fallbackPhoto = store.thumbnailUrl || 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=600';
+  const heroPhoto = store.bannerUrl || fallbackPhoto;
+  const reviewPhotos = storeReviews.filter(r => r.photoUrl).map(r => r.photoUrl as string);
+  const photoGallery = [heroPhoto, fallbackPhoto, ...reviewPhotos].filter(Boolean).slice(0, 8);
+  const menuItems = store.menuItems && store.menuItems.length > 0
+    ? store.menuItems
+    : [{ name: language === 'ko' ? '대표 메뉴' : 'Signature item', price: 0, description: store.description }];
+  const peopleSay = language === 'ko'
+    ? ['친절한 서비스', '다시 방문하고 싶은 곳', '대표 메뉴 추천', '스탬프 혜택']
+    : ['Friendly service', 'Worth revisiting', 'Popular menu', 'Stamp rewards'];
+  const askSuggestions = language === 'ko'
+    ? ['대표 메뉴가 뭐야?', '리뷰에서 많이 나온 장점은?', '영업시간 알려줘', '스탬프 혜택은 어떻게 돼?']
+    : ['What is the signature item?', 'What do reviews praise?', 'What are the hours?', 'How do stamp rewards work?'];
+
+  const jumpToSection = (tab: 'menu' | 'ask' | 'info' | 'faq' | 'reviews') => {
+    setActiveTab(tab);
+    const scrollRoot = scrollRef.current;
+    const target = document.getElementById(`store-${tab}`);
+    if (!scrollRoot || !target) return;
+
+    const rootRect = scrollRoot.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const navOffset = 66;
+
+    scrollRoot.scrollTo({
+      top: Math.max(0, scrollRoot.scrollTop + targetRect.top - rootRect.top - navOffset),
+      behavior: 'smooth'
+    });
+  };
+
+  const openReviewsPage = () => {
+    setActiveTab('reviews');
+    window.location.hash = `#/store-home/${storeId || store.id}?tab=reviews`;
+  };
+
+  const openStoreHome = () => {
+    setActiveTab('menu');
+    window.location.hash = `#/store-home/${storeId || store.id}?tab=menu`;
+  };
+
+  const isReviewsPage = activeTab === 'reviews';
+
+  if (isReviewsPage) {
+    return (
+      <div ref={scrollRef} style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        backgroundColor: '#ffffff',
+        fontFamily: 'var(--font-sans)',
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        position: 'relative'
+      }}>
+        <style>{`.store-mini-scrollbarless::-webkit-scrollbar{display:none}`}</style>
+
+        <header style={{ position: 'sticky', top: 0, zIndex: 20, minHeight: '64px', backgroundColor: '#ffffff', borderBottom: '1px solid #eeeeee', display: 'flex', alignItems: 'center', gap: '12px', padding: '0 16px' }}>
+          <button onClick={openStoreHome} aria-label={t.backBtn} style={{ width: '42px', height: '42px', borderRadius: '50%', border: 'none', backgroundColor: '#f4f4f5', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+            <ArrowLeft size={23} color="#111111" />
+          </button>
+          <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+            <div style={{ fontSize: '19px', fontWeight: 950, color: '#111111', lineHeight: 1.1 }}>
+              {language === 'ko' ? '전체 리뷰' : 'Reviews'}
+            </div>
+            <div style={{ fontSize: '12px', color: '#71717a', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '3px' }}>
+              {store.name} · {storeReviews.length} reviews
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setErrorMsg(null);
+              setCustomerSelectedStoreId(store.id);
+              localStorage.setItem('sharestamps_open_sharbee_review_store_id', store.id);
+              window.location.hash = '#/customer';
+            }}
+            style={{ width: '42px', height: '42px', borderRadius: '50%', border: 'none', backgroundColor: 'var(--primary-color)', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
+            aria-label={t.writeReviewBtn}
+          >
+            <MessageSquarePlus size={21} />
+          </button>
+        </header>
+
+        <section style={{ padding: '26px 20px 18px', borderBottom: '1px solid #eeeeee', textAlign: 'left' }}>
+          <h1 style={{ fontSize: '34px', fontWeight: 950, letterSpacing: '-0.04em', margin: '0 0 24px', lineHeight: 1.05 }}>
+            {language === 'ko' ? '추천 리뷰' : 'Recommended reviews'}
+          </h1>
+          <div>
+            <h2 style={{ fontSize: '21px', fontWeight: 900, margin: '0 0 12px' }}>{language === 'ko' ? '전체 평점' : 'Overall rating'}</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '3px' }}>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <span key={i} style={{ width: '31px', height: '31px', borderRadius: '6px', backgroundColor: i < Math.round(avgRating) ? 'var(--primary-color)' : '#eeeeee', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Star size={19} fill="#ffffff" color="#ffffff" />
+                  </span>
+                ))}
+              </div>
+              <strong style={{ fontSize: '20px', fontWeight: 900, color: '#18181b' }}>{avgRating.toFixed(1)}</strong>
+              <span style={{ color: '#767676', fontSize: '18px', fontWeight: 650 }}>{storeReviews.length} reviews</span>
+            </div>
+          </div>
+          <div className="store-mini-scrollbarless" style={{ display: 'flex', gap: '10px', overflowX: 'auto', marginTop: '26px', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+            {[Search, SlidersHorizontal].map((Icon, idx) => (
+              <button key={idx} style={{ flex: '0 0 auto', border: '1.5px solid #d6d6d6', backgroundColor: '#ffffff', borderRadius: '999px', padding: '11px 15px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 850 }}>
+                <Icon size={19} /> {idx === 0 ? (language === 'ko' ? '검색' : 'Search') : (language === 'ko' ? '정렬' : 'Sort')}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {storeReviews.length > 0 ? (
+            storeReviews.map(review => (
+              <article key={review.id} style={{ padding: '24px 20px', borderBottom: '1px solid #eeeeee', textAlign: 'left' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#dbeafe', color: '#52525b', fontSize: '20px', fontWeight: 950, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {review.userName.charAt(0)}
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '18px', fontWeight: 950, color: '#18181b', lineHeight: 1.1 }}>{review.userName}</span>
+                        {review.isAIContent && (
+                          <span style={{ fontSize: '12px', fontWeight: 900, padding: '3px 7px', borderRadius: '5px', backgroundColor: 'var(--primary-light)', color: 'var(--primary-color)' }}>
+                            {language === 'ko' ? '샤비' : 'AI'}
+                          </span>
+                        )}
+                      </div>
+                      <span style={{ fontSize: '14px', color: '#71717a', marginTop: '5px', display: 'block', fontWeight: 650 }}>@{review.userNickname}</span>
+                    </div>
+                  </div>
+                  <MoreVertical size={24} color="#111111" />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '22px' }}>
+                  <div style={{ display: 'flex', gap: '3px' }}>
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <span key={i} style={{ width: '29px', height: '29px', borderRadius: '6px', backgroundColor: i < review.rating ? 'var(--primary-color)' : '#eeeeee', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Star size={18} fill="#ffffff" color="#ffffff" />
+                      </span>
+                    ))}
+                  </div>
+                  <span style={{ color: '#8a8a8a', fontSize: '16px', fontWeight: 650 }}>{new Date(review.createdAt).toLocaleDateString()}</span>
+                </div>
+
+                <p style={{ fontSize: '18px', color: '#202020', lineHeight: 1.48, margin: '18px 0 0', fontWeight: 500, whiteSpace: 'pre-line' }}>
+                  {review.comment}
+                </p>
+
+                {review.videoUrl && (
+                  <div style={{ width: '100%', borderRadius: '10px', overflow: 'hidden', backgroundColor: '#000000', position: 'relative', aspectRatio: '16 / 9', marginTop: '16px' }}>
+                    <video src={review.videoUrl} controls playsInline style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                  </div>
+                )}
+
+                {review.photoUrl && (
+                  <div style={{ width: '100%', height: '160px', borderRadius: '10px', overflow: 'hidden', backgroundColor: '#f4f4f5', marginTop: '16px' }}>
+                    <img src={review.photoUrl} alt="Review attachment" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'space-around', marginTop: '22px', paddingTop: '14px', borderTop: '1px solid #f0f0f0' }}>
+                  {[
+                    [ThumbsUp, language === 'ko' ? '도움돼요' : 'Helpful'],
+                    [Sparkles, language === 'ko' ? '고마워요' : 'Thanks'],
+                    [Award, language === 'ko' ? '좋아요' : 'Love this']
+                  ].map(([Icon, label]) => (
+                    <button key={String(label)} style={{ border: 'none', background: 'transparent', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', color: '#71717a', fontSize: '12px', fontWeight: 750 }}>
+                      <Icon size={26} color="#71717a" />
+                      {String(label)}
+                    </button>
+                  ))}
+                  {currentUser && review.userId === currentUser.id && (
+                    <button type="button" disabled={sharingReviewId === review.id} onClick={() => shareReviewToSns(review, store.name)} style={{ border: 'none', background: 'transparent', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', color: 'var(--primary-color)', fontSize: '12px', fontWeight: 800 }}>
+                      <Send size={26} color="var(--primary-color)" />
+                      {language === 'ko' ? '공유 +1' : 'Share +1'}
+                    </button>
+                  )}
+                </div>
+              </article>
+            ))
+          ) : (
+            <div style={{ textAlign: 'center', color: '#71717a', fontSize: '13px', padding: '40px 0' }}>
+              <ImageIcon size={24} style={{ color: '#d4d4d8', margin: '0 auto 8px auto', display: 'block' }} />
+              <span>{t.noReviews}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div style={{
+    <div ref={scrollRef} style={{
       display: 'flex',
       flexDirection: 'column',
       height: '100%',
       backgroundColor: '#ffffff',
       fontFamily: 'var(--font-sans)',
       overflowY: 'auto',
+      overflowX: 'hidden',
       position: 'relative'
     }}>
-      {/* Top Nav Bar */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '12px 16px',
-        borderBottom: '1px solid #f4f4f5',
-        backgroundColor: '#ffffff',
-        position: 'sticky',
-        top: 0,
-        zIndex: 10
-      }}>
-        <button 
-          onClick={handleBack}
-          style={{ 
-            background: 'none', 
-            border: 'none', 
-            color: '#18181b', 
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px',
-            fontSize: '14px',
-            fontWeight: 700,
-            padding: 0
-          }}
-        >
-          <ArrowLeft size={18} />
-          <span>{t.backBtn}</span>
-        </button>
-        <span style={{ fontSize: '15px', fontWeight: 800, color: '#18181b' }}>{t.title}</span>
-        <div style={{ width: '40px' }} /> {/* Spacer */}
-      </div>
-
-      {/* Banner & Brand Info Header */}
-      <div style={{ position: 'relative', width: '100%', aspectRatio: '16/5', backgroundColor: '#e4e4e7' }}>
-        <img 
-          src={store.bannerUrl || 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=800'} 
-          alt={store.name} 
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-        />
-        <div style={{
-          position: 'absolute',
-          bottom: '-32px',
-          left: '16px',
-          width: '64px',
-          height: '64px',
-          borderRadius: '16px',
-          backgroundColor: '#ffffff',
-          border: '2px solid #ffffff',
-          boxShadow: '0 4px 10px rgba(0,0,0,0.1)',
-          overflow: 'hidden',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 5
-        }}>
-          <img 
-            src={store.thumbnailUrl || 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=300'} 
-            alt={store.name} 
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
-        </div>
-      </div>
-
-      {/* Store Basic info */}
-      <div style={{ padding: '40px 16px 12px 16px', borderBottom: '1px solid #f4f4f5' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <h2 style={{ fontSize: '20px', fontWeight: 900, color: '#18181b', margin: 0 }}>{store.name}</h2>
-            <span style={{ 
-              fontSize: '11px', 
-              color: '#5f5ce6', 
-              backgroundColor: 'rgba(95, 92, 230, 0.08)',
-              padding: '2px 8px',
-              borderRadius: '20px',
-              fontWeight: 800,
-              display: 'inline-block',
-              marginTop: '4px'
-            }}>
-              {store.category.split(' ')[0]}
-            </span>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }} />
+      <style>{`.store-mini-scrollbarless::-webkit-scrollbar{display:none}`}</style>
+      <div style={{ position: 'relative', minHeight: '330px', backgroundColor: '#18181b' }}>
+        <img src={heroPhoto} alt={store.name} style={{ width: '100%', height: '330px', objectFit: 'cover', display: 'block', opacity: 0.88 }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.12) 38%, rgba(0,0,0,0.82) 100%)' }} />
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', zIndex: 2 }}>
+          <button onClick={handleBack} aria-label={t.backBtn} style={{ width: '42px', height: '42px', borderRadius: '50%', border: 'none', backgroundColor: 'rgba(255,255,255,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+            <ArrowLeft size={24} color="#111111" />
+          </button>
+          <div style={{ display: 'flex', gap: '14px', color: '#ffffff', alignItems: 'center' }}>
+            <Bookmark size={28} />
+            <Share2 size={28} />
+            <MoreVertical size={28} />
           </div>
-          
-          {/* Rating */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-              <Star size={16} fill="#ffb800" color="#ffb800" />
-              <strong style={{ fontSize: '16px', fontWeight: 900, color: '#18181b' }}>{avgRating.toFixed(1)}</strong>
+        </div>
+        <div style={{ position: 'absolute', left: '20px', right: '20px', bottom: '24px', color: '#ffffff', zIndex: 2, textAlign: 'left' }}>
+          <h1 style={{ fontSize: '40px', lineHeight: 1.02, fontWeight: 900, letterSpacing: '-0.04em', margin: '0 0 12px' }}>{store.name}</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '9px', marginBottom: '14px' }}>
+            <div style={{ display: 'flex', gap: '3px' }}>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <span key={i} style={{ width: '26px', height: '26px', borderRadius: '6px', backgroundColor: i < Math.round(avgRating) ? 'var(--primary-color)' : 'rgba(255,255,255,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Star size={17} fill="#ffffff" color="#ffffff" />
+                </span>
+              ))}
             </div>
-            <span style={{ fontSize: '11px', color: '#71717a', marginTop: '2px' }}>
-              ({storeReviews.length} reviews)
-            </span>
+            <strong style={{ fontSize: '20px', fontWeight: 800 }}>{avgRating.toFixed(1)}</strong>
+            <span style={{ fontSize: '16px', fontWeight: 650, opacity: 0.95 }}>({storeReviews.length} reviews)</span>
           </div>
+          <button style={{ width: '100%', border: 'none', borderRadius: '999px', backgroundColor: 'rgba(255,255,255,0.18)', color: '#ffffff', padding: '11px 16px', fontSize: '15px', fontWeight: 850, backdropFilter: 'blur(8px)' }}>
+            {language === 'ko' ? `사진 ${photoGallery.length}장 보기` : `See all ${photoGallery.length} photos`}
+          </button>
         </div>
-        <p style={{ fontSize: '13px', color: '#52525b', lineHeight: 1.5, marginTop: '10px', margin: 0, fontWeight: 500 }}>
-          {store.description || (language === 'ko' ? '언제나 훌륭한 퀄리티로 보답하는 가맹점입니다.' : 'A good partner store serving with pride.')}
-        </p>
       </div>
 
-      {/* Tabs Menu */}
-      <div style={{
-        display: 'flex',
-        borderBottom: '1px solid #f4f4f5',
-        backgroundColor: '#ffffff',
-        position: 'sticky',
-        top: '45px',
-        zIndex: 9
-      }}>
-        {(['reviews', 'info', 'esg'] as const).map(tab => {
+      <section style={{ padding: '22px 20px 18px', borderBottom: '1px solid #eeeeee', backgroundColor: '#ffffff', textAlign: 'left' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '14px' }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '21px', fontWeight: 900, color: '#111111', lineHeight: 1.25 }}>
+              {store.currency === 'USD' ? '$$' : '$'} · {store.category.replace(/[()]/g, '').replace('카페', '').trim()}
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 750, marginTop: '8px', color: '#1f9d84' }}>
+              {language === 'ko' ? '영업중' : 'Open'} <span style={{ color: '#71717a', fontWeight: 650 }}>{store.hours || '11:00 AM - 10:00 PM'}</span>
+            </div>
+            <p style={{ margin: '8px 0 0', fontSize: '13px', lineHeight: 1.45, color: '#71717a', fontWeight: 600 }}>
+              {store.description || (language === 'ko' ? '기분 좋은 서비스와 혜택을 드리는 ShareStamps 가맹점입니다.' : 'A ShareStamps partner with friendly service and rewards.')}
+            </p>
+          </div>
+          <img src={fallbackPhoto} alt={`${store.name} logo`} style={{ width: '76px', height: '76px', borderRadius: '18px', objectFit: 'cover', border: '1px solid #eeeeee' }} />
+        </div>
+        <div className="store-mini-scrollbarless" style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingTop: '20px', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+          {[
+            { icon: MessageSquarePlus, label: t.writeReviewBtn, primary: true, action: () => { setErrorMsg(null); setCustomerSelectedStoreId(store.id); localStorage.setItem('sharestamps_open_sharbee_review_store_id', store.id); window.location.hash = '#/customer'; } },
+            { icon: Sparkles, label: 'Ask', action: () => jumpToSection('ask') },
+            { icon: Clock, label: language === 'ko' ? '정보' : 'Info', action: () => jumpToSection('info') },
+            { icon: Phone, label: language === 'ko' ? '전화' : 'Call', action: () => { if (store.phone) window.location.href = `tel:${store.phone}`; } }
+          ].map(item => (
+            <button key={item.label} onClick={item.action} style={{ flex: '0 0 auto', display: 'inline-flex', alignItems: 'center', gap: '9px', minHeight: '56px', padding: '0 20px', borderRadius: '999px', border: 'none', backgroundColor: item.primary ? 'var(--primary-color)' : (item.icon === Sparkles ? 'var(--primary-light)' : '#f1f1f1'), color: item.primary ? '#ffffff' : (item.icon === Sparkles ? 'var(--primary-color)' : '#27272a'), fontSize: '16px', fontWeight: 900, cursor: 'pointer' }}>
+              <item.icon size={23} />
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <nav className="store-mini-scrollbarless" style={{ display: 'flex', alignItems: 'stretch', minHeight: '64px', borderBottom: '1px solid #e5e5e5', backgroundColor: '#ffffff', position: 'relative', zIndex: 9, overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+        {([
+          ['menu', t.menuTab],
+          ['ask', t.askTab],
+          ['info', language === 'ko' ? '정보' : 'Info'],
+          ['reviews', language === 'ko' ? '리뷰' : 'Reviews'],
+          ['faq', 'FAQ']
+        ] as const).map(([tab, label]) => {
           const isActive = activeTab === tab;
-          let label = t.infoTab;
-          if (tab === 'esg') label = t.esgTab;
-          if (tab === 'reviews') label = t.reviewsTab;
-          
           return (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              style={{
-                flex: 1,
-                padding: '14px 0',
-                border: 'none',
-                background: 'none',
-                fontSize: '13.5px',
-                fontWeight: isActive ? 800 : 600,
-                color: isActive ? '#5f5ce6' : '#71717a',
-                borderBottom: isActive ? '2px solid #5f5ce6' : '2px solid transparent',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease'
-              }}
-            >
+            <button key={tab} onClick={() => tab === 'reviews' ? openReviewsPage() : jumpToSection(tab)} style={{ flex: '0 0 auto', minWidth: '92px', padding: '19px 18px 14px', border: 'none', borderBottom: isActive ? '4px solid var(--primary-color)' : '4px solid transparent', background: '#ffffff', color: isActive ? 'var(--primary-color)' : '#6b6b6b', fontSize: '18px', fontWeight: isActive ? 900 : 750, cursor: 'pointer' }}>
               {label}
             </button>
           );
         })}
-      </div>
+      </nav>
 
-      {/* Tab Contents */}
-      <div style={{ flex: 1, padding: '16px' }}>
-        
-        {/* TAB 1: INFO & MENU */}
-        {activeTab === 'info' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            
-            {/* Store Information Card */}
-            <div>
-              <h3 style={{ fontSize: '14.5px', fontWeight: 800, color: '#18181b', margin: '0 0 12px 0' }}>{t.contactTitle}</h3>
-              <div className="imin-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '14px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#4b5563' }}>
-                  <MapPin size={16} style={{ color: '#5f5ce6' }} />
-                  <span>{store.address || (language === 'ko' ? '서울시 강남구' : 'Seoul, Korea')}</span>
+      <div style={{ flex: 1, paddingBottom: '104px', backgroundColor: '#ffffff' }}>
+
+        <section id="store-menu" style={{ padding: '22px 20px', textAlign: 'left', scrollMarginTop: '70px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '22px' }}>
+              <h2 style={{ fontSize: '31px', fontWeight: 950, letterSpacing: '-0.04em', margin: 0 }}>{language === 'ko' ? '메뉴' : 'Menu'}</h2>
+              <ArrowLeft size={28} style={{ transform: 'rotate(180deg)' }} />
+            </div>
+            <h3 style={{ fontSize: '21px', fontWeight: 900, margin: '0 0 14px' }}>{language === 'ko' ? '인기 메뉴' : 'Popular Dishes'}</h3>
+            <div className="store-mini-scrollbarless" style={{ display: 'flex', gap: '18px', overflowX: 'auto', paddingBottom: '10px', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+              {menuItems.map((item, idx) => (
+                <div key={`${item.name}-${idx}`} style={{ flex: '0 0 252px' }}>
+                  <div style={{ position: 'relative', height: '172px', borderRadius: '9px', overflow: 'hidden', backgroundColor: '#f4f4f5' }}>
+                    <img src={photoGallery[idx % photoGallery.length] || fallbackPhoto} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    {item.price > 0 && <span style={{ position: 'absolute', left: '16px', bottom: '14px', color: '#ffffff', fontSize: '24px', fontWeight: 950, textShadow: '0 2px 8px rgba(0,0,0,0.5)' }}>${item.price.toFixed(2)}</span>}
+                  </div>
+                  <h4 style={{ fontSize: '21px', fontWeight: 950, margin: '14px 0 7px', color: '#111111', lineHeight: 1.15 }}>{item.name}</h4>
+                  <p style={{ fontSize: '14px', color: '#767676', margin: 0, fontWeight: 650 }}>{Math.max(1, storeReviews.length * (idx + 1))} reviews</p>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#4b5563' }}>
-                  <Phone size={16} style={{ color: '#5f5ce6' }} />
-                  <span>{store.phone || '02-123-4567'}</span>
+              ))}
+            </div>
+            <button style={{ width: '100%', border: '1.5px solid #cfcfcf', backgroundColor: '#ffffff', borderRadius: '999px', padding: '15px', fontSize: '18px', fontWeight: 850, marginTop: '18px' }}>
+              {language === 'ko' ? '전체 메뉴 보기' : 'See full menu'}
+            </button>
+        </section>
+
+        <section id="store-ask" style={{ textAlign: 'left', scrollMarginTop: '70px' }}>
+            <section style={{ padding: '22px 20px', borderBottom: '12px solid #f2f2f2' }}>
+              <h2 style={{ fontSize: '22px', fontWeight: 900, margin: '0 0 18px' }}>{language === 'ko' ? '사람들이 말해요' : 'People say'}</h2>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 18px' }}>
+                {peopleSay.map((item, idx) => (
+                  <div key={item} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '17px', fontWeight: 700, color: '#52525b' }}>
+                    {idx % 2 === 0 ? <Sparkles size={28} color="#27213f" /> : <Award size={28} color="#27213f" />}
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </section>
+            <section style={{ padding: '26px 20px', borderBottom: '12px solid #f2f2f2' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '20px' }}>
+                <div style={{ width: '62px', height: '62px', borderRadius: '50%', backgroundColor: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Sparkles size={28} color="var(--primary-color)" />
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#4b5563' }}>
-                  <Clock size={16} style={{ color: '#5f5ce6' }} />
-                  <span>{store.hours || '07:00 ~ 22:00'}</span>
+                <h2 style={{ fontSize: '28px', fontWeight: 950, margin: 0 }}>{language === 'ko' ? 'Ask Sharbee Assistant' : 'Ask Sharbee Assistant'}</h2>
+              </div>
+              <div style={{ border: '1.5px solid #cfcfcf', borderRadius: '8px', height: '66px', display: 'flex', alignItems: 'center', padding: '0 10px 0 16px', gap: '10px' }}>
+                <span style={{ flex: 1, color: '#8a8a8a', fontSize: '18px', fontWeight: 500 }}>{language === 'ko' ? '“리뷰에서는 뭐라고 말해?”' : 'Ask, “What do reviews say?”'}</span>
+                <button style={{ width: '48px', height: '48px', borderRadius: '50%', border: 'none', backgroundColor: 'var(--primary-color)', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <ArrowLeft size={24} style={{ transform: 'rotate(180deg)' }} />
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '16px' }}>
+                {askSuggestions.map(q => (
+                  <button key={q} style={{ border: 'none', borderRadius: '999px', backgroundColor: '#f0f0f0', padding: '12px 16px', fontSize: '14px', fontWeight: 750, color: '#2f2f2f' }}>{q}</button>
+                ))}
+              </div>
+            </section>
+        </section>
+
+        <section id="store-info" style={{ textAlign: 'left', scrollMarginTop: '70px' }}>
+            <section style={{ padding: '24px 20px', borderBottom: '12px solid #f2f2f2' }}>
+              <h2 style={{ fontSize: '24px', fontWeight: 900, margin: '0 0 14px' }}>{language === 'ko' ? '매장 정보' : 'Info'}</h2>
+              {[
+                [Clock, store.hours || '07:00 ~ 22:00'],
+                [Phone, store.phone || '02-123-4567'],
+                [Award, language === 'ko' ? `7개 적립 시 ${store.currency} ${store.pointRewardPer7Stamps.toFixed(2)} 보상` : `${store.currency} ${store.pointRewardPer7Stamps.toFixed(2)} after 7 stamps`]
+              ].map(([Icon, text]) => (
+                <div key={String(text)} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 0', fontSize: '16px', fontWeight: 700, color: '#3f3f46' }}>
+                  <Icon size={22} color="#27213f" />
+                  <span>{String(text)}</span>
                 </div>
+              ))}
+            </section>
+            <section style={{ padding: '24px 20px' }}>
+              <h2 style={{ fontSize: '24px', fontWeight: 900, margin: '0 0 14px' }}>{language === 'ko' ? '나눔 임팩트' : 'Impact'}</h2>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ borderRadius: '14px', backgroundColor: '#f7f7f7', padding: '16px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '13px', color: '#71717a', fontWeight: 700 }}>{t.totalDonatedLabel}</div>
+                  <div style={{ fontSize: '28px', color: 'var(--primary-color)', fontWeight: 950 }}>{totalStampsDonated}</div>
+                </div>
+                <div style={{ borderRadius: '14px', backgroundColor: '#f7f7f7', padding: '16px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '13px', color: '#71717a', fontWeight: 700 }}>{t.totalMoneyLabel}</div>
+                  <div style={{ fontSize: '28px', color: '#1f9d84', fontWeight: 950 }}>${totalMoneyDonated.toFixed(2)}</div>
+                </div>
+              </div>
+            </section>
+        </section>
+
+        <section id="store-faq" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '22px 20px', borderTop: '12px solid #f2f2f7', scrollMarginTop: '70px' }}>
+            <div style={{
+              padding: '18px 16px',
+              borderRadius: '18px',
+              backgroundColor: 'var(--primary-light)',
+              border: '1px solid rgba(95, 92, 230, 0.18)',
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'flex-start'
+            }}>
+              <div style={{
+                width: '38px',
+                height: '38px',
+                borderRadius: '50%',
+                backgroundColor: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}>
+                <HelpCircle size={20} color="var(--primary-color)" />
+              </div>
+              <div style={{ textAlign: 'left' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: 900, color: '#18181b', margin: '0 0 6px' }}>
+                  {language === 'ko' ? '자주 묻는 질문' : 'Common Questions'}
+                </h3>
+                <p style={{ fontSize: '12.5px', lineHeight: 1.5, color: 'var(--primary-hover)', margin: 0, fontWeight: 650 }}>
+                  {language === 'ko'
+                    ? '방문 전 손님들이 자주 확인하는 메뉴, 영업시간, 리뷰, 스탬프 혜택을 정리했어요.'
+                    : 'Quick answers about the store, menu, hours, reviews, and stamp benefits.'}
+                </p>
               </div>
             </div>
 
-            {/* Menu List */}
-            <div>
-              <h3 style={{ fontSize: '14.5px', fontWeight: 800, color: '#18181b', margin: '0 0 12px 0' }}>{t.menuTitle}</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {store.menuItems && store.menuItems.length > 0 ? (
-                  store.menuItems.map((item, idx) => (
-                    <div 
-                      key={idx} 
-                      className="imin-card" 
-                      style={{ 
-                        display: 'flex', 
-                        justifyContent: 'space-between', 
-                        alignItems: 'center', 
-                        padding: '14px' 
-                      }}
-                    >
-                      <div style={{ textAlign: 'left', flex: 1, paddingRight: '8px' }}>
-                        <span style={{ fontSize: '13.5px', fontWeight: 800, color: '#18181b', display: 'block' }}>{item.name}</span>
-                        {item.description && (
-                          <span style={{ fontSize: '11px', color: '#71717a', display: 'block', marginTop: '2px' }}>{item.description}</span>
-                        )}
-                      </div>
-                      <span style={{ fontSize: '14px', fontWeight: 900, color: '#5f5ce6' }}>
-                        ${item.price.toFixed(2)}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {faqItems.map((item, idx) => (
+                <details
+                  key={item.q}
+                  open={idx < 2}
+                  style={{
+                    borderRadius: '16px',
+                    backgroundColor: '#ffffff',
+                    border: '1px solid #ececec',
+                    boxShadow: '0 8px 18px rgba(0,0,0,0.04)',
+                    overflow: 'hidden'
+                  }}
+                >
+                  <summary style={{
+                    padding: '15px 16px',
+                    cursor: 'pointer',
+                    fontSize: '13.5px',
+                    fontWeight: 850,
+                    color: '#18181b',
+                    lineHeight: 1.35,
+                    textAlign: 'left'
+                  }}>
+                    {item.q}
+                  </summary>
+                  <div style={{
+                    padding: '0 16px 16px',
+                    fontSize: '13px',
+                    lineHeight: 1.55,
+                    color: '#52525b',
+                    textAlign: 'left',
+                    fontWeight: 500
+                  }}>
+                    {item.a}
+                  </div>
+                </details>
+              ))}
+            </div>
+        </section>
+
+        <section id="store-reviews" style={{ textAlign: 'left', borderTop: '12px solid #f2f2f7', scrollMarginTop: '70px' }}>
+            <section style={{ padding: '26px 20px 18px', borderBottom: '1px solid #eeeeee' }}>
+              <h2 style={{ fontSize: '30px', fontWeight: 950, letterSpacing: '-0.04em', margin: '0 0 24px' }}>{language === 'ko' ? '추천 리뷰' : 'Recommended reviews'}</h2>
+              <div>
+                <h3 style={{ fontSize: '21px', fontWeight: 900, margin: '0 0 12px' }}>{language === 'ko' ? '전체 평점' : 'Overall rating'}</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '3px' }}>
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <span key={i} style={{ width: '31px', height: '31px', borderRadius: '6px', backgroundColor: i < Math.round(avgRating) ? 'var(--primary-color)' : '#eeeeee', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Star size={19} fill="#ffffff" color="#ffffff" />
                       </span>
-                    </div>
-                  ))
-                ) : (
-                  <div style={{ textAlign: 'center', color: '#71717a', fontSize: '13px', padding: '20px' }}>
-                    {language === 'ko' ? '등록된 메뉴 정보가 없습니다.' : 'No menu information available.'}
+                    ))}
                   </div>
-                )}
+                  <strong style={{ fontSize: '20px', fontWeight: 900, color: '#18181b' }}>{avgRating.toFixed(1)}</strong>
+                  <span style={{ color: '#767676', fontSize: '18px', fontWeight: 650 }}>{storeReviews.length} reviews</span>
+                </div>
               </div>
-            </div>
-
-          </div>
-        )}
-
-        {/* TAB 2: ESG STATS */}
-        {activeTab === 'esg' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div style={{ textAlign: 'center', padding: '16px 0 8px 0' }}>
-              <Award size={36} style={{ color: '#5f5ce6', margin: '0 auto 8px auto' }} />
-              <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#18181b', margin: 0 }}>{t.esgHeadline}</h3>
-              <p style={{ fontSize: '12px', color: '#71717a', marginTop: '6px', lineHeight: 1.45, padding: '0 8px', margin: 0 }}>
-                {t.esgSub}
-              </p>
-            </div>
-
-            {/* Donation Stats Grid */}
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <div className="imin-card" style={{ flex: 1, padding: '16px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <span style={{ fontSize: '11px', color: '#71717a', fontWeight: 600 }}>{t.totalDonatedLabel}</span>
-                <span style={{ fontSize: '24px', fontWeight: 950, color: '#5f5ce6', marginTop: '8px' }}>
-                  {totalStampsDonated} <span style={{ fontSize: '13px', fontWeight: 800 }}>장</span>
-                </span>
+              <div className="store-mini-scrollbarless" style={{ display: 'flex', gap: '10px', overflowX: 'auto', marginTop: '26px', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                {[Search, SlidersHorizontal].map((Icon, idx) => (
+                  <button key={idx} style={{ flex: '0 0 auto', border: '1.5px solid #d6d6d6', backgroundColor: '#ffffff', borderRadius: '999px', padding: '11px 15px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 850 }}>
+                    <Icon size={19} /> {idx === 0 ? (language === 'ko' ? '검색' : 'Search') : (language === 'ko' ? '정렬' : 'Sort')}
+                  </button>
+                ))}
               </div>
-              <div className="imin-card" style={{ flex: 1, padding: '16px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <span style={{ fontSize: '11px', color: '#71717a', fontWeight: 600 }}>{t.totalMoneyLabel}</span>
-                <span style={{ fontSize: '24px', fontWeight: 950, color: '#10b981', marginTop: '8px' }}>
-                  ${totalMoneyDonated.toFixed(2)}
-                </span>
-              </div>
-            </div>
+            </section>
 
-            {/* Charity Campaign list */}
-            <div>
-              <h3 style={{ fontSize: '13px', fontWeight: 800, color: '#71717a', margin: '0 0 10px 0', textTransform: 'uppercase' }}>{t.npoTitle}</h3>
-              <div className="imin-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                {storeDonations.length > 0 ? (
-                  // Simple breakdown grouping by NPO
-                  Array.from(new Set(storeDonations.map(d => d.nonProfitId))).map(npoId => {
-                    const npoTxs = storeDonations.filter(d => d.nonProfitId === npoId);
-                    const stampSum = npoTxs.reduce((sum, tx) => sum + tx.stampCount, 0);
-                    const pct = totalStampsDonated > 0 ? Math.round((stampSum / totalStampsDonated) * 100) : 0;
-                    
-                    // Fallback names
-                    const npoNames: Record<string, string> = {
-                      'npo_1': '세이브더칠드런',
-                      'npo_2': '그린피스',
-                      'npo_3': '동물권행동 카라'
-                    };
-                    const name = npoNames[npoId] || npoId;
-
-                    return (
-                      <div key={npoId}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px', fontWeight: 700, color: '#3f3f46' }}>
-                          <span>{name}</span>
-                          <span>{stampSum}장 ({pct}%)</span>
-                        </div>
-                        {/* Progress Bar */}
-                        <div style={{ width: '100%', height: '6px', backgroundColor: '#f4f4f5', borderRadius: '4px', marginTop: '6px', overflow: 'hidden' }}>
-                          <div style={{ width: `${pct}%`, height: '100%', backgroundColor: '#5f5ce6', borderRadius: '4px' }} />
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div style={{ textAlign: 'center', color: '#71717a', fontSize: '12.5px', padding: '10px 0' }}>
-                    {language === 'ko' ? '아직 이 매장에서 기부된 내역이 없습니다.' : 'No stamp donations recorded at this store yet.'}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Mascot Tip */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', borderRadius: '16px', backgroundColor: 'rgba(95, 92, 230, 0.04)', border: '1px dashed rgba(95, 92, 230, 0.2)' }}>
-              <img src="/sharbee/sharbee5.png" alt="Mascot" style={{ width: '48px', height: '48px', objectFit: 'contain' }} />
-              <p style={{ fontSize: '11px', color: '#4b5563', lineHeight: 1.45, margin: 0, fontWeight: 550 }}>
-                {language === 'ko'
-                  ? "스탬프 1장이라도 기부되면 지역 상권 활성화와 사회 공헌에 실시간으로 쓰여요. 고객 한 분 한 분의 나눔이 큰 힘이 됩니다!"
-                  : "Every single stamp donated builds a warmer community. Your micro-philanthropy creates immediate visual impact!"}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: REVIEWS FEED */}
-        {activeTab === 'reviews' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            
-            {/* Reviews Count & Write Button */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '13px', fontWeight: 700, color: '#52525b' }}>
-                {t.reviewsCount(storeReviews.length)}
-              </span>
-              <button
-                onClick={() => {
-                  setErrorMsg(null);
-                  setCustomerSelectedStoreId(store.id);
-                  localStorage.setItem('sharestamps_open_sharbee_review_store_id', store.id);
-                  window.location.hash = '#/customer';
-                }}
-                className="imin-btn imin-btn-primary"
-                style={{ 
-                  width: 'auto', 
-                  padding: '8px 16px', 
-                  fontSize: '12px', 
-                  fontWeight: 800, 
-                  borderRadius: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}
-              >
-                <MessageSquarePlus size={14} />
-                <span>{t.writeReviewBtn}</span>
-              </button>
-            </div>
-
-            {/* Reviews List */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {storeReviews.length > 0 ? (
-                storeReviews.map(review => (
-                  <div key={review.id} className="imin-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {visibleStoreReviews.length > 0 ? (
+                visibleStoreReviews.map(review => (
+                  <article key={review.id} style={{ padding: '24px 20px', borderBottom: '1px solid #eeeeee' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <div style={{
-                          width: '28px',
-                          height: '28px',
+                          width: '56px',
+                          height: '56px',
                           borderRadius: '50%',
-                          backgroundColor: '#e4e4e7',
+                          backgroundColor: '#dbeafe',
                           color: '#52525b',
-                          fontSize: '11px',
-                          fontWeight: 800,
+                          fontSize: '20px',
+                          fontWeight: 950,
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center'
                         }}>
                           {review.userName.charAt(0)}
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                        <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span style={{ fontSize: '12.5px', fontWeight: 800, color: '#18181b', lineHeight: 1.1 }}>{review.userName}</span>
+                            <span style={{ fontSize: '18px', fontWeight: 950, color: '#18181b', lineHeight: 1.1 }}>{review.userName}</span>
                             {review.isAIContent && (
-                              <span style={{
-                                fontSize: '8.5px',
-                                fontWeight: 800,
-                                padding: '1.5px 5px',
-                                borderRadius: '4px',
-                                backgroundColor: 'rgba(255, 184, 0, 0.12)',
-                                color: '#D97706',
-                                border: '1px solid rgba(255, 184, 0, 0.25)',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '2.5px',
-                                whiteSpace: 'nowrap'
-                              }}>
-                                🌟 {language === 'ko' ? 'AI 콘텐츠' : 'AI Content'}
+                              <span style={{ fontSize: '12px', fontWeight: 900, padding: '3px 7px', borderRadius: '5px', backgroundColor: 'var(--primary-light)', color: 'var(--primary-color)' }}>
+                                {language === 'ko' ? '샤비' : 'AI'}
                               </span>
                             )}
                           </div>
-                          <span style={{ fontSize: '10px', color: '#71717a', marginTop: '2px' }}>@{review.userNickname}</span>
+                          <span style={{ fontSize: '14px', color: '#71717a', marginTop: '5px', display: 'block', fontWeight: 650 }}>@{review.userNickname}</span>
                         </div>
                       </div>
-                      
-                      {/* Rating stars + 내 리뷰 공유 버튼 */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div style={{ display: 'flex', gap: '1px' }}>
-                          {Array.from({ length: 5 }).map((_, i) => (
-                            <Star
-                              key={i}
-                              size={12}
-                              fill={i < review.rating ? '#ffb800' : 'none'}
-                              color={i < review.rating ? '#ffb800' : '#e4e4e7'}
-                            />
-                          ))}
-                        </div>
-                        {currentUser && review.userId === currentUser.id && (
-                          <button
-                            type="button"
-                            disabled={sharingReviewId === review.id}
-                            onClick={() => shareReviewToSns(review, store.name)}
-                            title={language === 'ko' ? 'SNS에 공유하고 스탬프 받기' : 'Share to SNS for a stamp'}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 9px', borderRadius: '999px', border: '1px solid var(--primary-color)', backgroundColor: 'var(--primary-light)', color: 'var(--primary-color)', fontSize: '10.5px', fontWeight: 800, cursor: 'pointer' }}
-                          >
-                            <Send size={11} /> {language === 'ko' ? '공유 +1' : 'Share +1'}
-                          </button>
-                        )}
-                      </div>
+                      <MoreVertical size={24} color="#111111" />
                     </div>
 
-                    <p style={{ 
-                      fontSize: '13px', 
-                      color: '#4b5563', 
-                      lineHeight: 1.5, 
-                      margin: 0, 
-                      textAlign: 'left', 
-                      fontWeight: 500,
-                      whiteSpace: 'pre-line'
-                    }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '22px' }}>
+                      <div style={{ display: 'flex', gap: '3px' }}>
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <span key={i} style={{ width: '29px', height: '29px', borderRadius: '6px', backgroundColor: i < review.rating ? 'var(--primary-color)' : '#eeeeee', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Star size={18} fill="#ffffff" color="#ffffff" />
+                          </span>
+                        ))}
+                      </div>
+                      <span style={{ color: '#8a8a8a', fontSize: '16px', fontWeight: 650 }}>{new Date(review.createdAt).toLocaleDateString()}</span>
+                    </div>
+
+                    <p style={{ fontSize: '18px', color: '#202020', lineHeight: 1.48, margin: '18px 0 0', fontWeight: 500, whiteSpace: 'pre-line' }}>
                       {review.comment}
                     </p>
 
                     {review.videoUrl && (
-                      <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', backgroundColor: '#000000', position: 'relative', aspectRatio: '16 / 9' }}>
+                      <div style={{ width: '100%', borderRadius: '10px', overflow: 'hidden', backgroundColor: '#000000', position: 'relative', aspectRatio: '16 / 9', marginTop: '16px' }}>
                         <video 
                           src={review.videoUrl} 
                           controls 
@@ -634,19 +888,34 @@ export const StoreMiniHome: React.FC = () => {
                     )}
 
                     {review.photoUrl && (
-                      <div style={{ width: '100%', maxHeight: '200px', borderRadius: '12px', overflow: 'hidden', backgroundColor: '#f4f4f5' }}>
+                      <div style={{ width: '100%', height: '160px', borderRadius: '10px', overflow: 'hidden', backgroundColor: '#f4f4f5', marginTop: '16px' }}>
                         <img 
                           src={review.photoUrl} 
                           alt="Review attachment" 
-                          style={{ width: '100%', height: '100%', maxHeight: '200px', objectFit: 'cover' }}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                         />
                       </div>
                     )}
 
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '10px', color: '#a1a1aa' }}>
-                      <span>{new Date(review.createdAt).toLocaleDateString()}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-around', marginTop: '22px', paddingTop: '14px', borderTop: '1px solid #f0f0f0' }}>
+                      {[
+                        [ThumbsUp, language === 'ko' ? '도움돼요' : 'Helpful'],
+                        [Sparkles, language === 'ko' ? '고마워요' : 'Thanks'],
+                        [Award, language === 'ko' ? '좋아요' : 'Love this']
+                      ].map(([Icon, label]) => (
+                        <button key={String(label)} style={{ border: 'none', background: 'transparent', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', color: '#71717a', fontSize: '12px', fontWeight: 750 }}>
+                          <Icon size={26} color="#71717a" />
+                          {String(label)}
+                        </button>
+                      ))}
+                      {currentUser && review.userId === currentUser.id && (
+                        <button type="button" disabled={sharingReviewId === review.id} onClick={() => shareReviewToSns(review, store.name)} style={{ border: 'none', background: 'transparent', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', color: 'var(--primary-color)', fontSize: '12px', fontWeight: 800 }}>
+                          <Send size={26} color="var(--primary-color)" />
+                          {language === 'ko' ? '공유 +1' : 'Share +1'}
+                        </button>
+                      )}
                     </div>
-                  </div>
+                  </article>
                 ))
               ) : (
                 <div style={{ textAlign: 'center', color: '#71717a', fontSize: '13px', padding: '40px 0' }}>
@@ -655,10 +924,28 @@ export const StoreMiniHome: React.FC = () => {
                 </div>
               )}
             </div>
+            {storeReviews.length > visibleStoreReviews.length && (
+              <div style={{ padding: '18px 20px 26px', borderTop: '1px solid #eeeeee' }}>
+                <button onClick={openReviewsPage} style={{ width: '100%', border: '1.5px solid #d6d6d6', backgroundColor: '#ffffff', borderRadius: '999px', padding: '15px', fontSize: '17px', fontWeight: 900, color: '#18181b' }}>
+                  {language === 'ko' ? `전체 리뷰 ${storeReviews.length}개 보기` : `See all ${storeReviews.length} reviews`}
+                </button>
+              </div>
+            )}
+        </section>
 
-          </div>
-        )}
+      </div>
 
+      <div className="store-mini-scrollbarless" style={{ position: 'sticky', bottom: 0, zIndex: 20, backgroundColor: '#ffffff', borderTop: '1px solid #ececec', padding: '13px 14px', display: 'flex', gap: '10px', overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: 'none', msOverflowStyle: 'none', boxShadow: '0 -8px 20px rgba(0,0,0,0.08)' }}>
+        {[
+          { icon: MessageSquarePlus, label: t.writeReviewBtn, primary: true, action: () => { setErrorMsg(null); setCustomerSelectedStoreId(store.id); localStorage.setItem('sharestamps_open_sharbee_review_store_id', store.id); window.location.hash = '#/customer'; } },
+          { icon: Sparkles, label: 'Ask', action: () => jumpToSection('ask') },
+          { icon: Phone, label: language === 'ko' ? '전화' : 'Call', action: () => { if (store.phone) window.location.href = `tel:${store.phone}`; } }
+        ].map(item => (
+          <button key={item.label} onClick={item.action} style={{ flex: '0 0 auto', minWidth: item.primary ? '150px' : '112px', height: '56px', borderRadius: '999px', border: 'none', backgroundColor: item.primary ? 'var(--primary-color)' : (item.icon === Sparkles ? 'var(--primary-light)' : '#eeeeee'), color: item.primary ? '#ffffff' : (item.icon === Sparkles ? 'var(--primary-color)' : '#27272a'), display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '17px', fontWeight: 900 }}>
+            <item.icon size={24} />
+            {item.label}
+          </button>
+        ))}
       </div>
 
       {/* Review Modal SHEET overlay */}
@@ -856,13 +1143,15 @@ export const StoreMiniHome: React.FC = () => {
                         const file = e.target.files?.[0];
                         if (!file) return;
 
-                        // FileReader + Canvas resizing to prevent QuotaExceededError (Max 150x150)
+                        // 캔버스 리사이즈. 인스타 자동게시는 최소 픽셀/비율 요건이 있어
+                        // 긴 변 1080px까지 허용(IG 권장 크기). 게시 전 Firebase Storage로
+                        // 업로드하므로 큰 base64가 DB 공유 문서에 박히지 않는다.
                         const reader = new FileReader();
                         reader.onload = (event) => {
                           const img = new Image();
                           img.onload = () => {
                             const canvas = document.createElement('canvas');
-                            const max_size = 150;
+                            const max_size = 1080;
                             let width = img.width;
                             let height = img.height;
                             if (width > height) {
@@ -880,7 +1169,7 @@ export const StoreMiniHome: React.FC = () => {
                             canvas.height = height;
                             const ctx = canvas.getContext('2d');
                             ctx?.drawImage(img, 0, 0, width, height);
-                            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6); // 60% quality jpeg
+                            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.85); // 85% quality jpeg
                             setSelectedPhotoUrl(compressedBase64);
                           };
                           img.src = event.target?.result as string;

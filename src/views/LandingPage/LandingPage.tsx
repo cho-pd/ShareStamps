@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useDatabase } from '../../context/DatabaseContext';
 import {
-  Heart, Gift, Smartphone, Tablet, ArrowRight,
+  Heart, Gift, ArrowRight,
   TrendingUp, Users, HeartHandshake, Receipt, Award,
   Package, MessageSquare, Share2, Bot, Send, Wallet, Trophy, Infinity as InfinityIcon
 } from 'lucide-react';
@@ -9,10 +9,10 @@ import {
 const translations = {
   ko: {
     badge: "🐝 AI 검색 시대, 손님이 만드는 우리 가게 마케팅",
-    title1: "손님이",
-    title2: "우리 가게를 홍보하게",
-    title3: "만드세요.",
-    desc: "손님이 AI 챗봇 샤비로 리뷰를 쓰면 페이스북·인스타그램·구글 비즈니스 등 모든 채널에 자동 배포되어, AI 검색에 우리 가게가 노출됩니다. 스탬프 보상으로 재방문까지 이어지는, 동네 가게를 위한 선순환 마케팅 엔진입니다.",
+    title1: "AI가",
+    title2: "우리 가게를 추천하게",
+    title3: "만듭니다.",
+    desc: "“제로클릭 서치 (Zero-Click Search)”, 들어보셨나요?\n손님은 더 이상 클릭하지 않습니다.\n마케팅도 AEO·GEO로 바뀌어야 합니다.\n손님이 챗봇과 대화하면 페이스북·인스타그램·구글 비즈니스 등\n10개 채널에 자동 배포되고,\nAI 검색이 우리 가게를 먼저 찾아냅니다.",
 
     btnCustomer: "고객 앱 체험하기",
     btnStore: "점주 — 우리 가게 시작하기",
@@ -62,10 +62,10 @@ const translations = {
   },
   en: {
     badge: "🐝 AI-era marketing your customers create for you",
-    title1: "Let your customers",
-    title2: "market your store",
-    title3: "for you.",
-    desc: "When customers write reviews with Sharbee (AI), they auto-publish to Facebook, Instagram, Google Business and more — surfacing your store in AI search. Stamp rewards keep them coming back: a virtuous marketing engine for local shops.",
+    title1: "Get AI to",
+    title2: "recommend",
+    title3: "your store.",
+    desc: "Ever heard of “Zero-Click Search”? These days people don’t click links anymore. That means marketing has to change too — now it’s about AEO and GEO. When a customer chats with our bot, their review posts automatically to 10 channels like Facebook, Instagram, and Google Business — so AI search finds your store first.",
 
     btnCustomer: "Try the customer app",
     btnStore: "For owners — Get started",
@@ -311,26 +311,36 @@ export const LandingPage: React.FC = () => {
               </button>
             ))}
           </div>
-          {/* Primary nav CTA — "See My Impact" (customer app), Ink pill */}
-          <button
-            onClick={() => navigateTo('#/customer')}
-            style={{
-              padding: '9px 22px',
-              borderRadius: '999px',
-              border: '1.5px solid #141413',
-              backgroundColor: '#141413',
-              color: '#F3F0EE',
-              fontSize: '14px',
-              fontWeight: 500,
-              letterSpacing: '-0.02em',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap'
-            }}
-          >
-            {t.impactBtnTitle}
-          </button>
         </div>
       </header>
+
+      <div style={{
+        maxWidth: '1120px',
+        width: 'calc(100% - 40px)',
+        margin: '8px auto 0 auto',
+        display: 'flex',
+        justifyContent: 'center',
+        position: 'relative',
+        zIndex: 20
+      }}>
+        <button
+          onClick={() => navigateTo('#/customer')}
+          style={{
+            padding: '9px 22px',
+            borderRadius: '999px',
+            border: '1.5px solid #141413',
+            backgroundColor: '#141413',
+            color: '#F3F0EE',
+            fontSize: '14px',
+            fontWeight: 500,
+            letterSpacing: '-0.02em',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {t.impactBtnTitle}
+        </button>
+      </div>
 
 
       {/* Hero Section - Mobile-first layout */}
@@ -389,7 +399,8 @@ export const LandingPage: React.FC = () => {
           lineHeight: 1.5,
           maxWidth: '580px',
           margin: '0 auto 34px auto',
-          letterSpacing: '-0.01em'
+          letterSpacing: '-0.01em',
+          whiteSpace: 'pre-line'
         }}>
           {t.desc}
         </p>
@@ -504,35 +515,6 @@ export const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* Experience the app (Mastercard) */}
-      <section style={{ maxWidth: '1120px', margin: '56px auto 0 auto', padding: '0 28px' }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
-          <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#CF4500' }} />
-          <span style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', color: '#696969' }}>{lang === 'ko' ? '직접 체험' : 'TRY IT'}</span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
-          {[
-            { icon: Smartphone, title: t.card1Title, desc: t.card1Desc, action: t.card1Action, go: '#/customer' },
-            { icon: Tablet, title: t.card2Title, desc: t.card2Desc, action: t.card2Action, go: '#/kiosk' },
-          ].map(card => (
-            <div
-              key={card.title}
-              onClick={() => navigateTo(card.go)}
-              style={{ backgroundColor: '#FCFBFA', borderRadius: '24px', padding: '32px 30px', boxShadow: 'rgba(0,0,0,0.06) 0px 18px 40px 0px', cursor: 'pointer' }}
-            >
-              <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: '#F3F0EE', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '18px' }}>
-                <card.icon size={22} color="#141413" />
-              </div>
-              <h3 style={{ fontSize: '20px', fontWeight: 500, letterSpacing: '-0.02em', color: '#141413', margin: '0 0 10px' }}>{card.title}</h3>
-              <p style={{ fontSize: '14px', fontWeight: 450, color: '#565656', lineHeight: 1.5, margin: '0 0 18px' }}>{card.desc}</p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#141413', fontSize: '14px', fontWeight: 500 }}>
-                <span>{card.action}</span>
-                <ArrowRight size={15} />
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
       </section>
 
       {/* ===== VISION A. 문제 정의 ===== */}
