@@ -87,9 +87,42 @@ const SEED_STORES: Store[] = [
   },
 ];
 
+// Firestore에서 per-store 모델(stores/{id} + menuItems + reviews)을 읽는다.
+// 비어있거나 오류면 seed로 폴백 → 빌드/런타임이 항상 안전.
+async function fetchStoresFromFirestore(): Promise<Store[] | null> {
+  try {
+    const { getDb } = await import('./firebase');
+    const { collection, getDocs } = await import('firebase/firestore');
+    const db = getDb();
+    const storeSnap = await getDocs(collection(db, 'stores'));
+    if (storeSnap.empty) return null;
+
+    const stores: Store[] = [];
+    for (const d of storeSnap.docs) {
+      const data = d.data() as Omit<Store, 'menu' | 'reviews'>;
+      const [menuSnap, reviewSnap] = await Promise.all([
+        getDocs(collection(db, 'stores', d.id, 'menuItems')),
+        getDocs(collection(db, 'stores', d.id, 'reviews')),
+      ]);
+      stores.push({
+        ...data,
+        id: d.id,
+        menu: menuSnap.docs.map((m) => ({ id: m.id, ...(m.data() as Omit<MenuItem, 'id'>) })),
+        reviews: reviewSnap.docs
+          .map((r) => ({ id: r.id, ...(r.data() as Omit<Review, 'id'>) }))
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+      });
+    }
+    return stores;
+  } catch (e) {
+    console.warn('[stores] Firestore read failed, using seed fallback:', (e as Error)?.message);
+    return null;
+  }
+}
+
 export async function getAllStores(): Promise<Store[]> {
-  // P2: return per-store Firestore docs.
-  return SEED_STORES;
+  const fromDb = await fetchStoresFromFirestore();
+  return fromDb ?? SEED_STORES;
 }
 
 export async function getStoreBySlug(slug: string): Promise<Store | null> {
