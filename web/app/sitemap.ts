@@ -1,6 +1,8 @@
 import type { MetadataRoute } from 'next';
 import { getAllStores, SITE_URL } from '@/lib/stores';
 
+export const dynamic = 'force-static';
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const stores = await getAllStores();
   const storeUrls: MetadataRoute.Sitemap = stores.map((s) => ({

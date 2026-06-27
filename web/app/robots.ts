@@ -1,6 +1,8 @@
 import type { MetadataRoute } from 'next';
 import { SITE_URL } from '@/lib/stores';
 
+export const dynamic = 'force-static';
+
 // AI 검색 봇을 명시적으로 허용한다 (AEO/GEO).
 export default function robots(): MetadataRoute.Robots {
   return {

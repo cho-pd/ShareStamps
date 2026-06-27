@@ -1,0 +1,7 @@
+# 스테이징 전용(새 Netlify 사이트). 운영 sharestamps.com(루트 netlify.toml)과 분리.
+# Next.js를 Netlify에서 실행하기 위한 공식 런타임. 나중에 Vercel로 옮겨도 이 파일만 무시하면 됨(호스트 중립).
+[build]
+  command = "next build"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
