@@ -28,6 +28,20 @@
 - **P4: SNS 함수 이식** — `netlify/functions/sns-*` → Next API Route(Outstand). 호스트 중립.
 - **P5: 배포 전환 검토** — Netlify→Vercel(도메인·env·테스트). **배포는 매번 승인 후.**
 
+## 배포 현황 / 프로세스 (중요 — 회귀 방지)
+- **운영(sharestamps.com)은 2026-06-27부터 새 AEO Next 앱으로 전면 교체됨** (사용자 승인). 옛 Vite SPA는
+  git `main` + Netlify 배포 히스토리에 남아 롤백 가능.
+- **현재 운영 배포 = 정적 export 수동 배포** (Netlify Next 런타임이 `--build`에서 404 나서 우회):
+  ```
+  STATIC_EXPORT=1 npm --prefix web run build      # web/out 생성(정적 HTML+스키마)
+  netlify deploy --prod --dir web/out --site 12f1768a-ceea-4b44-80eb-83e494d37115
+  ```
+- ⚠️ **루트의 옛 Vite 빌드(`npm run build` → dist)를 운영에 배포하지 말 것** — 새 앱을 덮어씀.
+  (이 사이트는 수동 배포로만 갱신되며 GitHub 푸시가 빌드를 트리거하지 않는 것으로 확인됨.)
+- **정적 export의 한계:** ISR/새 매장 자동반영/API Route 없음. → 운영 SSR이 필요해지는 P3+에는
+  **Vercel 네이티브 Next**로 가는 게 맞다(증거: Netlify Next 런타임 `--build` 404). 그때 도메인 이전.
+- 스테이징(분리): `sharestamps-aeo-staging.netlify.app` (site 95ef12d0…).
+
 ## 안전장치
 - 라이브(main)는 안 건드린다. 모든 작업은 `aeo-next-rebuild` 브랜치. 새 앱은 `web/` 서브디렉터리에서
   성장 → 완성 시 루트로 승격. **배포는 사용자 승인 전까지 안 함.**
