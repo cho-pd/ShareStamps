@@ -6,8 +6,8 @@ import StampButton from './StampButton';
 import SharbeeChat from './SharbeeChat';
 import ReviewForm from './ReviewForm';
 
-// ISR: 매장 페이지를 캐시로 빠르게 서빙하고 1시간마다(또는 온디맨드 재검증) 갱신 → 크롤 친화 + 비용 절감.
-export const revalidate = 3600;
+// ISR: 매장 페이지를 캐시로 서빙하되 최대 60초마다 갱신 → 새 리뷰·정보가 ~1분 내 반영(크롤 친화 + 비용 미미).
+export const revalidate = 60;
 
 export async function generateStaticParams() {
   const stores = await getAllStores();
