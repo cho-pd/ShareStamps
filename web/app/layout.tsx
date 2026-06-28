@@ -1,3 +1,4 @@
+import './globals.css';
 import type { Metadata, Viewport } from 'next';
 import { SITE_URL } from '@/lib/stores';
 
@@ -17,18 +18,13 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body
-        style={{
-          margin: 0,
-          fontFamily:
-            'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-          color: '#1c1c1e',
-          background: '#ffffff',
-          lineHeight: 1.5,
-        }}
-      >
-        {children}
-      </body>
+      <head>
+        <link
+          rel="stylesheet"
+          href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css"
+        />
+      </head>
+      <body className="min-h-dvh font-sans text-zinc-900 antialiased">{children}</body>
     </html>
   );
 }

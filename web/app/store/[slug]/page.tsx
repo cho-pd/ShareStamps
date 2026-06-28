@@ -6,7 +6,6 @@ import StampButton from './StampButton';
 import SharbeeChat from './SharbeeChat';
 import ReviewForm from './ReviewForm';
 
-// ISR: 매장 페이지를 캐시로 서빙하되 최대 60초마다 갱신 → 새 리뷰·정보가 ~1분 내 반영(크롤 친화 + 비용 미미).
 export const revalidate = 60;
 
 export async function generateStaticParams() {
@@ -18,19 +17,10 @@ function buildFaq(store: Store): FaqItem[] {
   const signatures = store.menu.filter((m) => m.signature).map((m) => m.name);
   const cityLine = store.address?.city ? ` in ${store.address.city}${store.address.region ? ', ' + store.address.region : ''}` : '';
   return [
-    {
-      q: `What is ${store.name} known for?`,
-      a: `${store.name} is a ${store.category.toLowerCase()}${cityLine}. ${store.description}`,
-    },
-    {
-      q: `What are the signature dishes at ${store.name}?`,
-      a: signatures.length ? `Signature items include ${signatures.join(', ')}.` : `Ask staff for today's recommendations.`,
-    },
+    { q: `What is ${store.name} known for?`, a: `${store.name} is a ${store.category.toLowerCase()}${cityLine}. ${store.description}` },
+    { q: `What are the signature dishes at ${store.name}?`, a: signatures.length ? `Signature items include ${signatures.join(', ')}.` : `Ask staff for today's recommendations.` },
     { q: `What are the hours of ${store.name}?`, a: `${store.name} is open ${store.hours}.` },
-    {
-      q: `Does ${store.name} offer a loyalty reward?`,
-      a: `Yes. Collect 7 stamps to receive a ${store.currency} ${store.pointRewardPer7Stamps.toFixed(2)} reward.`,
-    },
+    { q: `Does ${store.name} offer a loyalty reward?`, a: `Yes. Collect 7 stamps to receive a ${store.currency} ${store.pointRewardPer7Stamps.toFixed(2)} reward.` },
   ];
 }
 
@@ -38,13 +28,11 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const store = await getStoreBySlug(slug);
   if (!store) return { title: 'Store not found' };
-
   const cityLine = store.address?.city ? ` · ${store.address.city}${store.address.region ? ', ' + store.address.region : ''}` : '';
   const title = `${store.name} — ${store.category}${cityLine}`;
   const description = store.description.slice(0, 160);
   const url = `${SITE_URL}/store/${store.slug}`;
   const images = [store.bannerUrl, store.thumbnailUrl].filter(Boolean) as string[];
-
   return {
     title,
     description,
@@ -65,98 +53,119 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
   const storeJsonLd = buildStoreJsonLd(store);
   const faqJsonLd = buildFaqJsonLd(faq);
 
-  // Answer-first TL;DR (중립·사실 어조, 음성검색/AI 인용용)
   const where = store.address?.city ? ` in ${store.address.city}, ${store.address.region ?? ''}`.trimEnd() : '';
   const signatures = store.menu.filter((m) => m.signature).map((m) => m.name);
-  const tldr = `${store.name} is a ${store.category.toLowerCase()}${where}${
-    signatures.length ? `, known for ${signatures.join(' and ')}` : ''
-  }. Open ${store.hours}.`;
+  const tldr = `${store.name} is a ${store.category.toLowerCase()}${where}${signatures.length ? `, known for ${signatures.join(' and ')}` : ''}. Open ${store.hours}.`;
+  const hero = store.bannerUrl || store.thumbnailUrl;
 
   return (
-    <main style={{ maxWidth: 760, margin: '0 auto', padding: '32px 20px' }}>
-      {/* 서버 HTML에 박히는 구조화 데이터 (AEO 핵심) */}
+    <main className="mx-auto max-w-xl px-4 pb-20">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(storeJsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }} />
 
-      <p
-        id="tldr"
-        style={{ margin: '0 0 16px', padding: '12px 14px', background: '#f5f3ff', borderLeft: '4px solid #6d28d9', borderRadius: 8, fontSize: 15, fontWeight: 600, color: '#3b0764' }}
-      >
-        {tldr}
-      </p>
-
-      <header style={{ borderBottom: '1px solid #eee', paddingBottom: 16 }}>
-        <h1 style={{ fontSize: 30, fontWeight: 900, margin: 0 }}>{store.name}</h1>
-        <p style={{ color: '#555', margin: '6px 0 0' }}>
-          {store.category}
-          {store.priceRange ? ` · ${store.priceRange}` : ''}
-          {store.address?.city ? ` · ${store.address.city}, ${store.address.region}` : ''}
-        </p>
-        {store.reviews.length > 0 && (
-          <p style={{ margin: '6px 0 0', fontWeight: 700 }}>
-            ★ {avg.toFixed(1)} ({store.reviews.length} reviews)
+      {/* Hero */}
+      <section className="ss-card mt-5 overflow-hidden">
+        {hero ? (
+          <img src={hero} alt={store.name} className="h-44 w-full object-cover" />
+        ) : (
+          <div className="flex h-32 items-center justify-center bg-gradient-to-br from-brand-500 to-brand-700">
+            <span className="text-3xl font-black tracking-tight text-white/95">{store.name}</span>
+          </div>
+        )}
+        <div className="p-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="ss-chip">{store.category}</span>
+            {store.priceRange && <span className="text-xs font-bold text-zinc-500">{store.priceRange}</span>}
+            {store.address?.city && <span className="text-xs text-zinc-500">· {store.address.city}, {store.address.region}</span>}
+          </div>
+          <h1 className="mt-2 text-2xl font-black tracking-tight">{store.name}</h1>
+          {store.reviews.length > 0 && (
+            <div className="mt-1 flex items-center gap-1.5 text-sm font-bold text-amber-500">
+              ★ {avg.toFixed(1)} <span className="font-medium text-zinc-400">({store.reviews.length} reviews)</span>
+            </div>
+          )}
+          <p id="tldr" className="mt-3 rounded-xl border-l-4 border-brand-500 bg-brand-50 px-3.5 py-2.5 text-sm font-medium text-brand-900">
+            {tldr}
           </p>
-        )}
-        <p style={{ margin: '12px 0 0' }}>{store.description}</p>
-      </header>
-
-      <StampButton
-        storeId={store.id}
-        intervalMinutes={store.earningIntervalMinutes ?? 60}
-        reward={store.pointRewardPer7Stamps}
-        currency={store.currency}
-      />
-
-      <SharbeeChat storeName={store.name} menu={store.menu} />
-
-      <section style={{ marginTop: 24 }}>
-        <h2 style={{ fontSize: 20 }}>Hours &amp; Contact</h2>
-        <p>Open {store.hours}</p>
-        {store.phone && <p>Phone: {store.phone}</p>}
-        {store.address && (
-          <address style={{ fontStyle: 'normal', color: '#444' }}>
-            {[store.address.street, store.address.city, store.address.region, store.address.postalCode]
-              .filter(Boolean)
-              .join(', ')}
-          </address>
-        )}
+          <p className="mt-3 text-[15px] leading-relaxed text-zinc-600">{store.description}</p>
+        </div>
       </section>
 
-      <section style={{ marginTop: 24 }}>
-        <h2 style={{ fontSize: 20 }}>Menu</h2>
-        <ul style={{ listStyle: 'none', padding: 0 }}>
+      {/* 스탬프 */}
+      <div className="mt-4">
+        <StampButton storeId={store.id} intervalMinutes={store.earningIntervalMinutes ?? 60} reward={store.pointRewardPer7Stamps} currency={store.currency} />
+      </div>
+
+      {/* 샤비 */}
+      <div className="mt-4">
+        <SharbeeChat storeName={store.name} menu={store.menu} />
+      </div>
+
+      {/* 정보 */}
+      <section className="ss-card mt-4 p-5">
+        <h2 className="text-base font-extrabold">Hours &amp; Contact</h2>
+        <dl className="mt-2 space-y-1 text-sm text-zinc-600">
+          <div className="flex gap-2"><dt className="w-16 shrink-0 font-semibold text-zinc-400">Open</dt><dd>{store.hours}</dd></div>
+          {store.phone && <div className="flex gap-2"><dt className="w-16 shrink-0 font-semibold text-zinc-400">Phone</dt><dd>{store.phone}</dd></div>}
+          {store.address && (
+            <div className="flex gap-2">
+              <dt className="w-16 shrink-0 font-semibold text-zinc-400">Address</dt>
+              <dd>{[store.address.street, store.address.city, store.address.region, store.address.postalCode].filter(Boolean).join(', ')}</dd>
+            </div>
+          )}
+        </dl>
+      </section>
+
+      {/* 메뉴 */}
+      <section className="ss-card mt-4 p-5">
+        <h2 className="text-base font-extrabold">Menu</h2>
+        <ul className="mt-2 divide-y divide-zinc-100">
           {store.menu.map((m) => (
-            <li key={m.id} style={{ padding: '8px 0', borderBottom: '1px solid #f2f2f2' }}>
-              <strong>{m.name}</strong>
-              {m.signature ? ' ⭐' : ''} — {store.currency} {m.price.toFixed(2)}
-              {m.description ? <div style={{ color: '#666', fontSize: 14 }}>{m.description}</div> : null}
+            <li key={m.id} className="flex items-start justify-between gap-3 py-3">
+              <div>
+                <div className="font-semibold">
+                  {m.name}
+                  {m.signature && <span className="ml-1.5 rounded bg-honey px-1.5 py-0.5 text-[10px] font-bold text-honey-ink align-middle">SIGNATURE</span>}
+                </div>
+                {m.description && <p className="mt-0.5 text-[13px] text-zinc-500">{m.description}</p>}
+              </div>
+              <div className="shrink-0 font-bold text-zinc-700">{store.currency} {m.price.toFixed(2)}</div>
             </li>
           ))}
         </ul>
       </section>
 
-      <section style={{ marginTop: 24 }}>
-        <h2 style={{ fontSize: 20 }}>Reviews</h2>
+      {/* 리뷰 */}
+      <section className="ss-card mt-4 p-5">
+        <h2 className="text-base font-extrabold">Reviews</h2>
         <ReviewForm storeId={store.id} storeName={store.name} />
-        {store.reviews.map((r) => (
-          <blockquote key={r.id} style={{ margin: '12px 0', paddingLeft: 12, borderLeft: '3px solid #ddd' }}>
-            <div style={{ fontWeight: 700 }}>
-              {r.author} — ★ {r.rating}
+        <div className="mt-3 space-y-3">
+          {store.reviews.map((r) => (
+            <div key={r.id} className="rounded-xl bg-zinc-50 p-3.5">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-bold">{r.author}</span>
+                <span className="text-sm font-bold text-amber-500">★ {r.rating}</span>
+              </div>
+              <p className="mt-1 text-sm text-zinc-600">{r.comment}</p>
             </div>
-            <div style={{ color: '#444' }}>{r.comment}</div>
-          </blockquote>
-        ))}
+          ))}
+        </div>
       </section>
 
-      <section style={{ marginTop: 24 }}>
-        <h2 style={{ fontSize: 20 }}>FAQ</h2>
-        {faq.map((f, i) => (
-          <div key={i} style={{ marginBottom: 12 }}>
-            <h3 style={{ fontSize: 16, margin: '0 0 2px' }}>{f.q}</h3>
-            <p style={{ margin: 0, color: '#444' }}>{f.a}</p>
-          </div>
-        ))}
+      {/* FAQ */}
+      <section className="ss-card mt-4 p-5">
+        <h2 className="text-base font-extrabold">FAQ</h2>
+        <div className="mt-2 divide-y divide-zinc-100">
+          {faq.map((f, i) => (
+            <div key={i} className="py-3">
+              <h3 className="text-[15px] font-bold">{f.q}</h3>
+              <p className="mt-1 text-sm text-zinc-600">{f.a}</p>
+            </div>
+          ))}
+        </div>
       </section>
+
+      <p className="mt-8 text-center text-xs text-zinc-400">Powered by ShareStamps</p>
     </main>
   );
 }
