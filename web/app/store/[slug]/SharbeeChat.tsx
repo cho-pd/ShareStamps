@@ -27,7 +27,7 @@ async function askGemini(sys: string, history: Msg[], userText: string): Promise
   const hist = history.map((m) => `${m.who === 'bee' ? '샤비' : '손님'}: ${m.text}`).join('\n');
   const prompt = `${sys}\n\n[대화]\n${hist}\n손님: ${userText}\n샤비:`;
   try {
-    const res = await fetch('/.netlify/functions/sharbee', {
+    const res = await fetch('/api/sharbee', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt }),

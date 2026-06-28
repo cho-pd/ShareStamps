@@ -14,7 +14,7 @@ export async function postReviewToSns(params: {
   networks?: string[]; // 비우면 연결된 모든 채널
 }): Promise<SnsPostResult> {
   try {
-    const res = await fetch('/.netlify/functions/sns-post', {
+    const res = await fetch('/api/sns-post', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
