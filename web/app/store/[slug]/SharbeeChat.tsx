@@ -3,8 +3,6 @@
 import { useRef, useState } from 'react';
 import type { MenuItem } from '@/lib/stores';
 
-const GEMINI_MODEL = 'gemini-3.1-flash-lite';
-
 type Msg = { who: 'bee' | 'me'; text: string };
 type Mode = 'browse' | 'waiting';
 
@@ -24,25 +22,18 @@ ${menuLines}
 ${modeRule}`;
 }
 
+// 키는 서버(Netlify Function)에만. 클라이언트는 비밀 아닌 prompt만 보낸다.
 async function askGemini(sys: string, history: Msg[], userText: string): Promise<string | null> {
-  const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
-  if (!apiKey) return null;
   const hist = history.map((m) => `${m.who === 'bee' ? '샤비' : '손님'}: ${m.text}`).join('\n');
   const prompt = `${sys}\n\n[대화]\n${hist}\n손님: ${userText}\n샤비:`;
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          generationConfig: { temperature: 0.7, topP: 0.9, maxOutputTokens: 160 },
-          contents: [{ parts: [{ text: prompt }] }],
-        }),
-      }
-    );
+    const res = await fetch('/.netlify/functions/sharbee', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    });
     const data = await res.json();
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? null;
+    return data?.text ?? null;
   } catch {
     return null;
   }

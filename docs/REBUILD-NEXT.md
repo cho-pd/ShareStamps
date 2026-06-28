@@ -42,6 +42,14 @@
   **Vercel 네이티브 Next**로 가는 게 맞다(증거: Netlify Next 런타임 `--build` 404). 그때 도메인 이전.
 - 스테이징(분리): `sharestamps-aeo-staging.netlify.app` (site 95ef12d0…).
 
+## 보안 / 키 관리
+- **Gemini 키 숨김 완료** (2026-06-28): 클라이언트 직접 호출 제거 → **Netlify Function 프록시**
+  `netlify/functions/sharbee.mjs`(서버 전용 `GEMINI_API_KEY` env). 라이브 번들에 키 0개 확인.
+  - ⚠️ **이 Gemini 키는 직전 배포에서 클라 번들에 노출됐던 값 → 출시 전 반드시 재발급(rotate).** (OUTSTAND 키도 동일.)
+  - ⚠️ **호스트 종속 stopgap:** 지금은 정적 export라 Netlify Function 사용. **SSR/Vercel 전환 시
+    `web/app/api/sharbee/route.ts`(Next API Route)로 이관**(호스트 중립).
+- 클라 노출용 키(`NEXT_PUBLIC_*`)는 쓰지 않는다. 비밀은 서버 함수/Route에서만.
+
 ## 안전장치
 - 라이브(main)는 안 건드린다. 모든 작업은 `aeo-next-rebuild` 브랜치. 새 앱은 `web/` 서브디렉터리에서
   성장 → 완성 시 루트로 승격. **배포는 사용자 승인 전까지 안 함.**
