@@ -73,7 +73,8 @@ export default function SharbeeChat({ storeName, menu }: { storeName: string; me
   if (!open) {
     return (
       <button onClick={() => setOpen(true)} className="ss-card flex w-full items-center gap-3 p-4 text-left active:scale-[0.99]">
-        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-honey text-xl">🐝</span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/sharbee/sharbee5.png" alt="샤비" className="h-11 w-11 shrink-0 rounded-full bg-honey object-contain p-0.5" />
         <span className="flex-1">
           <span className="block font-extrabold">샤비에게 메뉴 추천받기</span>
           <span className="block text-xs text-zinc-500">뭘 먹을지 같이 골라드려요</span>
@@ -86,7 +87,11 @@ export default function SharbeeChat({ storeName, menu }: { storeName: string; me
   return (
     <section className="ss-card overflow-hidden">
       <div className="flex items-center justify-between bg-honey px-4 py-3">
-        <span className="font-extrabold text-honey-ink">🐝 샤비{mode === 'waiting' ? ' · 주문 대기 중' : ''}</span>
+        <span className="flex items-center gap-2 font-extrabold text-honey-ink">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/sharbee/sharbee5.png" alt="샤비" className="h-7 w-7 object-contain" />
+          샤비{mode === 'waiting' ? ' · 주문 대기 중' : ''}
+        </span>
         <button onClick={() => setOpen(false)} className="font-bold text-honey-ink/70">✕</button>
       </div>
       <div ref={scrollRef} className="flex max-h-64 flex-col gap-2 overflow-y-auto p-3">

@@ -185,7 +185,8 @@ export default function MePage() {
     return (
       <main className="mx-auto max-w-xl px-4 pb-20">
         <header className="px-1 pt-8 text-center">
-          <div className="text-4xl">🐝</div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/sharbee/sharbee5.png" alt="샤비" className="mx-auto h-16 w-16 object-contain" />
           <h1 className="mt-2 text-2xl font-black tracking-tight">내 스탬프 시작하기</h1>
           <p className="mt-1 text-sm text-zinc-500">이름과 전화번호로 스탬프를 모으고 친구에게 선물하세요.</p>
         </header>
@@ -228,7 +229,8 @@ export default function MePage() {
         <p className="mt-8 text-center text-sm text-zinc-400">불러오는 중…</p>
       ) : cards.length === 0 ? (
         <div className="ss-card mt-4 p-8 text-center">
-          <div className="text-4xl">🐝</div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/sharbee/sharbee5.png" alt="샤비" className="mx-auto h-16 w-16 object-contain" />
           <p className="mt-3 font-bold">아직 모은 스탬프가 없어요</p>
           <p className="mt-1 text-sm text-zinc-500">매장에서 QR을 찍고 스탬프를 모아보세요!</p>
           <Link href="/store/loveletter-fullerton" className="ss-btn-soft mt-4">데모 매장 둘러보기</Link>
@@ -260,7 +262,8 @@ export default function MePage() {
                   <button onClick={() => setDonateSheet(card)} disabled={busy || !canUse} className="ss-chip justify-center py-2.5 text-sm disabled:opacity-40">기부 💛</button>
                 </div>
                 <Link href={`/store/${card.slug}`} className="mt-2 flex items-center justify-center gap-1.5 rounded-xl border border-honey/60 bg-honey/10 py-2.5 text-[13px] font-extrabold text-honey-ink">
-                  🐝 샤비와 리뷰 쓰고 스탬프 받기
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/sharbee/sharbee5.png" alt="샤비" className="h-5 w-5 object-contain" /> 샤비와 리뷰 쓰고 스탬프 받기
                 </Link>
                 {!canUse && <p className="mt-2 text-[11px] text-zinc-400">스탬프 1개 이상부터 적립·선물·기부가 가능해요.</p>}
               </section>

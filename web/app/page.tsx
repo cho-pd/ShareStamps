@@ -72,10 +72,17 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* 콘텐츠 생산 */}
+      {/* 콘텐츠 생산 (샤비) */}
       <section className="mt-10">
         <Eyebrow>콘텐츠 생산</Eyebrow>
-        <h2 className="mt-1 text-xl font-black tracking-tight">손님이 콘텐츠를 만든다</h2>
+        <div className="mt-2 flex items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/sharbee/sharbee10.png" alt="샤비 마스코트" className="h-20 w-20 shrink-0 object-contain drop-shadow" />
+          <div>
+            <h2 className="text-xl font-black tracking-tight">손님이 콘텐츠를 만든다</h2>
+            <p className="mt-0.5 text-sm text-zinc-500">꿀벌 컨시어지 <b className="text-honey-ink">샤비</b>가 손님과 대화하며 리뷰를 만들어요.</p>
+          </div>
+        </div>
         <div className="mt-3 space-y-3">
           {content.map((c) => <Card key={c.t} {...c} />)}
         </div>
