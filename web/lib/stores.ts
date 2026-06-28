@@ -3,7 +3,8 @@
 // P2에서 이 파일의 getAllStores/getStoreBySlug 내부만 per-store Firestore 읽기로 교체한다.
 // 데이터 모델: stores/{storeId} + stores/{storeId}/menuItems + stores/{storeId}/reviews
 
-export const SITE_URL = 'https://sharestamps.com';
+// 서빙 도메인이 www (apex는 308→www) → canonical/스키마/sitemap/OG를 www로 통일해 AEO 신호 일관성 확보.
+export const SITE_URL = 'https://www.sharestamps.com';
 
 export interface MenuItem {
   id: string;
