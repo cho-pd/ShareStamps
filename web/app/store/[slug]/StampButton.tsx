@@ -97,7 +97,7 @@ export default function StampButton({
       // 손님 지갑(여러 매장 모아보기)용 비정규화 기록
       await setDoc(
         doc(db, 'customers', deviceId, 'cards', storeId),
-        { storeId, storeName, slug, currentStamps: next, reward, currency, updatedAt: now },
+        { storeId, storeName, slug, currentStamps: next, reward, currency, interval: intervalMinutes, updatedAt: now },
         { merge: true }
       );
       setStamps(next);
