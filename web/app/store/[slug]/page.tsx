@@ -100,7 +100,7 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
 
       {/* 스탬프 */}
       <div className="mt-4">
-        <StampButton storeId={store.id} intervalMinutes={store.earningIntervalMinutes ?? 60} reward={store.pointRewardPer7Stamps} currency={store.currency} />
+        <StampButton storeId={store.id} storeName={store.name} slug={store.slug} intervalMinutes={store.earningIntervalMinutes ?? 60} reward={store.pointRewardPer7Stamps} currency={store.currency} />
       </div>
 
       {/* 샤비 */}

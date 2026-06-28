@@ -26,11 +26,15 @@ function startOfTodayMs(): number {
 
 export default function StampButton({
   storeId,
+  storeName,
+  slug,
   intervalMinutes,
   reward,
   currency,
 }: {
   storeId: string;
+  storeName: string;
+  slug: string;
   intervalMinutes: number;
   reward: number;
   currency: string;
@@ -90,6 +94,12 @@ export default function StampButton({
         amount: 1,
         createdAt: now,
       });
+      // 손님 지갑(여러 매장 모아보기)용 비정규화 기록
+      await setDoc(
+        doc(db, 'customers', deviceId, 'cards', storeId),
+        { storeId, storeName, slug, currentStamps: next, reward, currency, updatedAt: now },
+        { merge: true }
+      );
       setStamps(next);
       setMsg(next >= 7 ? `7개 완성! ${currency} ${reward.toFixed(2)} 보상을 받을 수 있어요 🎉` : '스탬프 1개 적립됐어요! ⭐');
     } catch {
