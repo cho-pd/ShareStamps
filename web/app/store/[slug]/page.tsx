@@ -137,7 +137,7 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
 
       <section style={{ marginTop: 24 }}>
         <h2 style={{ fontSize: 20 }}>Reviews</h2>
-        <ReviewForm storeId={store.id} />
+        <ReviewForm storeId={store.id} storeName={store.name} />
         {store.reviews.map((r) => (
           <blockquote key={r.id} style={{ margin: '12px 0', paddingLeft: 12, borderLeft: '3px solid #ddd' }}>
             <div style={{ fontWeight: 700 }}>

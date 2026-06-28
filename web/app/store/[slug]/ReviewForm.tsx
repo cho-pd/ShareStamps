@@ -3,14 +3,16 @@
 import { useState } from 'react';
 import { getDb } from '@/lib/firebase';
 import { doc, setDoc, collection } from 'firebase/firestore';
+import { postReviewToSns } from '@/lib/snsApi';
 
-export default function ReviewForm({ storeId }: { storeId: string }) {
+export default function ReviewForm({ storeId, storeName }: { storeId: string; storeName: string }) {
   const [open, setOpen] = useState(false);
   const [rating, setRating] = useState(5);
   const [author, setAuthor] = useState('');
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  const [snsMsg, setSnsMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const submit = async (e: React.FormEvent) => {
@@ -27,6 +29,16 @@ export default function ReviewForm({ storeId }: { storeId: string }) {
         comment: comment.trim(),
         createdAt: new Date().toISOString(),
       });
+
+      // 매장 연동 SNS 채널에 자동 게시 (best-effort, 실패해도 리뷰 등록은 유지)
+      const sns = await postReviewToSns({
+        storeId,
+        content: `${comment.trim()}\n\n📍 ${storeName}`,
+        networks: [],
+      });
+      if (sns.success && sns.postedNetworks.length) {
+        setSnsMsg(`매장 SNS(${sns.postedNetworks.join(', ')})에도 게시됐어요.`);
+      }
       setDone(true);
     } catch {
       setError('등록에 실패했어요. 잠시 후 다시 시도해 주세요.');
@@ -39,6 +51,7 @@ export default function ReviewForm({ storeId }: { storeId: string }) {
     return (
       <p style={{ marginTop: 12, padding: 12, background: '#ecfdf5', borderRadius: 10, color: '#065f46', fontWeight: 700 }}>
         리뷰가 등록됐어요! 🎉 곧 매장 페이지·AI 검색에 반영됩니다.
+        {snsMsg ? <><br />{snsMsg}</> : null}
       </p>
     );
   }
