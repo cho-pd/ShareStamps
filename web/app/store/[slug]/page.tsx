@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { getAllStores, getStoreBySlug, averageRating, SITE_URL, type FaqItem, type Store } from '@/lib/stores';
 import { buildStoreJsonLd, buildFaqJsonLd } from '@/lib/schema';
 import StampButton from './StampButton';
+import SharbeeChat from './SharbeeChat';
 
 // ISR: 매장 페이지를 캐시로 빠르게 서빙하고 1시간마다(또는 온디맨드 재검증) 갱신 → 크롤 친화 + 비용 절감.
 export const revalidate = 3600;
@@ -90,6 +91,8 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
         reward={store.pointRewardPer7Stamps}
         currency={store.currency}
       />
+
+      <SharbeeChat storeName={store.name} menu={store.menu} />
 
       <section style={{ marginTop: 24 }}>
         <h2 style={{ fontSize: 20 }}>Hours &amp; Contact</h2>
