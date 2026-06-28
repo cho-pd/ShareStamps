@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { getAllStores, getStoreBySlug, averageRating, SITE_URL, type FaqItem, type Store } from '@/lib/stores';
 import { buildStoreJsonLd, buildFaqJsonLd } from '@/lib/schema';
+import { sampleHero } from '@/lib/sampleImages';
 import StampButton from './StampButton';
 import SharbeeChat from './SharbeeChat';
 import ReviewForm from './ReviewForm';
@@ -56,34 +57,40 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
   const where = store.address?.city ? ` in ${store.address.city}, ${store.address.region ?? ''}`.trimEnd() : '';
   const signatures = store.menu.filter((m) => m.signature).map((m) => m.name);
   const tldr = `${store.name} is a ${store.category.toLowerCase()}${where}${signatures.length ? `, known for ${signatures.join(' and ')}` : ''}. Open ${store.hours}.`;
-  const hero = store.bannerUrl || store.thumbnailUrl;
+  // 실제 사진 우선, 없으면 카테고리에 맞는 샘플 대문(디자인 완성도용 임시 — 점주가 교체).
+  const heroImg = store.bannerUrl || store.thumbnailUrl || sampleHero(store.category, store.slug);
+  const isSample = !store.bannerUrl && !store.thumbnailUrl;
 
   return (
     <main className="mx-auto max-w-xl px-4 pb-20">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(storeJsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }} />
 
-      {/* Hero */}
+      {/* Hero (대문) */}
       <section className="ss-card mt-5 overflow-hidden">
-        {hero ? (
-          <img src={hero} alt={store.name} className="h-44 w-full object-cover" />
-        ) : (
-          <div className="flex h-32 items-center justify-center bg-gradient-to-br from-brand-500 to-brand-700">
-            <span className="text-3xl font-black tracking-tight text-white/95">{store.name}</span>
+        <div className="relative h-52 w-full">
+          <img src={heroImg} alt={store.name} className="h-full w-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+          {isSample && (
+            <span className="absolute right-2 top-2 rounded-full bg-black/40 px-2 py-0.5 text-[10px] font-semibold text-white/90">
+              sample
+            </span>
+          )}
+          <div className="absolute inset-x-0 bottom-0 p-4">
+            <h1 className="text-2xl font-black tracking-tight text-white drop-shadow">{store.name}</h1>
+            {store.reviews.length > 0 && (
+              <div className="mt-0.5 flex items-center gap-1.5 text-sm font-bold text-amber-300">
+                ★ {avg.toFixed(1)} <span className="font-medium text-white/80">({store.reviews.length} reviews)</span>
+              </div>
+            )}
           </div>
-        )}
+        </div>
         <div className="p-5">
           <div className="flex flex-wrap items-center gap-2">
             <span className="ss-chip">{store.category}</span>
             {store.priceRange && <span className="text-xs font-bold text-zinc-500">{store.priceRange}</span>}
             {store.address?.city && <span className="text-xs text-zinc-500">· {store.address.city}, {store.address.region}</span>}
           </div>
-          <h1 className="mt-2 text-2xl font-black tracking-tight">{store.name}</h1>
-          {store.reviews.length > 0 && (
-            <div className="mt-1 flex items-center gap-1.5 text-sm font-bold text-amber-500">
-              ★ {avg.toFixed(1)} <span className="font-medium text-zinc-400">({store.reviews.length} reviews)</span>
-            </div>
-          )}
           <p id="tldr" className="mt-3 rounded-xl border-l-4 border-brand-500 bg-brand-50 px-3.5 py-2.5 text-sm font-medium text-brand-900">
             {tldr}
           </p>
