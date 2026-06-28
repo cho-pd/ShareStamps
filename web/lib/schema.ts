@@ -36,6 +36,13 @@ export function buildStoreJsonLd(store: Store) {
     };
   }
 
+  if (store.geo) {
+    json.geo = { '@type': 'GeoCoordinates', latitude: store.geo.lat, longitude: store.geo.lng };
+  }
+
+  // 음성검색 답변 구간 지정 (TL;DR 박스 + 제목)
+  json.speakable = { '@type': 'SpeakableSpecification', cssSelector: ['#tldr', 'h1'] };
+
   if (store.menu?.length) {
     json.hasMenu = {
       '@type': 'Menu',

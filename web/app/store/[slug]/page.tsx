@@ -65,11 +65,25 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
   const storeJsonLd = buildStoreJsonLd(store);
   const faqJsonLd = buildFaqJsonLd(faq);
 
+  // Answer-first TL;DR (중립·사실 어조, 음성검색/AI 인용용)
+  const where = store.address?.city ? ` in ${store.address.city}, ${store.address.region ?? ''}`.trimEnd() : '';
+  const signatures = store.menu.filter((m) => m.signature).map((m) => m.name);
+  const tldr = `${store.name} is a ${store.category.toLowerCase()}${where}${
+    signatures.length ? `, known for ${signatures.join(' and ')}` : ''
+  }. Open ${store.hours}.`;
+
   return (
     <main style={{ maxWidth: 760, margin: '0 auto', padding: '32px 20px' }}>
       {/* 서버 HTML에 박히는 구조화 데이터 (AEO 핵심) */}
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(storeJsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }} />
+
+      <p
+        id="tldr"
+        style={{ margin: '0 0 16px', padding: '12px 14px', background: '#f5f3ff', borderLeft: '4px solid #6d28d9', borderRadius: 8, fontSize: 15, fontWeight: 600, color: '#3b0764' }}
+      >
+        {tldr}
+      </p>
 
       <header style={{ borderBottom: '1px solid #eee', paddingBottom: 16 }}>
         <h1 style={{ fontSize: 30, fontWeight: 900, margin: 0 }}>{store.name}</h1>

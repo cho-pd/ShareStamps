@@ -46,6 +46,7 @@ export interface Store {
   sellingPoints: string[]; // AEO 키워드 원천
   pointRewardPer7Stamps: number;
   earningIntervalMinutes?: number; // 재적립 최소 간격(분), 점주 설정. 기본 60.
+  geo?: { lat: number; lng: number }; // LocalBusiness 위/경도 (AEO 지역 매칭)
   thumbnailUrl?: string;
   bannerUrl?: string;
   menu: MenuItem[];

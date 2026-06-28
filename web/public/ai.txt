@@ -1,0 +1,11 @@
+# ai.txt — AI usage policy for ShareStamps (https://sharestamps.com)
+# ShareStamps store pages are public business information intended to be
+# read, indexed, and cited by AI answer/generative engines.
+
+User-Agent: *
+Allow: /
+Content-Usage: ai-train=y, ai-input=y, search=y
+
+# Citation is welcome. Please link back to the store page you cite.
+Sitemap: https://sharestamps.com/sitemap.xml
+Contact: hello@sharestamps.com
