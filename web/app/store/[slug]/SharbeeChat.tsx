@@ -22,8 +22,7 @@ ${menuLines}
 ${modeRule}`;
 }
 
-// 키는 서버(Netlify Function)에만. 클라이언트는 비밀 아닌 prompt만 보낸다.
-async function askGemini(sys: string, history: Msg[], userText: string): Promise<string | null> {
+async function askSharbee(sys: string, history: Msg[], userText: string): Promise<string | null> {
   const hist = history.map((m) => `${m.who === 'bee' ? '샤비' : '손님'}: ${m.text}`).join('\n');
   const prompt = `${sys}\n\n[대화]\n${hist}\n손님: ${userText}\n샤비:`;
   try {
@@ -42,9 +41,7 @@ async function askGemini(sys: string, history: Msg[], userText: string): Promise
 export default function SharbeeChat({ storeName, menu }: { storeName: string; menu: MenuItem[] }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<Mode>('browse');
-  const [msgs, setMsgs] = useState<Msg[]>([
-    { who: 'bee', text: '안녕하세요, 샤비예요 🐝 메뉴 고르는 거 도와드릴까요?' },
-  ]);
+  const [msgs, setMsgs] = useState<Msg[]>([{ who: 'bee', text: '안녕하세요, 샤비예요 🐝 메뉴 고르는 거 도와드릴까요?' }]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -60,7 +57,7 @@ export default function SharbeeChat({ storeName, menu }: { storeName: string; me
     push({ who: 'me', text });
     setInput('');
     setBusy(true);
-    const reply = await askGemini(systemPrompt(storeName, menu, useMode), msgs, text);
+    const reply = await askSharbee(systemPrompt(storeName, menu, useMode), msgs, text);
     push({ who: 'bee', text: reply ?? '앗, 잠시 연결이 흔들렸어요 🐝 다시 한 번 말씀해 주실래요?' });
     setBusy(false);
   };
@@ -68,54 +65,59 @@ export default function SharbeeChat({ storeName, menu }: { storeName: string; me
   const enterWaiting = async () => {
     setMode('waiting');
     setBusy(true);
-    const reply = await askGemini(systemPrompt(storeName, menu, 'waiting'), msgs, '주문 마쳤어요, 기다리는 중이에요.');
+    const reply = await askSharbee(systemPrompt(storeName, menu, 'waiting'), msgs, '주문 마쳤어요, 기다리는 중이에요.');
     push({ who: 'bee', text: reply ?? '주문 잘 들어갔어요! 🐝 기다리는 동안 리뷰 미리 써둘까요?' });
     setBusy(false);
   };
 
   if (!open) {
     return (
-      <button
-        onClick={() => setOpen(true)}
-        style={{ marginTop: 16, padding: '12px 18px', border: 'none', borderRadius: 999, background: '#fde68a', color: '#7c2d12', fontSize: 15, fontWeight: 800, cursor: 'pointer' }}
-      >
-        🐝 샤비에게 메뉴 추천받기
+      <button onClick={() => setOpen(true)} className="ss-card flex w-full items-center gap-3 p-4 text-left active:scale-[0.99]">
+        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-honey text-xl">🐝</span>
+        <span className="flex-1">
+          <span className="block font-extrabold">샤비에게 메뉴 추천받기</span>
+          <span className="block text-xs text-zinc-500">뭘 먹을지 같이 골라드려요</span>
+        </span>
+        <span className="text-zinc-300">›</span>
       </button>
     );
   }
 
   return (
-    <section style={{ marginTop: 16, border: '1px solid #f1e0a8', borderRadius: 14, overflow: 'hidden', background: '#fffdf5' }}>
-      <div style={{ padding: '10px 14px', background: '#fde68a', fontWeight: 800, color: '#7c2d12', display: 'flex', justifyContent: 'space-between' }}>
-        <span>🐝 샤비 {mode === 'waiting' ? '· 주문 대기 중' : ''}</span>
-        <button onClick={() => setOpen(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontWeight: 800 }}>✕</button>
+    <section className="ss-card overflow-hidden">
+      <div className="flex items-center justify-between bg-honey px-4 py-3">
+        <span className="font-extrabold text-honey-ink">🐝 샤비{mode === 'waiting' ? ' · 주문 대기 중' : ''}</span>
+        <button onClick={() => setOpen(false)} className="font-bold text-honey-ink/70">✕</button>
       </div>
-      <div ref={scrollRef} style={{ maxHeight: 260, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div ref={scrollRef} className="flex max-h-64 flex-col gap-2 overflow-y-auto p-3">
         {msgs.map((m, i) => (
-          <div key={i} style={{ alignSelf: m.who === 'me' ? 'flex-end' : 'flex-start', maxWidth: '80%', padding: '8px 12px', borderRadius: 12, fontSize: 14, background: m.who === 'me' ? '#6d28d9' : '#fff', color: m.who === 'me' ? '#fff' : '#333', border: m.who === 'me' ? 'none' : '1px solid #eee' }}>
+          <div
+            key={i}
+            className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm ${
+              m.who === 'me' ? 'self-end bg-brand-600 text-white' : 'self-start bg-zinc-100 text-zinc-800'
+            }`}
+          >
             {m.text}
           </div>
         ))}
-        {busy && <div style={{ alignSelf: 'flex-start', color: '#999', fontSize: 13 }}>샤비가 입력 중… 🐝</div>}
+        {busy && <div className="self-start text-sm text-zinc-400">샤비가 입력 중… 🐝</div>}
       </div>
 
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '0 12px 8px' }}>
+      <div className="flex flex-wrap gap-1.5 px-3 pb-2">
         {mode === 'browse' ? (
-          <button onClick={enterWaiting} disabled={busy} style={chip}>주문했어요 (기다리는 중)</button>
+          <button onClick={enterWaiting} disabled={busy} className="ss-chip cursor-pointer disabled:opacity-60">주문했어요 (기다리는 중)</button>
         ) : (
           <>
-            <button onClick={() => send('리뷰 미리 써둘게요')} disabled={busy} style={chip}>리뷰 써둘까요</button>
-            <button onClick={() => send('다음에 뭐 먹을지 추천해줘')} disabled={busy} style={chip}>다음 메뉴 추천</button>
+            <button onClick={() => send('리뷰 미리 써둘게요')} disabled={busy} className="ss-chip cursor-pointer disabled:opacity-60">리뷰 써둘까요</button>
+            <button onClick={() => send('다음에 뭐 먹을지 추천해줘')} disabled={busy} className="ss-chip cursor-pointer disabled:opacity-60">다음 메뉴 추천</button>
           </>
         )}
       </div>
 
-      <form onSubmit={(e) => { e.preventDefault(); send(input); }} style={{ display: 'flex', gap: 6, padding: 10, borderTop: '1px solid #f1e0a8' }}>
-        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="샤비에게 물어보세요" style={{ flex: 1, padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14 }} />
-        <button type="submit" disabled={busy} style={{ padding: '10px 14px', border: 'none', borderRadius: 8, background: '#6d28d9', color: '#fff', fontWeight: 800, cursor: 'pointer' }}>보내기</button>
+      <form onSubmit={(e) => { e.preventDefault(); send(input); }} className="flex gap-2 border-t border-zinc-100 p-3">
+        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="샤비에게 물어보세요" className="ss-input flex-1" />
+        <button type="submit" disabled={busy} className="ss-btn-primary px-4 py-2.5">보내기</button>
       </form>
     </section>
   );
 }
-
-const chip: React.CSSProperties = { padding: '6px 12px', border: '1px solid #e2c878', borderRadius: 999, background: '#fff', color: '#7c2d12', fontSize: 13, fontWeight: 700, cursor: 'pointer' };

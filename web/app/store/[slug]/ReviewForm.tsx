@@ -16,7 +16,6 @@ export default function ReviewForm({ storeId, storeName }: { storeId: string; st
   const [snsMsg, setSnsMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // 샤비가 손님 메모/별점으로 AEO 친화적 리뷰 초안을 다듬어준다 (구체성·브랜드명·밀도·유창성).
   const assistDraft = async () => {
     setAssisting(true);
     setError(null);
@@ -54,16 +53,8 @@ export default function ReviewForm({ storeId, storeName }: { storeId: string; st
         comment: comment.trim(),
         createdAt: new Date().toISOString(),
       });
-
-      // 매장 연동 SNS 채널에 자동 게시 (best-effort, 실패해도 리뷰 등록은 유지)
-      const sns = await postReviewToSns({
-        storeId,
-        content: `${comment.trim()}\n\n📍 ${storeName}`,
-        networks: [],
-      });
-      if (sns.success && sns.postedNetworks.length) {
-        setSnsMsg(`매장 SNS(${sns.postedNetworks.join(', ')})에도 게시됐어요.`);
-      }
+      const sns = await postReviewToSns({ storeId, content: `${comment.trim()}\n\n📍 ${storeName}`, networks: [] });
+      if (sns.success && sns.postedNetworks.length) setSnsMsg(`매장 SNS(${sns.postedNetworks.join(', ')})에도 게시됐어요.`);
       setDone(true);
     } catch {
       setError('등록에 실패했어요. 잠시 후 다시 시도해 주세요.');
@@ -74,39 +65,44 @@ export default function ReviewForm({ storeId, storeName }: { storeId: string; st
 
   if (done) {
     return (
-      <p style={{ marginTop: 12, padding: 12, background: '#ecfdf5', borderRadius: 10, color: '#065f46', fontWeight: 700 }}>
+      <div className="mt-3 rounded-xl bg-emerald-50 p-3.5 text-sm font-semibold text-emerald-700">
         리뷰가 등록됐어요! 🎉 곧 매장 페이지·AI 검색에 반영됩니다.
         {snsMsg ? <><br />{snsMsg}</> : null}
-      </p>
+      </div>
     );
   }
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} style={{ marginTop: 12, padding: '10px 16px', border: '1px solid #6d28d9', borderRadius: 999, background: '#fff', color: '#6d28d9', fontWeight: 800, cursor: 'pointer' }}>
+      <button onClick={() => setOpen(true)} className="ss-btn-soft mt-3">
         ✍️ 리뷰 쓰기
       </button>
     );
   }
 
   return (
-    <form onSubmit={submit} style={{ marginTop: 12, padding: 14, border: '1px solid #eee', borderRadius: 12 }}>
-      <div style={{ fontSize: 22, cursor: 'pointer' }}>
+    <form onSubmit={submit} className="mt-3 rounded-xl border border-zinc-100 p-4">
+      <div className="text-2xl leading-none">
         {[1, 2, 3, 4, 5].map((n) => (
-          <span key={n} onClick={() => setRating(n)}>{n <= rating ? '⭐' : '☆'}</span>
+          <button type="button" key={n} onClick={() => setRating(n)} className="transition active:scale-90">
+            {n <= rating ? '⭐' : '☆'}
+          </button>
         ))}
       </div>
-      <input value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="이름(선택)" style={inp} />
-      <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="어떤 점이 좋았나요? (키워드만 적어도 샤비가 다듬어줘요)" style={{ ...inp, minHeight: 70 }} />
-      <button type="button" onClick={assistDraft} disabled={assisting} style={{ marginTop: 6, padding: '8px 12px', border: '1px solid #e2c878', borderRadius: 8, background: '#fffdf5', color: '#7c2d12', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+      <input value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="이름(선택)" className="ss-input mt-3" />
+      <textarea
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        placeholder="어떤 점이 좋았나요? (키워드만 적어도 샤비가 다듬어줘요)"
+        className="ss-input mt-2 min-h-[72px]"
+      />
+      <button type="button" onClick={assistDraft} disabled={assisting} className="ss-chip mt-2 cursor-pointer border-honey bg-honey/20 text-honey-ink disabled:opacity-60">
         {assisting ? '샤비가 쓰는 중… 🐝' : '✨ 샤비가 리뷰 다듬어줄게요'}
       </button>
-      {error && <p style={{ color: '#c00', fontSize: 13, marginTop: 6 }}>{error}</p>}
-      <button type="submit" disabled={busy} style={{ width: '100%', padding: 12, border: 'none', borderRadius: 10, background: '#6d28d9', color: '#fff', fontWeight: 800, cursor: 'pointer', opacity: busy ? 0.6 : 1 }}>
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      <button type="submit" disabled={busy} className="ss-btn-primary mt-3 w-full">
         {busy ? '등록 중…' : '리뷰 등록'}
       </button>
     </form>
   );
 }
-
-const inp: React.CSSProperties = { width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, marginTop: 8, boxSizing: 'border-box' };
