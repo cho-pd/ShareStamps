@@ -45,6 +45,7 @@ export interface Store {
   priceRange?: string;     // "$$"
   sellingPoints: string[]; // AEO 키워드 원천
   pointRewardPer7Stamps: number;
+  earningIntervalMinutes?: number; // 재적립 최소 간격(분), 점주 설정. 기본 60.
   thumbnailUrl?: string;
   bannerUrl?: string;
   menu: MenuItem[];
