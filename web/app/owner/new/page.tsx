@@ -84,6 +84,7 @@ export default function NewStorePage() {
           signature: m.signature,
         });
       }
+      try { localStorage.setItem('ss_owner_store', slug); } catch {}
       setResult({ slug });
     } catch (err) {
       setError((err as Error)?.message || '저장에 실패했어요.');
@@ -101,6 +102,9 @@ export default function NewStorePage() {
           <a href={`/store/${result.slug}`} style={{ color: '#6d28d9', fontWeight: 700 }}>
             /store/{result.slug}
           </a>
+        </p>
+        <p>
+          <a href="/owner/dashboard" style={{ color: '#6d28d9', fontWeight: 700 }}>→ 점주 대시보드로</a>
         </p>
         <p style={{ color: '#666', fontSize: 13 }}>
           (정적 배포 환경에서는 새 매장 페이지가 다음 빌드/배포 후 공개됩니다. SSR 전환 시 즉시 반영.)
