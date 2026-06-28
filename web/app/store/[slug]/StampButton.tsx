@@ -133,6 +133,9 @@ export default function StampButton({
         {busy ? '처리 중…' : '스탬프 적립 +1'}
       </button>
       {msg && <p className="mt-2.5 text-sm font-semibold text-brand-700">{msg}</p>}
+      <a href="/me" className="mt-3 flex items-center justify-center gap-1.5 rounded-xl border border-brand-200 bg-white py-2.5 text-sm font-extrabold text-brand-700">
+        내 스탬프 모아보기 →
+      </a>
       <p className="mt-2 text-xs text-zinc-400">
         7개를 모으면 {currency} {reward.toFixed(2)} 보상.
       </p>
