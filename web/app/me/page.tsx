@@ -220,18 +220,19 @@ export default function MePage() {
                       const on = i < Math.min(disp.currentStamps, 7);
                       return (
                         <div key={i} className="flex flex-col items-center gap-1">
-                          <div className="grid aspect-square w-full place-items-center p-[2px]" style={{ clipPath: clip, background: on ? '#7c3aed' : '#d4d4d8' }}>
-                            <div className="grid h-full w-full place-items-center text-[14px] font-extrabold" style={{ clipPath: clip, background: on ? '#7c3aed' : '#fff', color: on ? '#fff' : '#a1a1aa' }}>{on ? '❤️' : i + 1}</div>
+                          <div className="grid aspect-square w-full place-items-center p-[2px]" style={{ clipPath: clip, background: on ? '#7c3aed' : '#ddd6fe' }}>
+                            <div className="grid h-full w-full place-items-center text-[15px] font-black" style={{ clipPath: clip, background: on ? '#7c3aed' : '#ffffff', color: on ? '#fff' : '#a78bfa' }}>{on ? '❤️' : i + 1}</div>
                           </div>
-                          <span className={`text-[8px] font-bold ${on ? 'text-emerald-500' : 'text-emerald-500/40'}`}>+${unit(disp).toFixed(2)}</span>
+                          <span className={`text-[8px] font-bold ${on ? 'text-emerald-500' : 'text-emerald-400/60'}`}>+${unit(disp).toFixed(2)}</span>
                         </div>
                       );
                     })}
                   </div>
+                  {/* 액션: 0개여도 또렷하게(흐림 X), 누르면 안내 */}
                   <div className="mt-4 grid grid-cols-3 gap-2">
-                    <button onClick={() => redeem(disp)} disabled={busy || disp.currentStamps < 1} className="ss-btn-primary px-2 py-2.5 text-sm disabled:opacity-40">적립 전환</button>
-                    <button onClick={() => { setGiftSheet(disp); setGiftCount(1); }} disabled={busy || disp.currentStamps < 1} className="ss-btn-soft px-2 py-2.5 text-sm disabled:opacity-40">친구 선물</button>
-                    <button onClick={() => setDonateSheet(disp)} disabled={busy || disp.currentStamps < 1} className="ss-chip justify-center py-2.5 text-sm disabled:opacity-40">기부 💛</button>
+                    <button onClick={() => { if (disp.currentStamps < 1) return flash('스탬프 1개 이상부터 가능해요.'); redeem(disp); }} disabled={busy} className="rounded-xl bg-brand-600 py-3 text-sm font-bold text-white transition active:scale-[0.98] disabled:opacity-60">적립 전환</button>
+                    <button onClick={() => { if (disp.currentStamps < 1) return flash('스탬프 1개 이상부터 가능해요.'); setGiftSheet(disp); setGiftCount(1); }} disabled={busy} className="rounded-xl border border-brand-200 bg-white py-3 text-sm font-bold text-brand-700 transition active:scale-[0.98] disabled:opacity-60">친구 선물</button>
+                    <button onClick={() => { if (disp.currentStamps < 1) return flash('스탬프 1개 이상부터 가능해요.'); setDonateSheet(disp); }} disabled={busy} className="rounded-xl border border-amber-300 bg-amber-50 py-3 text-sm font-bold text-amber-700 transition active:scale-[0.98] disabled:opacity-60">기부 💛</button>
                   </div>
                 </div>
               </section>
