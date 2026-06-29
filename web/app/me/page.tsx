@@ -27,6 +27,9 @@ const normPhone = (p: string) => p.replace(/[^0-9]/g, '');
 type Card = { storeId: string; storeName: string; slug: string; currentStamps: number; reward: number; currency: string; interval?: number };
 type Donation = { storeName?: string; npoName?: string; amount: number; currency: string; createdAt: string };
 
+// 스탬프 카드가 없을 때도 허니컴 구조를 보여주는 미리보기(예시) 카드 — 옛 'Unassigned' 빈 카드처럼.
+const DEMO: Card = { storeId: 'demo', storeName: '스탬프 카드 미리보기', slug: 'loveletter-fullerton', currentStamps: 0, reward: 5, currency: 'USD', interval: 60 };
+
 export default function MePage() {
   const [profile, setProfile] = useState<{ name: string; phone: string } | null | undefined>(undefined);
   const [nameIn, setNameIn] = useState(''); const [phoneIn, setPhoneIn] = useState('');
@@ -75,6 +78,7 @@ export default function MePage() {
   };
 
   const sel = useMemo(() => cards.find((c) => c.storeId === selId) || cards[0], [cards, selId]);
+  const disp = sel ?? DEMO; // 카드 없으면 미리보기로 허니컴 항상 표시
   const unit = (c: Card) => c.reward / 7;
   const value = (c: Card) => unit(c) * Math.min(c.currentStamps, 7);
 
@@ -164,51 +168,54 @@ export default function MePage() {
             {cards.map((c) => <option key={c.storeId} value={c.storeId}>{c.storeName}</option>)}
           </select>
 
-          {!sel ? (
-            <div className="ss-card mt-3 p-8 text-center">
+          {!sel && (
+            <div className="ss-card mt-3 flex items-center gap-3 p-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/sharbee/sharbee5.png" alt="샤비" className="mx-auto h-16 w-16 object-contain" />
-              <p className="mt-3 font-bold">아직 모은 스탬프가 없어요</p>
-              <p className="mt-1 text-sm text-zinc-500">매장에서 QR을 찍어 스탬프 카드를 만들어요!</p>
-              <Link href="/store/loveletter-fullerton" className="ss-btn-soft mt-4">데모 매장 둘러보기</Link>
+              <img src="/sharbee/sharbee5.png" alt="샤비" className="h-11 w-11 shrink-0 object-contain" />
+              <div className="flex-1">
+                <p className="text-sm font-bold">스탬프 카드 미리보기</p>
+                <p className="text-xs text-zinc-500">매장에서 QR을 찍으면 내 카드가 생겨요.</p>
+              </div>
+              <Link href="/store/loveletter-fullerton" className="ss-chip">둘러보기</Link>
             </div>
-          ) : (
+          )}
+          {(
             <>
               {/* 매장 헤더 */}
               <section className="ss-card mt-3 p-5">
                 <div className="flex items-start justify-between">
-                  <Link href={`/store/${sel.slug}`} className="text-lg font-black hover:text-brand-700">{sel.storeName} 🔗</Link>
-                  <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-500">interval: {sel.interval ?? '—'}m</span>
+                  <Link href={`/store/${disp.slug}`} className="text-lg font-black hover:text-brand-700">{disp.storeName} 🔗</Link>
+                  <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-500">interval: {disp.interval ?? '—'}m</span>
                 </div>
-                <div className="mt-1 text-sm text-zinc-600">7개 모으면 스탬프 캐시: <strong className="text-rose-500">${sel.reward.toFixed(2)}</strong></div>
-                <div className="text-xs text-zinc-500">현재 누적 스탬프 가치: <strong className="text-brand-700">${value(sel).toFixed(2)}</strong></div>
+                <div className="mt-1 text-sm text-zinc-600">7개 모으면 스탬프 캐시: <strong className="text-rose-500">${disp.reward.toFixed(2)}</strong></div>
+                <div className="text-xs text-zinc-500">현재 누적 스탬프 가치: <strong className="text-brand-700">${value(disp).toFixed(2)}</strong></div>
               </section>
 
               {/* 허니컴 */}
               <section className="ss-card mt-3 bg-brand-50/40 p-5">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-extrabold text-brand-700">⭐ 현재 스탬프</span>
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">{Math.min(sel.currentStamps, 7)}/7</span>
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">{Math.min(disp.currentStamps, 7)}/7</span>
                 </div>
                 <div className="mt-3 grid grid-cols-7 gap-1.5">
                   {Array.from({ length: 7 }).map((_, i) => {
-                    const on = i < Math.min(sel.currentStamps, 7);
+                    const on = i < Math.min(disp.currentStamps, 7);
                     return (
                       <div key={i} className="flex flex-col items-center gap-1">
                         <div className="grid aspect-square w-full place-items-center p-[2px]" style={{ clipPath: clip, background: on ? '#7c3aed' : '#e4e4e7' }}>
                           <div className="grid h-full w-full place-items-center text-[12px] font-extrabold" style={{ clipPath: clip, background: on ? '#7c3aed' : '#fff', color: on ? '#fff' : '#a1a1aa' }}>{on ? '❤️' : i + 1}</div>
                         </div>
-                        <span className={`text-[8px] font-bold ${on ? 'text-emerald-500' : 'text-emerald-500/40'}`}>+${unit(sel).toFixed(2)}</span>
+                        <span className={`text-[8px] font-bold ${on ? 'text-emerald-500' : 'text-emerald-500/40'}`}>+${unit(disp).toFixed(2)}</span>
                       </div>
                     );
                   })}
                 </div>
                 <div className="mt-4 grid grid-cols-3 gap-2">
-                  <button onClick={() => redeem(sel)} disabled={busy || sel.currentStamps < 1} className="ss-btn-primary px-2 py-2.5 text-sm disabled:opacity-40">적립 전환</button>
-                  <button onClick={() => { setGiftSheet(sel); setGiftCount(1); }} disabled={busy || sel.currentStamps < 1} className="ss-btn-soft px-2 py-2.5 text-sm disabled:opacity-40">친구 선물</button>
-                  <button onClick={() => setDonateSheet(sel)} disabled={busy || sel.currentStamps < 1} className="ss-chip justify-center py-2.5 text-sm disabled:opacity-40">기부 💛</button>
+                  <button onClick={() => redeem(disp)} disabled={busy || disp.currentStamps < 1} className="ss-btn-primary px-2 py-2.5 text-sm disabled:opacity-40">적립 전환</button>
+                  <button onClick={() => { setGiftSheet(disp); setGiftCount(1); }} disabled={busy || disp.currentStamps < 1} className="ss-btn-soft px-2 py-2.5 text-sm disabled:opacity-40">친구 선물</button>
+                  <button onClick={() => setDonateSheet(disp)} disabled={busy || disp.currentStamps < 1} className="ss-chip justify-center py-2.5 text-sm disabled:opacity-40">기부 💛</button>
                 </div>
-                <Link href={`/store/${sel.slug}`} className="mt-2 flex items-center justify-center gap-1.5 rounded-xl border border-honey/60 bg-honey/10 py-2.5 text-[13px] font-extrabold text-honey-ink">
+                <Link href={`/store/${disp.slug}`} className="mt-2 flex items-center justify-center gap-1.5 rounded-xl border border-honey/60 bg-honey/10 py-2.5 text-[13px] font-extrabold text-honey-ink">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src="/sharbee/sharbee5.png" alt="샤비" className="h-5 w-5 object-contain" /> 샤비와 리뷰 쓰고 스탬프 받기
                 </Link>
