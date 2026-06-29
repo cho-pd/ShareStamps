@@ -201,51 +201,52 @@ export default function MePage() {
           )}
           {(
             <>
-              {/* 매장 헤더 */}
-              <section className="ss-card mt-3 p-5">
-                <div className="flex items-start justify-between">
-                  <Link href={`/store/${disp.slug}`} className="text-lg font-black hover:text-brand-700">{disp.storeName} 🔗</Link>
-                  <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-500">interval: {disp.interval ?? '—'}m</span>
+              {/* 스탬프 카드 — 화면의 주인공(헤더+허니컴 한 덩어리, 링으로 강조) */}
+              <section className="ss-card mt-3 overflow-hidden p-0 ring-2 ring-brand-200">
+                <div className="flex items-start justify-between p-5 pb-3">
+                  <div>
+                    <Link href={`/store/${disp.slug}`} className="text-lg font-black hover:text-brand-700">{disp.storeName} 🔗</Link>
+                    <div className="mt-1 text-[13px] text-zinc-600">7개 모으면 <strong className="text-rose-500">${disp.reward.toFixed(2)}</strong> · 누적 <strong className="text-brand-700">${value(disp).toFixed(2)}</strong></div>
+                  </div>
+                  <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-500">{disp.interval ?? '—'}m</span>
                 </div>
-                <div className="mt-1 text-sm text-zinc-600">7개 모으면 스탬프 캐시: <strong className="text-rose-500">${disp.reward.toFixed(2)}</strong></div>
-                <div className="text-xs text-zinc-500">현재 누적 스탬프 가치: <strong className="text-brand-700">${value(disp).toFixed(2)}</strong></div>
-              </section>
-
-              {/* 허니컴 */}
-              <section className="ss-card mt-3 bg-brand-50/40 p-5">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-extrabold text-brand-700">⭐ 현재 스탬프</span>
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">{Math.min(disp.currentStamps, 7)}/7</span>
-                </div>
-                <div className="mt-3 grid grid-cols-7 gap-1.5">
-                  {Array.from({ length: 7 }).map((_, i) => {
-                    const on = i < Math.min(disp.currentStamps, 7);
-                    return (
-                      <div key={i} className="flex flex-col items-center gap-1">
-                        <div className="grid aspect-square w-full place-items-center p-[2px]" style={{ clipPath: clip, background: on ? '#7c3aed' : '#e4e4e7' }}>
-                          <div className="grid h-full w-full place-items-center text-[12px] font-extrabold" style={{ clipPath: clip, background: on ? '#7c3aed' : '#fff', color: on ? '#fff' : '#a1a1aa' }}>{on ? '❤️' : i + 1}</div>
+                <div className="border-t border-zinc-100 bg-brand-50/50 p-5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-base font-black text-brand-700">⭐ 현재 스탬프</span>
+                    <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-extrabold text-amber-700">{Math.min(disp.currentStamps, 7)}/7</span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-7 gap-1">
+                    {Array.from({ length: 7 }).map((_, i) => {
+                      const on = i < Math.min(disp.currentStamps, 7);
+                      return (
+                        <div key={i} className="flex flex-col items-center gap-1">
+                          <div className="grid aspect-square w-full place-items-center p-[2px]" style={{ clipPath: clip, background: on ? '#7c3aed' : '#d4d4d8' }}>
+                            <div className="grid h-full w-full place-items-center text-[14px] font-extrabold" style={{ clipPath: clip, background: on ? '#7c3aed' : '#fff', color: on ? '#fff' : '#a1a1aa' }}>{on ? '❤️' : i + 1}</div>
+                          </div>
+                          <span className={`text-[8px] font-bold ${on ? 'text-emerald-500' : 'text-emerald-500/40'}`}>+${unit(disp).toFixed(2)}</span>
                         </div>
-                        <span className={`text-[8px] font-bold ${on ? 'text-emerald-500' : 'text-emerald-500/40'}`}>+${unit(disp).toFixed(2)}</span>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+                  <div className="mt-4 grid grid-cols-3 gap-2">
+                    <button onClick={() => redeem(disp)} disabled={busy || disp.currentStamps < 1} className="ss-btn-primary px-2 py-2.5 text-sm disabled:opacity-40">적립 전환</button>
+                    <button onClick={() => { setGiftSheet(disp); setGiftCount(1); }} disabled={busy || disp.currentStamps < 1} className="ss-btn-soft px-2 py-2.5 text-sm disabled:opacity-40">친구 선물</button>
+                    <button onClick={() => setDonateSheet(disp)} disabled={busy || disp.currentStamps < 1} className="ss-chip justify-center py-2.5 text-sm disabled:opacity-40">기부 💛</button>
+                  </div>
+                  <Link href={`/store/${disp.slug}`} className="mt-2 flex items-center justify-center gap-1.5 rounded-xl border border-honey/60 bg-honey/20 py-2.5 text-[13px] font-extrabold text-honey-ink">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src="/sharbee/sharbee5.png" alt="샤비" className="h-5 w-5 object-contain" /> 샤비와 리뷰 쓰고 스탬프 받기
+                  </Link>
                 </div>
-                <div className="mt-4 grid grid-cols-3 gap-2">
-                  <button onClick={() => redeem(disp)} disabled={busy || disp.currentStamps < 1} className="ss-btn-primary px-2 py-2.5 text-sm disabled:opacity-40">적립 전환</button>
-                  <button onClick={() => { setGiftSheet(disp); setGiftCount(1); }} disabled={busy || disp.currentStamps < 1} className="ss-btn-soft px-2 py-2.5 text-sm disabled:opacity-40">친구 선물</button>
-                  <button onClick={() => setDonateSheet(disp)} disabled={busy || disp.currentStamps < 1} className="ss-chip justify-center py-2.5 text-sm disabled:opacity-40">기부 💛</button>
-                </div>
-                <Link href={`/store/${disp.slug}`} className="mt-2 flex items-center justify-center gap-1.5 rounded-xl border border-honey/60 bg-honey/10 py-2.5 text-[13px] font-extrabold text-honey-ink">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/sharbee/sharbee5.png" alt="샤비" className="h-5 w-5 object-contain" /> 샤비와 리뷰 쓰고 스탬프 받기
-                </Link>
               </section>
 
-              {/* My Stamp Cash Balance */}
-              <section className="ss-card mt-3 bg-brand-600 p-5 text-center text-white">
-                <div className="text-xs font-semibold text-white/80">내 스탬프 캐시 잔액</div>
-                <div className="text-3xl font-black">${balance.toFixed(2)}</div>
-                <button onClick={() => setUseSheet(true)} disabled={balance <= 0} className="mt-2 w-full rounded-xl bg-white py-2.5 text-sm font-extrabold text-brand-700 disabled:opacity-50">스탬프 캐시 사용 요청</button>
+              {/* 캐시 잔액 — 보조 정보라 작고 조용한 한 줄로 */}
+              <section className="ss-card mt-3 flex items-center justify-between p-4">
+                <div>
+                  <div className="text-[11px] font-semibold text-zinc-500">내 스탬프 캐시 잔액</div>
+                  <div className="text-xl font-black text-zinc-800">${balance.toFixed(2)}</div>
+                </div>
+                <button onClick={() => setUseSheet(true)} disabled={balance <= 0} className="ss-chip disabled:opacity-50">캐시 사용</button>
               </section>
 
               {/* Stamp Timeline */}
