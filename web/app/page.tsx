@@ -1,7 +1,9 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getAllStores } from '@/lib/stores';
 import { sampleHero } from '@/lib/sampleImages';
 
+export const metadata: Metadata = { title: { absolute: 'ShareStamps — 동네 가게 AI 검색·스탬프 로열티' } };
 export const revalidate = 600;
 
 // 옛 LandingPage(VISION deck) 구성 차용: 문제 → 노출(AEO) → 콘텐츠(샤비) → 7스탬프 보상
