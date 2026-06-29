@@ -38,6 +38,8 @@ const SS_CARD: Card = { storeId: 'store_sharestamps', storeName: 'ShareStamps', 
 export default function MePage() {
   const [profile, setProfile] = useState<{ name: string; phone: string } | null | undefined>(undefined);
   const [nameIn, setNameIn] = useState(''); const [phoneIn, setPhoneIn] = useState('');
+  const [loginStep, setLoginStep] = useState<'phone' | 'welcome' | 'newuser'>('phone');
+  const [foundAccount, setFoundAccount] = useState<{ deviceId: string; name: string } | null>(null);
   const [cards, setCards] = useState<Card[]>([]);
   const [selId, setSelId] = useState<string>('');
   const [balance, setBalance] = useState(0); const [donated, setDonated] = useState(0);
@@ -93,6 +95,28 @@ export default function MePage() {
     } catch { /* noop */ }
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  // 전화번호 조회 → 기존 회원이면 환영, 처음이면 닉네임 받기
+  const checkPhone = async () => {
+    const phone = normPhone(phoneIn);
+    if (phone.length < 8) { flash(t('전화번호를 입력해 주세요.', 'Enter your phone number.')); return; }
+    setBusy(true);
+    try {
+      const db = getDb();
+      if (phone === ADMIN_PHONE) { setFoundAccount({ deviceId: 'admin_jopd', name: '조PD' }); setLoginStep('welcome'); return; }
+      const idx = await getDoc(doc(db, 'phoneIndex', phone));
+      if (idx.exists()) { setFoundAccount({ deviceId: idx.data().deviceId as string, name: (idx.data().name as string) || '' }); setLoginStep('welcome'); }
+      else { setLoginStep('newuser'); }
+    } catch { flash(t('확인에 실패했어요.', 'Lookup failed.')); }
+    finally { setBusy(false); }
+  };
+  // 기존 회원 입장: 그 계정(deviceId)으로 세션 전환 후 로드
+  const enterExisting = async () => {
+    if (!foundAccount) return;
+    setBusy(true);
+    try { try { localStorage.setItem('ss_device_id', foundAccount.deviceId); } catch {} await load(); }
+    finally { setBusy(false); }
+  };
 
   const signup = async () => {
     if (!nameIn.trim() || normPhone(phoneIn).length < 8) { flash('이름과 전화번호를 입력해 주세요.'); return; }
@@ -167,38 +191,41 @@ export default function MePage() {
   if (profile === null) {
     return (
       <main className="mx-auto max-w-md px-5 pb-20 pt-6 text-center">
-        <div className="flex justify-end"><button onClick={toggleLang} className="rounded-full bg-zinc-100 px-2.5 py-1.5 text-xs font-bold text-zinc-600">🌐 {lang === 'ko' ? 'KO' : 'EN'}</button></div>
+        <div className="flex justify-end"><button onClick={toggleLang} className="rounded-full bg-zinc-100 px-2.5 py-1.5 text-xs font-bold text-zinc-600">🌐 {lang === 'ko' ? 'EN' : 'KO'}</button></div>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/sharbee/sharbee5.png" alt="샤비" className="mx-auto mt-2 h-24 w-24 rounded-3xl bg-brand-600 object-contain p-2 shadow-lg" />
         <h1 className="mt-4 text-3xl font-black tracking-tight text-brand-700">ShareStamps</h1>
         <p className="mt-1 text-sm text-zinc-500">{t('동네 가게 스탬프를 모으고 친구에게 선물하세요', 'Collect local stamps and gift them to friends')}</p>
 
-        {/* 가입 전에도 허니컴 미리보기 — 친구 추천으로 처음 온 손님이 보고 시작하게 */}
-        <section className="ss-card mt-6 p-5">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-extrabold text-brand-700">⭐ {t('이렇게 스탬프를 모아요', 'How stamps work')}</span>
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">0/7</span>
-          </div>
-          <div className="mt-3 grid grid-cols-7 gap-1.5">
-            {Array.from({ length: 7 }).map((_, i) => (
-              <div key={i} className="flex flex-col items-center gap-1">
-                <div className="grid aspect-square w-full place-items-center p-[2px]" style={{ clipPath: clip, background: '#e4e4e7' }}>
-                  <div className="grid h-full w-full place-items-center text-[12px] font-extrabold" style={{ clipPath: clip, background: '#fff', color: '#a1a1aa' }}>{i + 1}</div>
-                </div>
-                <span className="text-[8px] font-bold text-emerald-500/40">+$0.71</span>
-              </div>
-            ))}
-          </div>
-          <p className="mt-3 text-center text-xs text-zinc-500">{t('7개를 모으면 현금 보상 💰 · 기부·친구 선물도 돼요 💛', 'Collect 7 for cash 💰 · or donate & gift 💛')}</p>
-        </section>
-
-        <div className="ss-card mt-3 p-5 text-left">
-          <label className="ss-label">{t('이름 (닉네임)', 'Name (nickname)')}</label>
-          <input value={nameIn} onChange={(e) => setNameIn(e.target.value)} className="ss-input" placeholder={t('홍길동', 'Your name')} />
-          <label className="ss-label">{t('전화번호', 'Phone number')}</label>
-          <input value={phoneIn} onChange={(e) => setPhoneIn(e.target.value)} className="ss-input" placeholder="010-1234-5678" inputMode="tel" />
-          <button onClick={signup} disabled={busy} className="ss-btn-primary mt-3 w-full">{busy ? '…' : t('시작하기', 'Get started')}</button>
-          <p className="mt-2 text-[11px] text-zinc-400">{t('* 문자 인증은 다음 단계. 지금은 이름·전화로 바로 시작.', '* SMS verification comes later. Start now with name & phone.')}</p>
+        <div className="ss-card mt-6 p-5 text-left">
+          {loginStep === 'phone' && (
+            <>
+              <label className="ss-label">{t('전화번호', 'Phone number')}</label>
+              <input value={phoneIn} onChange={(e) => setPhoneIn(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') checkPhone(); }} className="ss-input" placeholder="000-000-0000" inputMode="tel" autoFocus />
+              <button onClick={checkPhone} disabled={busy} className="ss-btn-primary mt-3 w-full">{busy ? '…' : t('다음', 'Next')}</button>
+              <p className="mt-2 text-[11px] text-zinc-400">{t('전화번호로 시작해요. 처음이면 닉네임을 받아요.', 'Start with your phone — new users pick a nickname.')}</p>
+            </>
+          )}
+          {loginStep === 'welcome' && foundAccount && (
+            <div className="text-center">
+              <div className="text-3xl">🐝</div>
+              <p className="mt-1 text-lg font-black text-brand-700">{t('또 오셨군요', 'Welcome back')}{foundAccount.name ? `, ${foundAccount.name}님!` : '!'}</p>
+              <p className="mt-0.5 text-sm text-zinc-500">{phoneIn}</p>
+              <button onClick={enterExisting} disabled={busy} className="ss-btn-primary mt-4 w-full">{busy ? '…' : t('들어가기', 'Enter')}</button>
+              <button onClick={() => { setLoginStep('phone'); setFoundAccount(null); }} className="mt-2 text-xs font-bold text-zinc-400">{t('다른 번호로', 'Use a different number')}</button>
+            </div>
+          )}
+          {loginStep === 'newuser' && (
+            <>
+              <p className="text-sm font-bold text-brand-700">{t('처음 오셨네요! 닉네임을 정해주세요 🐝', 'First time here! Pick a nickname 🐝')}</p>
+              <label className="ss-label">{t('이름 (닉네임)', 'Name (nickname)')}</label>
+              <input value={nameIn} onChange={(e) => setNameIn(e.target.value)} className="ss-input" placeholder={t('홍길동', 'Your name')} autoFocus />
+              <label className="ss-label">{t('전화번호', 'Phone number')}</label>
+              <input value={phoneIn} onChange={(e) => setPhoneIn(e.target.value)} className="ss-input" placeholder="000-000-0000" inputMode="tel" />
+              <button onClick={signup} disabled={busy} className="ss-btn-primary mt-3 w-full">{busy ? '…' : t('가입하고 시작', 'Sign up & start')}</button>
+              <button onClick={() => setLoginStep('phone')} className="mt-2 text-xs font-bold text-zinc-400">{t('뒤로', 'Back')}</button>
+            </>
+          )}
         </div>
         {toast && <Toast t={toast} />}
       </main>
@@ -211,7 +238,7 @@ export default function MePage() {
       <div className="flex items-center justify-between pt-3 pb-2">
         <span className="flex items-center gap-1.5 text-sm font-bold text-brand-700">👤 {profile.name}</span>
         <div className="flex items-center gap-2">
-          <button onClick={toggleLang} className="rounded-full bg-zinc-100 px-2.5 py-1.5 text-xs font-bold text-zinc-600">🌐 {lang === 'ko' ? 'KO' : 'EN'}</button>
+          <button onClick={toggleLang} className="rounded-full bg-zinc-100 px-2.5 py-1.5 text-xs font-bold text-zinc-600">🌐 {lang === 'ko' ? 'EN' : 'KO'}</button>
           <Link href={cards[0] ? `/store/${cards[0].slug}` : '/'} className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-bold text-white">📷 {t('QR 스캔', 'QR Scan')}</Link>
         </div>
       </div>
@@ -298,7 +325,7 @@ export default function MePage() {
                       ) : (
                         <div>
                           <p className="text-sm font-bold">{t('친구에게 스탬프 선물 🎁', 'Gift stamps 🎁')} <span className="text-zinc-400">({t('보유', 'have')} {disp.currentStamps})</span></p>
-                          <input value={friendPhone} onChange={(e) => setFriendPhone(e.target.value)} className="ss-input mt-2" placeholder={t('친구 전화번호', "Friend's phone")} inputMode="tel" />
+                          <input value={friendPhone} onChange={(e) => setFriendPhone(e.target.value)} className="ss-input mt-2" placeholder="000-000-0000" inputMode="tel" />
                           <input type="number" min={1} max={disp.currentStamps} value={giftCount} onChange={(e) => setGiftCount(parseInt(e.target.value, 10) || 1)} className="ss-input mt-2" />
                           <button onClick={confirmGift} disabled={busy} className="ss-btn-primary mt-2 w-full">{busy ? '…' : t('선물 보내기', 'Send gift')}</button>
                         </div>
