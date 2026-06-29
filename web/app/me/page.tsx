@@ -139,7 +139,27 @@ export default function MePage() {
         <img src="/sharbee/sharbee5.png" alt="샤비" className="mx-auto h-24 w-24 rounded-3xl bg-brand-600 object-contain p-2 shadow-lg" />
         <h1 className="mt-4 text-3xl font-black tracking-tight text-brand-700">ShareStamps</h1>
         <p className="mt-1 text-sm text-zinc-500">동네 가게 스탬프를 모으고 친구에게 선물하세요</p>
-        <div className="ss-card mt-6 p-5 text-left">
+
+        {/* 가입 전에도 허니컴 미리보기 — 친구 추천으로 처음 온 손님이 보고 시작하게 */}
+        <section className="ss-card mt-6 p-5">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-extrabold text-brand-700">⭐ 이렇게 스탬프를 모아요</span>
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">0/7</span>
+          </div>
+          <div className="mt-3 grid grid-cols-7 gap-1.5">
+            {Array.from({ length: 7 }).map((_, i) => (
+              <div key={i} className="flex flex-col items-center gap-1">
+                <div className="grid aspect-square w-full place-items-center p-[2px]" style={{ clipPath: clip, background: '#e4e4e7' }}>
+                  <div className="grid h-full w-full place-items-center text-[12px] font-extrabold" style={{ clipPath: clip, background: '#fff', color: '#a1a1aa' }}>{i + 1}</div>
+                </div>
+                <span className="text-[8px] font-bold text-emerald-500/40">+$0.71</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-center text-xs text-zinc-500">7개를 모으면 현금 보상 💰 · 기부·친구 선물도 돼요 💛</p>
+        </section>
+
+        <div className="ss-card mt-3 p-5 text-left">
           <label className="ss-label">이름 (닉네임)</label>
           <input value={nameIn} onChange={(e) => setNameIn(e.target.value)} className="ss-input" placeholder="홍길동" />
           <label className="ss-label">전화번호</label>
