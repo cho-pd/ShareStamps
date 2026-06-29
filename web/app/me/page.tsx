@@ -30,6 +30,10 @@ type Donation = { storeName?: string; npoName?: string; amount: number; currency
 // 스탬프 카드가 없을 때도 허니컴 구조를 보여주는 미리보기(예시) 카드 — 옛 'Unassigned' 빈 카드처럼.
 const DEMO: Card = { storeId: 'demo', storeName: '스탬프 카드 미리보기', slug: 'loveletter-fullerton', currentStamps: 0, reward: 5, currency: 'USD', interval: 60 };
 
+// 종합관리자 조PD & ShareStamps 기본 카드(무조건 3개) — ShareStamps 매장만.
+const ADMIN_PHONE = '2132564820'; // 213-256-4820
+const SS_CARD: Card = { storeId: 'store_sharestamps', storeName: 'ShareStamps', slug: 'sharestamps', currentStamps: 3, reward: 5, currency: 'USD', interval: 60 };
+
 export default function MePage() {
   const [profile, setProfile] = useState<{ name: string; phone: string } | null | undefined>(undefined);
   const [nameIn, setNameIn] = useState(''); const [phoneIn, setPhoneIn] = useState('');
@@ -55,14 +59,33 @@ export default function MePage() {
         getDoc(doc(db, 'customers', id)),
         getDocs(query(collection(db, 'customers', id, 'donations'), orderBy('createdAt', 'desc'), limit(8))).catch(() => null),
       ]);
-      const cs = cardSnap.docs.map((d) => d.data() as Card).sort((a, b) => b.currentStamps - a.currentStamps);
+      let cs = cardSnap.docs.map((d) => d.data() as Card);
+      // ShareStamps 기본 카드(무조건 3개) 보장 — 그 매장만
+      if (!cs.some((c) => c.storeId === SS_CARD.storeId)) {
+        cs = [{ ...SS_CARD }, ...cs];
+        const now = new Date().toISOString();
+        setDoc(doc(db, 'customers', id, 'cards', SS_CARD.storeId), { ...SS_CARD, updatedAt: now }, { merge: true }).catch(() => {});
+        setDoc(doc(db, 'stores', SS_CARD.storeId, 'stampCards', id), { deviceId: id, currentStamps: SS_CARD.currentStamps, updatedAt: now }, { merge: true }).catch(() => {});
+      }
+      cs.sort((a, b) => b.currentStamps - a.currentStamps);
       setCards(cs);
       setSelId((prev) => prev && cs.some((c) => c.storeId === prev) ? prev : (cs[0]?.storeId || ''));
       const c = custSnap.exists() ? custSnap.data() : {};
       setBalance((c.balance as number) || 0); setDonated((c.donated as number) || 0);
       setProfile(c.name ? { name: c.name as string, phone: (c.phone as string) || '' } : null);
       setDonations(donSnap ? donSnap.docs.map((d) => d.data() as Donation) : []);
+      ensureDefaults(db); // 조PD 종합관리자 기본 회원 보장(브라우저당 1회)
     } catch { setProfile(null); }
+  };
+
+  // 기본 회원: 조PD 종합관리자(삭제 불가) — 브라우저당 1회만 기록
+  const ensureDefaults = async (db: ReturnType<typeof getDb>) => {
+    try {
+      if (localStorage.getItem('ss_defaults_v1')) return;
+      await setDoc(doc(db, 'customers', 'admin_jopd'), { name: '조PD', phone: ADMIN_PHONE, role: 'admin', protected: true }, { merge: true });
+      await setDoc(doc(db, 'phoneIndex', ADMIN_PHONE), { deviceId: 'admin_jopd', name: '조PD' }, { merge: true });
+      localStorage.setItem('ss_defaults_v1', '1');
+    } catch { /* noop */ }
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
@@ -70,10 +93,14 @@ export default function MePage() {
     if (!nameIn.trim() || normPhone(phoneIn).length < 8) { flash('이름과 전화번호를 입력해 주세요.'); return; }
     setBusy(true);
     try {
-      const db = getDb(); const id = getDeviceId(); const phone = normPhone(phoneIn);
-      await setDoc(doc(db, 'customers', id), { name: nameIn.trim(), phone }, { merge: true });
+      const db = getDb(); const phone = normPhone(phoneIn);
+      const isAdmin = phone === ADMIN_PHONE; // 213-256-4820 → 조PD 종합관리자
+      let id = getDeviceId();
+      if (isAdmin) { id = 'admin_jopd'; try { localStorage.setItem('ss_device_id', 'admin_jopd'); } catch {} }
+      await setDoc(doc(db, 'customers', id), { name: nameIn.trim(), phone, role: isAdmin ? 'admin' : 'customer', protected: isAdmin }, { merge: true });
       await setDoc(doc(db, 'phoneIndex', phone), { deviceId: id, name: nameIn.trim() }, { merge: true });
-      setProfile({ name: nameIn.trim(), phone }); flash(`${nameIn.trim()}님 환영해요! 🐝`);
+      setProfile({ name: nameIn.trim(), phone }); flash(isAdmin ? `${nameIn.trim()} 종합관리자님 환영해요! 🐝` : `${nameIn.trim()}님 환영해요! 🐝`);
+      await load();
     } catch { flash('가입에 실패했어요.'); } finally { setBusy(false); }
   };
 

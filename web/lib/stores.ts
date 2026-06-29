@@ -50,9 +50,29 @@ export interface Store {
   geo?: { lat: number; lng: number }; // LocalBusiness 위/경도 (AEO 지역 매칭)
   thumbnailUrl?: string;
   bannerUrl?: string;
+  protected?: boolean;     // 기본 보호 매장(삭제 불가)
   menu: MenuItem[];
   reviews: Review[];
 }
+
+// ShareStamps 기본 보호 매장 — 코드 정의라 항상 존재하고 삭제할 수 없다.
+export const SHARESTAMPS_STORE: Store = {
+  id: 'store_sharestamps',
+  slug: 'sharestamps',
+  name: 'ShareStamps',
+  category: 'Other',
+  currency: 'USD',
+  description: '동네 가게를 AI 검색(AEO/GEO)에 노출시키는 스탬프 로열티 플랫폼 — ShareStamps 공식 매장입니다.',
+  hours: '24/7',
+  priceRange: '$$',
+  sellingPoints: ['stamp loyalty', 'AEO', 'GEO', 'local stores', 'Sharbee'],
+  pointRewardPer7Stamps: 5,
+  earningIntervalMinutes: 60,
+  protected: true,
+  thumbnailUrl: '/sharbee/sharbee5.png',
+  menu: [],
+  reviews: [],
+};
 
 // ── seed (P1 검증용) ─────────────────────────────────────────────
 const SEED_STORES: Store[] = [
@@ -125,7 +145,9 @@ async function fetchStoresFromFirestore(): Promise<Store[] | null> {
 
 export async function getAllStores(): Promise<Store[]> {
   const fromDb = await fetchStoresFromFirestore();
-  return fromDb ?? SEED_STORES;
+  const list = fromDb ?? SEED_STORES;
+  // ShareStamps 기본 보호 매장은 항상 포함(삭제 불가)
+  return list.some((s) => s.slug === 'sharestamps') ? list : [SHARESTAMPS_STORE, ...list];
 }
 
 export async function getStoreBySlug(slug: string): Promise<Store | null> {
