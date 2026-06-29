@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
-/* ShareStamps 디자인 토큰 (브랜드 퍼플 + 따뜻한 로컬 무드). Tailwind v4 @theme → 유틸리티로 노출 */
+/* ShareStamps 디자인 토큰 — 당근(Karrot) Seed 무드 + 브랜드 퍼플 유지.
+   당근 특징: 그레이 페이지 위 화이트 카드(섹션 갭), 절제된 그림자, 둥근 사각 버튼, 그레이 칩, 진한 먹색 텍스트. */
 @theme {
   --color-brand-50: #f5f3ff;
   --color-brand-100: #ede9fe;
@@ -12,10 +13,16 @@
   --color-honey: #fde68a;
   --color-honey-ink: #7c2d12;
 
+  /* 당근 중립 팔레트 */
+  --color-ink: #212124;       /* 본문/제목 */
+  --color-sub: #868b94;       /* 보조 텍스트 */
+  --color-line: #f2f3f6;      /* 구분선/섹션 갭 */
+  --color-surface: #f2f3f6;   /* 페이지 배경 */
+
   --font-sans: "Pretendard Variable", Pretendard, system-ui, -apple-system, "Segoe UI", sans-serif;
 
   --radius-card: 16px;
-  --shadow-card: 0 1px 2px rgba(0,0,0,0.04), 0 8px 24px -12px rgba(24,24,27,0.12);
+  --shadow-card: 0 1px 2px rgba(33,33,36,0.04);
 }
 
 html {
@@ -24,31 +31,33 @@ html {
 }
 
 body {
-  background: #f7f7f8;
-  color: #18181b;
+  background: var(--color-surface);
+  color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
-/* 재사용 컴포넌트 클래스 */
+/* 재사용 컴포넌트 클래스 (당근 Seed 톤) */
 @layer components {
   .ss-card {
     @apply rounded-2xl bg-white border border-zinc-100;
     box-shadow: var(--shadow-card);
   }
+  /* 당근 버튼: 알약이 아니라 둥근 사각, 청크하게 */
   .ss-btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-full font-bold transition active:scale-[0.98] disabled:opacity-60 bg-brand-600 text-white px-5 py-3;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl font-bold transition active:scale-[0.98] disabled:opacity-50 bg-brand-600 text-white px-5 py-3.5;
   }
   .ss-btn-soft {
-    @apply inline-flex items-center justify-center gap-2 rounded-full font-bold transition active:scale-[0.98] disabled:opacity-60 bg-brand-50 text-brand-700 px-4 py-2.5;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl font-bold transition active:scale-[0.98] disabled:opacity-50 bg-brand-50 text-brand-700 px-4 py-3;
   }
+  /* 당근 칩: 그레이 필 */
   .ss-chip {
-    @apply inline-flex items-center gap-1.5 rounded-full bg-white border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-700;
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg bg-zinc-100 px-3 py-1.5 text-xs font-bold text-zinc-600;
   }
   .ss-input {
-    @apply w-full rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100;
+    @apply w-full rounded-xl border border-zinc-200 bg-white px-3.5 py-3 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100;
   }
   .ss-label {
-    @apply block text-[13px] font-bold text-zinc-700 mt-3.5 mb-1;
+    @apply block text-[13px] font-bold text-zinc-700 mt-3.5 mb-1.5;
   }
 }
