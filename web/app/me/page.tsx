@@ -233,12 +233,19 @@ export default function MePage() {
                     <button onClick={() => { setGiftSheet(disp); setGiftCount(1); }} disabled={busy || disp.currentStamps < 1} className="ss-btn-soft px-2 py-2.5 text-sm disabled:opacity-40">친구 선물</button>
                     <button onClick={() => setDonateSheet(disp)} disabled={busy || disp.currentStamps < 1} className="ss-chip justify-center py-2.5 text-sm disabled:opacity-40">기부 💛</button>
                   </div>
-                  <Link href={`/store/${disp.slug}`} className="mt-2 flex items-center justify-center gap-1.5 rounded-xl border border-honey/60 bg-honey/20 py-2.5 text-[13px] font-extrabold text-honey-ink">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src="/sharbee/sharbee5.png" alt="샤비" className="h-5 w-5 object-contain" /> 샤비와 리뷰 쓰고 스탬프 받기
-                  </Link>
                 </div>
               </section>
+
+              {/* 샤비와 리뷰 — 독립 카드 */}
+              <Link href={`/store/${disp.slug}`} className="ss-card mt-3 flex items-center gap-3 border border-honey/60 bg-honey/20 p-4 active:scale-[0.99]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/sharbee/sharbee5.png" alt="샤비" className="h-11 w-11 shrink-0 object-contain" />
+                <div className="flex-1">
+                  <div className="text-sm font-extrabold text-honey-ink">샤비와 리뷰 쓰고 스탬프 받기</div>
+                  <div className="text-[11px] text-honey-ink/70">대화하듯 리뷰 쓰면 스탬프를 드려요 🐝</div>
+                </div>
+                <span className="text-honey-ink/50">›</span>
+              </Link>
 
               {/* 캐시 잔액 — 보조 정보라 작고 조용한 한 줄로 */}
               <section className="ss-card mt-3 flex items-center justify-between p-4">
