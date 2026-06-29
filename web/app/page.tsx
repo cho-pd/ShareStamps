@@ -46,9 +46,8 @@ export default async function HomePage() {
     <main className="mx-auto max-w-xl px-4 pb-24">
       {/* Hero / 문제 */}
       <section className="pt-10">
-        <div className="flex items-center gap-2 text-sm font-black tracking-tight">
-          <span className="grid h-7 w-7 place-items-center rounded-lg bg-brand-600 text-white">S</span> ShareStamps
-        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo/sharestamps-logo.svg" alt="ShareStamps" className="h-7" />
         <Eyebrow>문제 정의</Eyebrow>
         <h1 className="mt-2 text-[28px] font-black leading-tight tracking-tight">
           소규모 매장의 생존은<br />결국 <span className="text-brand-600">홍보·마케팅</span>이다

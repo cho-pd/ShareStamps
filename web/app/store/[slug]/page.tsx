@@ -5,6 +5,7 @@ import { buildStoreJsonLd, buildFaqJsonLd } from '@/lib/schema';
 import { sampleHero } from '@/lib/sampleImages';
 import StampButton from './StampButton';
 import SharbeeChat from './SharbeeChat';
+import SharbeeReview from './SharbeeReview';
 import ReviewForm from './ReviewForm';
 
 export const revalidate = 60;
@@ -145,6 +146,7 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
       {/* 리뷰 */}
       <section className="ss-card mt-4 p-5">
         <h2 className="text-base font-extrabold">Reviews</h2>
+        <SharbeeReview storeId={store.id} storeName={store.name} menu={store.menu} />
         <ReviewForm storeId={store.id} storeName={store.name} />
         <div className="mt-3 space-y-3">
           {store.reviews.map((r) => (

@@ -193,8 +193,8 @@ export default function MePage() {
       <main className="mx-auto max-w-md px-5 pb-20 pt-6 text-center">
         <div className="flex justify-end"><button onClick={toggleLang} className="rounded-full bg-zinc-100 px-2.5 py-1.5 text-xs font-bold text-zinc-600">🌐 {lang === 'ko' ? 'EN' : 'KO'}</button></div>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/sharbee/sharbee5.png" alt="샤비" className="mx-auto mt-2 h-24 w-24 rounded-3xl bg-brand-600 object-contain p-2 shadow-lg" />
-        <h1 className="mt-4 text-3xl font-black tracking-tight text-brand-700">ShareStamps</h1>
+        <img src="/logo/sharestamps-symbol.svg" alt="ShareStamps" className="mx-auto mt-2 h-20 w-20" />
+        <h1 className="mt-3 text-3xl font-black tracking-tight text-brand-700">ShareStamps</h1>
         <p className="mt-1 text-sm text-zinc-500">{t('동네 가게 스탬프를 모으고 친구에게 선물하세요', 'Collect local stamps and gift them to friends')}</p>
 
         <div className="ss-card mt-6 p-5 text-left">
@@ -351,8 +351,8 @@ export default function MePage() {
                 </div>
               </section>
 
-              {/* 샤비와 리뷰 — 독립 카드 */}
-              <Link href={`/store/${disp.slug}`} className="ss-card mt-3 flex items-center gap-3 border border-honey/60 bg-honey/20 p-4 active:scale-[0.99]">
+              {/* 샤비와 리뷰 — 독립 카드 (챗봇 바로 열기) */}
+              <Link href={`/store/${disp.slug}?review=1`} className="ss-card mt-3 flex items-center gap-3 border border-honey/60 bg-honey/20 p-4 active:scale-[0.99]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/sharbee/sharbee5.png" alt="샤비" className="h-11 w-11 shrink-0 object-contain" />
                 <div className="flex-1">
