@@ -1,211 +1,167 @@
 'use client';
 
-import { useState } from 'react';
-import { storeSlug } from '@/lib/slug';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { getDb } from '@/lib/firebase';
-import { doc, setDoc, collection } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
-type MenuRow = { name: string; price: string; description: string; signature: boolean };
+// 점주 시작 — 매장은 본사가 사전 등록(영업 시). 사장은 자기 매장을 찾아 이름·비번으로 신청 → 본사 승인 → 입장.
+// (매장 등록 폼은 본사 콘솔로 이동. 여기선 등록하지 않는다.)
 
-const emptyMenuRow = (): MenuRow => ({ name: '', price: '', description: '', signature: false });
+type S = { id: string; name: string; slug: string; ownerStatus?: string; ownerName?: string; ownerPassword?: string };
 
-const input: React.CSSProperties = {
-  width: '100%',
-  padding: '10px 12px',
-  border: '1px solid #ddd',
-  borderRadius: 8,
-  fontSize: 14,
-  boxSizing: 'border-box',
-};
-const label: React.CSSProperties = { fontSize: 13, fontWeight: 700, color: '#333', display: 'block', margin: '14px 0 4px' };
+export default function OwnerStartPage() {
+  const [stores, setStores] = useState<S[]>([]);
+  const [mode, setMode] = useState<'claim' | 'login'>('claim');
+  const [q, setQ] = useState('');
+  const [picked, setPicked] = useState<S | null>(null);
+  const [ownerName, setOwnerName] = useState('');
+  const [pw, setPw] = useState(''); const [pw2, setPw2] = useState('');
+  const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
+  const [stage, setStage] = useState<'form' | 'waiting' | 'approved'>('form');
 
-export default function NewStorePage() {
-  const [name, setName] = useState('');
-  const [category, setCategory] = useState('Korean Restaurant');
-  const [description, setDescription] = useState('');
-  const [hours, setHours] = useState('11:00 AM - 10:00 PM');
-  const [phone, setPhone] = useState('');
-  const [city, setCity] = useState('');
-  const [region, setRegion] = useState('');
-  const [street, setStreet] = useState('');
-  const [postalCode, setPostalCode] = useState('');
-  const [currency, setCurrency] = useState('USD');
-  const [priceRange, setPriceRange] = useState('$$');
-  const [reward, setReward] = useState('5');
-  const [sellingPoints, setSellingPoints] = useState('');
-  const [menu, setMenu] = useState<MenuRow[]>([emptyMenuRow()]);
+  useEffect(() => {
+    (async () => {
+      try { const snap = await getDocs(collection(getDb(), 'stores')); setStores(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as S))); } catch {}
+    })();
+  }, []);
 
-  const [saving, setSaving] = useState(false);
-  const [result, setResult] = useState<{ slug: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const reset = () => { setPicked(null); setQ(''); setOwnerName(''); setPw(''); setPw2(''); setErr(''); };
+  const switchMode = (m: 'claim' | 'login') => { setMode(m); reset(); };
 
-  const updateMenu = (i: number, patch: Partial<MenuRow>) =>
-    setMenu((m) => m.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
+  // 검색 풀: 신청=사장 미지정 매장만, 로그인=승인된 매장만
+  const pool = stores.filter((s) => (mode === 'claim' ? !s.ownerStatus : s.ownerStatus === 'approved'));
+  const results = !picked && q.trim() ? pool.filter((s) => (s.name || '').toLowerCase().includes(q.trim().toLowerCase())).slice(0, 8) : [];
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    if (!name.trim()) return setError('매장 이름을 입력해 주세요.');
-    setSaving(true);
+  // 승인 실시간 감지
+  useEffect(() => {
+    if (stage !== 'waiting' || !picked) return;
+    const unsub = onSnapshot(doc(getDb(), 'stores', picked.id), (snap) => {
+      if (snap.exists() && snap.data().ownerStatus === 'approved') setStage('approved');
+    });
+    return () => unsub();
+  }, [stage, picked]);
+
+  const enter = (slug: string) => { try { localStorage.setItem('ss_owner_store', slug); } catch {} window.location.href = `/owner/dashboard?store=${slug}`; };
+
+  const submitClaim = async () => {
+    setErr('');
+    if (!picked) { setErr('매장을 선택해 주세요.'); return; }
+    if (!ownerName.trim()) { setErr('사장님 이름을 입력해 주세요.'); return; }
+    if (pw.length < 4) { setErr('비밀번호는 4자 이상이에요.'); return; }
+    if (pw !== pw2) { setErr('비밀번호가 일치하지 않아요.'); return; }
+    setBusy(true);
     try {
-      const slug = storeSlug(name.trim(), city.trim() || undefined);
-      const id = `store_${slug}`.slice(0, 80);
-      const db = getDb();
-
-      const storeDoc: Record<string, unknown> = {
-        slug,
-        name: name.trim(),
-        category: category.trim(),
-        currency,
-        description: description.trim(),
-        hours: hours.trim(),
-        phone: phone.trim() || null,
-        priceRange,
-        pointRewardPer7Stamps: parseFloat(reward) || 5,
-        sellingPoints: sellingPoints.split(',').map((s) => s.trim()).filter(Boolean),
-        address: {
-          street: street.trim() || null,
-          city: city.trim() || null,
-          region: region.trim() || null,
-          postalCode: postalCode.trim() || null,
-          country: 'US',
-        },
-        updatedAt: new Date().toISOString(),
-      };
-      await setDoc(doc(db, 'stores', id), storeDoc);
-
-      const rows = menu.filter((m) => m.name.trim());
-      for (let i = 0; i < rows.length; i++) {
-        const m = rows[i];
-        await setDoc(doc(collection(db, 'stores', id, 'menuItems'), `m_${i}_${storeSlug(m.name)}`), {
-          name: m.name.trim(),
-          price: parseFloat(m.price) || 0,
-          description: m.description.trim() || null,
-          signature: m.signature,
-        });
-      }
-      try { localStorage.setItem('ss_owner_store', slug); } catch {}
-      setResult({ slug });
-    } catch (err) {
-      setError((err as Error)?.message || '저장에 실패했어요.');
-    } finally {
-      setSaving(false);
-    }
+      await setDoc(doc(getDb(), 'stores', picked.id), {
+        ownerName: ownerName.trim(), ownerPassword: pw, ownerStatus: 'pending', ownerVerified: false, ownerClaimedAt: new Date().toISOString(),
+      }, { merge: true });
+      try { localStorage.setItem('ss_owner_pending', picked.slug); } catch {}
+      setStage('waiting');
+    } catch { setErr('신청에 실패했어요. 다시 시도해 주세요.'); } finally { setBusy(false); }
   };
 
-  if (result) {
-    return (
-      <main style={{ maxWidth: 560, margin: '0 auto', padding: '40px 20px' }}>
-        <h1 style={{ fontSize: 24, fontWeight: 900 }}>등록됐어요! 🎉</h1>
-        <p>매장 페이지가 생성됐습니다:</p>
-        <p>
-          <a href={`/store/${result.slug}`} style={{ color: '#6d28d9', fontWeight: 700 }}>
-            /store/{result.slug}
-          </a>
-        </p>
-        <p>
-          <a href="/owner/dashboard" style={{ color: '#6d28d9', fontWeight: 700 }}>→ 점주 대시보드로</a>
-        </p>
-        <p style={{ color: '#666', fontSize: 13 }}>
-          (정적 배포 환경에서는 새 매장 페이지가 다음 빌드/배포 후 공개됩니다. SSR 전환 시 즉시 반영.)
-        </p>
-        <button onClick={() => { setResult(null); setName(''); setMenu([emptyMenuRow()]); }} style={{ ...input, width: 'auto', padding: '10px 16px', cursor: 'pointer', marginTop: 16 }}>
-          매장 하나 더 등록
-        </button>
-      </main>
-    );
-  }
+  const submitLogin = () => {
+    setErr('');
+    if (!picked) { setErr('매장을 선택해 주세요.'); return; }
+    const s = stores.find((x) => x.id === picked.id);
+    if (!s || s.ownerStatus !== 'approved') { setErr('아직 본사 승인 전이에요.'); return; }
+    if ((s.ownerPassword || '') !== pw) { setErr('비밀번호가 올바르지 않아요.'); return; }
+    enter(s.slug);
+  };
+
+  const Wrap = ({ children }: { children: React.ReactNode }) => (
+    <main className="flex min-h-dvh flex-col items-center justify-center px-5 py-10" style={{ background: '#F2F3F6' }}>
+      <div className="w-full max-w-sm">{children}</div>
+    </main>
+  );
+
+  // 승인 대기 / 승인 완료
+  if (stage === 'waiting') return (
+    <Wrap>
+      <div className="ss-card p-7 text-center">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-amber-100 text-3xl">⏳</div>
+        <h1 className="mt-4 text-xl font-black">본사 승인 대기 중</h1>
+        <p className="mt-2 text-sm text-zinc-500"><b className="text-zinc-700">{picked?.name}</b> 매장 신청이 본사로 전달됐어요.<br />승인되면 자동으로 다음 단계로 넘어가요.</p>
+        <div className="mx-auto mt-5 h-7 w-7 animate-spin rounded-full border-4 border-amber-200 border-t-amber-500" />
+        <p className="mt-5 text-xs text-zinc-400">이 창을 열어두셔도 되고, 승인 후 다시 점주 로그인 하셔도 돼요.</p>
+      </div>
+    </Wrap>
+  );
+  if (stage === 'approved') return (
+    <Wrap>
+      <div className="ss-card p-7 text-center">
+        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100 text-5xl">🎉</div>
+        <h1 className="mt-4 text-2xl font-black text-emerald-600">승인 완료!</h1>
+        <p className="mt-2 text-sm text-zinc-500"><b className="text-zinc-700">{picked?.name}</b> 점주로 인증됐어요.</p>
+        <button onClick={() => enter(picked!.slug)} className="ss-btn-primary mt-6 block w-full py-3 text-center">사장 페이지로 입장 →</button>
+      </div>
+    </Wrap>
+  );
 
   return (
-    <main style={{ maxWidth: 560, margin: '0 auto', padding: '32px 20px' }}>
-      <h1 style={{ fontSize: 24, fontWeight: 900 }}>매장 등록 (점주)</h1>
-      <p style={{ color: '#666', fontSize: 13 }}>입력한 정보는 AI 검색에 최적화된 매장 페이지로 즉시 구조화됩니다.</p>
-      <form onSubmit={handleSubmit}>
-        <label style={label}>매장 이름 *</label>
-        <input style={input} value={name} onChange={(e) => setName(e.target.value)} placeholder="LOVELETTER" />
+    <Wrap>
+      <div className="mb-4 text-center">
+        <h1 className="text-2xl font-black tracking-tight">👨‍🍳 점주 시작하기</h1>
+        <p className="mt-1 text-sm text-zinc-500">본사에 등록된 매장을 찾아 점주 인증을 받으세요.</p>
+      </div>
 
-        <label style={label}>카테고리</label>
-        <input style={input} value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Korean Restaurant" />
+      {/* 모드 토글 */}
+      <div className="mb-4 flex rounded-full bg-zinc-200/70 p-1 text-sm font-bold">
+        <button onClick={() => switchMode('claim')} className={`flex-1 rounded-full py-2 ${mode === 'claim' ? 'bg-white text-brand-700 shadow' : 'text-zinc-500'}`}>매장 신청</button>
+        <button onClick={() => switchMode('login')} className={`flex-1 rounded-full py-2 ${mode === 'login' ? 'bg-white text-brand-700 shadow' : 'text-zinc-500'}`}>점주 로그인</button>
+      </div>
 
-        <label style={label}>소개</label>
-        <textarea style={{ ...input, minHeight: 70 }} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="매장 소개, 대표 메뉴, 분위기 등" />
+      <div className="ss-card p-6">
+        {/* 매장 검색/선택 */}
+        <label className="ss-label">매장 이름</label>
+        {picked ? (
+          <div className="mt-1 flex items-center justify-between rounded-xl border border-brand-200 bg-brand-50 px-3 py-2.5">
+            <span className="font-bold text-brand-700">🏪 {picked.name}</span>
+            <button onClick={() => { setPicked(null); setQ(''); }} className="text-xs font-bold text-zinc-400 hover:text-zinc-600">변경</button>
+          </div>
+        ) : (
+          <div className="relative">
+            <input value={q} onChange={(e) => setQ(e.target.value)} className="ss-input" placeholder="첫 글자만 입력해도 검색돼요 (한/영)" autoFocus />
+            {results.length > 0 && (
+              <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-lg">
+                {results.map((s) => (
+                  <button key={s.id} onClick={() => { setPicked(s); setErr(''); }} className="block w-full px-3 py-2.5 text-left text-sm font-semibold hover:bg-zinc-50">🏪 {s.name}</button>
+                ))}
+              </div>
+            )}
+            {q.trim() && results.length === 0 && (
+              <p className="mt-1.5 text-xs text-zinc-400">{mode === 'claim' ? '검색 결과 없음 — 본사 사전 등록 매장만 신청할 수 있어요. (이미 점주가 지정된 매장은 안 보여요)' : '승인된 매장이 없어요.'}</p>
+            )}
+          </div>
+        )}
 
-        <div style={{ display: 'flex', gap: 10 }}>
-          <div style={{ flex: 1 }}>
-            <label style={label}>영업시간</label>
-            <input style={input} value={hours} onChange={(e) => setHours(e.target.value)} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={label}>전화</label>
-            <input style={input} value={phone} onChange={(e) => setPhone(e.target.value)} />
-          </div>
-        </div>
+        {/* 신청 폼 */}
+        {mode === 'claim' && (
+          <>
+            <label className="ss-label mt-4">사장님 이름</label>
+            <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} className="ss-input" placeholder="홍길동" />
+            <label className="ss-label mt-4">비밀번호</label>
+            <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} className="ss-input" placeholder="4자 이상" />
+            <label className="ss-label mt-4">비밀번호 확인</label>
+            <input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} className="ss-input" placeholder="다시 입력" />
+            {err && <p className="mt-3 text-sm font-semibold text-rose-500">{err}</p>}
+            <button onClick={submitClaim} disabled={busy} className="ss-btn-primary mt-5 block w-full py-3 text-center">{busy ? '신청 중…' : '점주 인증 신청'}</button>
+            <p className="mt-2 text-center text-[11px] text-zinc-400">제출하면 본사에 승인 요청이 전달돼요.</p>
+          </>
+        )}
 
-        <div style={{ display: 'flex', gap: 10 }}>
-          <div style={{ flex: 2 }}>
-            <label style={label}>도시</label>
-            <input style={input} value={city} onChange={(e) => setCity(e.target.value)} placeholder="Fullerton" />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={label}>주(州)</label>
-            <input style={input} value={region} onChange={(e) => setRegion(e.target.value)} placeholder="CA" />
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <div style={{ flex: 2 }}>
-            <label style={label}>주소</label>
-            <input style={input} value={street} onChange={(e) => setStreet(e.target.value)} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={label}>우편번호</label>
-            <input style={input} value={postalCode} onChange={(e) => setPostalCode(e.target.value)} />
-          </div>
-        </div>
+        {/* 로그인 폼 */}
+        {mode === 'login' && (
+          <>
+            <label className="ss-label mt-4">비밀번호</label>
+            <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} className="ss-input" placeholder="점주 비밀번호" onKeyDown={(e) => { if (e.key === 'Enter') submitLogin(); }} />
+            {err && <p className="mt-3 text-sm font-semibold text-rose-500">{err}</p>}
+            <button onClick={submitLogin} className="ss-btn-primary mt-5 block w-full py-3 text-center">사장 페이지 입장</button>
+          </>
+        )}
+      </div>
 
-        <div style={{ display: 'flex', gap: 10 }}>
-          <div style={{ flex: 1 }}>
-            <label style={label}>통화</label>
-            <input style={input} value={currency} onChange={(e) => setCurrency(e.target.value)} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={label}>가격대</label>
-            <input style={input} value={priceRange} onChange={(e) => setPriceRange(e.target.value)} placeholder="$$" />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={label}>7개당 보상</label>
-            <input style={input} value={reward} onChange={(e) => setReward(e.target.value)} />
-          </div>
-        </div>
-
-        <label style={label}>셀링포인트 (쉼표로 구분, AEO 키워드)</label>
-        <input style={input} value={sellingPoints} onChange={(e) => setSellingPoints(e.target.value)} placeholder="fresh daily, soondubu, family friendly" />
-
-        <h2 style={{ fontSize: 16, marginTop: 24 }}>메뉴</h2>
-        {menu.map((row, i) => (
-          <div key={i} style={{ border: '1px solid #eee', borderRadius: 8, padding: 10, marginBottom: 8 }}>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input style={{ ...input, flex: 2 }} value={row.name} onChange={(e) => updateMenu(i, { name: e.target.value })} placeholder="메뉴명" />
-              <input style={{ ...input, flex: 1 }} value={row.price} onChange={(e) => updateMenu(i, { price: e.target.value })} placeholder="가격" />
-            </div>
-            <input style={{ ...input, marginTop: 6 }} value={row.description} onChange={(e) => updateMenu(i, { description: e.target.value })} placeholder="설명" />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-              <label style={{ fontSize: 13 }}>
-                <input type="checkbox" checked={row.signature} onChange={(e) => updateMenu(i, { signature: e.target.checked })} /> 시그니처
-              </label>
-              {menu.length > 1 && (
-                <button type="button" onClick={() => setMenu((m) => m.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', color: '#c00', cursor: 'pointer', fontSize: 13 }}>삭제</button>
-              )}
-            </div>
-          </div>
-        ))}
-        <button type="button" onClick={() => setMenu((m) => [...m, emptyMenuRow()])} style={{ ...input, width: 'auto', padding: '8px 14px', cursor: 'pointer' }}>+ 메뉴 추가</button>
-
-        {error && <p style={{ color: '#c00', marginTop: 14 }}>{error}</p>}
-
-        <button type="submit" disabled={saving} style={{ width: '100%', marginTop: 20, padding: 14, border: 'none', borderRadius: 10, background: '#6d28d9', color: '#fff', fontSize: 15, fontWeight: 800, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
-          {saving ? '저장 중…' : '매장 등록'}
-        </button>
-      </form>
-    </main>
+      <p className="mt-5 text-center text-xs text-zinc-400">매장이 아직 등록 안 됐나요? <Link href="/" className="font-bold text-brand-600">본사에 문의</Link></p>
+    </Wrap>
   );
 }

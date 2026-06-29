@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import AdBannerSlot from './AdBanner';
 import { getDb } from '@/lib/firebase';
@@ -95,6 +95,17 @@ export default function MePage() {
     } catch { /* noop */ }
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  // /claim 등에서 ?store=slug 로 넘어오면 그 매장 카드를 선택
+  const preRan = useRef(false);
+  useEffect(() => {
+    if (preRan.current || !cards.length) return;
+    try {
+      const w = new URLSearchParams(window.location.search).get('store');
+      if (w) { const m = cards.find((c) => c.slug === w); if (m) setSelId(m.storeId); }
+    } catch {}
+    preRan.current = true;
+  }, [cards]);
 
   // 전화번호 조회 → 기존 회원이면 환영, 처음이면 닉네임 받기
   const checkPhone = async () => {
