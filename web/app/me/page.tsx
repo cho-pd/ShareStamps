@@ -48,6 +48,11 @@ export default function MePage() {
   const [useSheet, setUseSheet] = useState(false);
   const [npo, setNpo] = useState(NPOS[0].id);
   const [friendPhone, setFriendPhone] = useState(''); const [giftCount, setGiftCount] = useState(1);
+  const [lang, setLang] = useState<'ko' | 'en'>('ko');
+
+  useEffect(() => { try { const l = localStorage.getItem('ss_lang'); if (l === 'en' || l === 'ko') setLang(l); } catch {} }, []);
+  const toggleLang = () => { const n = lang === 'ko' ? 'en' : 'ko'; setLang(n); try { localStorage.setItem('ss_lang', n); } catch {} };
+  const t = (ko: string, en: string) => (lang === 'ko' ? ko : en);
 
   const flash = (m: string, ms = 3000) => { setToast(m); setTimeout(() => setToast(null), ms); };
 
@@ -161,16 +166,17 @@ export default function MePage() {
   if (profile === undefined) return <main className="mx-auto max-w-md px-4 pt-16 text-center text-sm text-zinc-400">불러오는 중…</main>;
   if (profile === null) {
     return (
-      <main className="mx-auto max-w-md px-5 pb-20 pt-12 text-center">
+      <main className="mx-auto max-w-md px-5 pb-20 pt-6 text-center">
+        <div className="flex justify-end"><button onClick={toggleLang} className="rounded-full bg-zinc-100 px-2.5 py-1.5 text-xs font-bold text-zinc-600">🌐 {lang === 'ko' ? 'KO' : 'EN'}</button></div>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/sharbee/sharbee5.png" alt="샤비" className="mx-auto h-24 w-24 rounded-3xl bg-brand-600 object-contain p-2 shadow-lg" />
+        <img src="/sharbee/sharbee5.png" alt="샤비" className="mx-auto mt-2 h-24 w-24 rounded-3xl bg-brand-600 object-contain p-2 shadow-lg" />
         <h1 className="mt-4 text-3xl font-black tracking-tight text-brand-700">ShareStamps</h1>
-        <p className="mt-1 text-sm text-zinc-500">동네 가게 스탬프를 모으고 친구에게 선물하세요</p>
+        <p className="mt-1 text-sm text-zinc-500">{t('동네 가게 스탬프를 모으고 친구에게 선물하세요', 'Collect local stamps and gift them to friends')}</p>
 
         {/* 가입 전에도 허니컴 미리보기 — 친구 추천으로 처음 온 손님이 보고 시작하게 */}
         <section className="ss-card mt-6 p-5">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-extrabold text-brand-700">⭐ 이렇게 스탬프를 모아요</span>
+            <span className="text-sm font-extrabold text-brand-700">⭐ {t('이렇게 스탬프를 모아요', 'How stamps work')}</span>
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">0/7</span>
           </div>
           <div className="mt-3 grid grid-cols-7 gap-1.5">
@@ -183,16 +189,16 @@ export default function MePage() {
               </div>
             ))}
           </div>
-          <p className="mt-3 text-center text-xs text-zinc-500">7개를 모으면 현금 보상 💰 · 기부·친구 선물도 돼요 💛</p>
+          <p className="mt-3 text-center text-xs text-zinc-500">{t('7개를 모으면 현금 보상 💰 · 기부·친구 선물도 돼요 💛', 'Collect 7 for cash 💰 · or donate & gift 💛')}</p>
         </section>
 
         <div className="ss-card mt-3 p-5 text-left">
-          <label className="ss-label">이름 (닉네임)</label>
-          <input value={nameIn} onChange={(e) => setNameIn(e.target.value)} className="ss-input" placeholder="홍길동" />
-          <label className="ss-label">전화번호</label>
+          <label className="ss-label">{t('이름 (닉네임)', 'Name (nickname)')}</label>
+          <input value={nameIn} onChange={(e) => setNameIn(e.target.value)} className="ss-input" placeholder={t('홍길동', 'Your name')} />
+          <label className="ss-label">{t('전화번호', 'Phone number')}</label>
           <input value={phoneIn} onChange={(e) => setPhoneIn(e.target.value)} className="ss-input" placeholder="010-1234-5678" inputMode="tel" />
-          <button onClick={signup} disabled={busy} className="ss-btn-primary mt-3 w-full">{busy ? '…' : '시작하기'}</button>
-          <p className="mt-2 text-[11px] text-zinc-400">* 문자 인증은 다음 단계. 지금은 이름·전화로 바로 시작.</p>
+          <button onClick={signup} disabled={busy} className="ss-btn-primary mt-3 w-full">{busy ? '…' : t('시작하기', 'Get started')}</button>
+          <p className="mt-2 text-[11px] text-zinc-400">{t('* 문자 인증은 다음 단계. 지금은 이름·전화로 바로 시작.', '* SMS verification comes later. Start now with name & phone.')}</p>
         </div>
         {toast && <Toast t={toast} />}
       </main>
@@ -204,14 +210,17 @@ export default function MePage() {
       {/* 상단바 */}
       <div className="flex items-center justify-between py-3">
         <span className="flex items-center gap-1.5 text-sm font-bold text-brand-700">👤 {profile.name}</span>
-        <Link href={cards[0] ? `/store/${cards[0].slug}` : '/'} className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-bold text-white">📷 QR 스캔</Link>
+        <div className="flex items-center gap-2">
+          <button onClick={toggleLang} className="rounded-full bg-zinc-100 px-2.5 py-1.5 text-xs font-bold text-zinc-600">🌐 {lang === 'ko' ? 'KO' : 'EN'}</button>
+          <Link href={cards[0] ? `/store/${cards[0].slug}` : '/'} className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-bold text-white">📷 {t('QR 스캔', 'QR Scan')}</Link>
+        </div>
       </div>
 
       {nav === 'home' && (
         <>
           {/* 매장 선택 */}
           <select value={selId} onChange={(e) => setSelId(e.target.value)} className="ss-input w-full text-center font-bold">
-            {cards.length === 0 && <option>매장 없음</option>}
+            {cards.length === 0 && <option>{t('매장 없음', 'No store')}</option>}
             {cards.map((c) => <option key={c.storeId} value={c.storeId}>{c.storeName}</option>)}
           </select>
 
@@ -220,10 +229,10 @@ export default function MePage() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/sharbee/sharbee5.png" alt="샤비" className="h-11 w-11 shrink-0 object-contain" />
               <div className="flex-1">
-                <p className="text-sm font-bold">스탬프 카드 미리보기</p>
-                <p className="text-xs text-zinc-500">매장에서 QR을 찍으면 내 카드가 생겨요.</p>
+                <p className="text-sm font-bold">{t('스탬프 카드 미리보기', 'Stamp card preview')}</p>
+                <p className="text-xs text-zinc-500">{t('매장에서 QR을 찍으면 내 카드가 생겨요.', 'Scan a store QR to create your card.')}</p>
               </div>
-              <Link href="/store/loveletter-fullerton" className="ss-chip">둘러보기</Link>
+              <Link href="/store/loveletter-fullerton" className="ss-chip">{t('둘러보기', 'Explore')}</Link>
             </div>
           )}
           {(
@@ -233,13 +242,13 @@ export default function MePage() {
                 <div className="flex items-start justify-between p-5 pb-3">
                   <div>
                     <Link href={`/store/${disp.slug}`} className="text-lg font-black hover:text-brand-700">{disp.storeName} 🔗</Link>
-                    <div className="mt-1 text-[13px] text-zinc-600">7개 모으면 <strong className="text-rose-500">${disp.reward.toFixed(2)}</strong> · 누적 <strong className="text-brand-700">${value(disp).toFixed(2)}</strong></div>
+                    <div className="mt-1 text-[13px] text-zinc-600">{t('7개 모으면', 'Collect 7 →')} <strong className="text-rose-500">${disp.reward.toFixed(2)}</strong> · {t('누적', 'now')} <strong className="text-brand-700">${value(disp).toFixed(2)}</strong></div>
                   </div>
                   <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-500">{disp.interval ?? '—'}m</span>
                 </div>
                 <div className="border-t border-zinc-100 bg-brand-50/50 p-5">
                   <div className="flex items-center justify-between">
-                    <span className="text-base font-black text-brand-700">⭐ 현재 스탬프</span>
+                    <span className="text-base font-black text-brand-700">⭐ {t('현재 스탬프', 'My Stamps')}</span>
                     <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-extrabold text-amber-700">{Math.min(disp.currentStamps, 7)}/7</span>
                   </div>
                   <div className="mt-3 grid grid-cols-7 gap-1">
@@ -257,9 +266,9 @@ export default function MePage() {
                   </div>
                   {/* 액션: 0개여도 또렷하게(흐림 X), 누르면 안내 */}
                   <div className="mt-4 grid grid-cols-3 gap-2">
-                    <button onClick={() => { if (disp.currentStamps < 1) return flash('스탬프 1개 이상부터 가능해요.'); redeem(disp); }} disabled={busy} className="rounded-xl bg-brand-600 py-3 text-sm font-bold text-white transition active:scale-[0.98] disabled:opacity-60">적립 전환</button>
-                    <button onClick={() => { if (disp.currentStamps < 1) return flash('스탬프 1개 이상부터 가능해요.'); setGiftSheet(disp); setGiftCount(1); }} disabled={busy} className="rounded-xl border border-brand-200 bg-white py-3 text-sm font-bold text-brand-700 transition active:scale-[0.98] disabled:opacity-60">친구 선물</button>
-                    <button onClick={() => { if (disp.currentStamps < 1) return flash('스탬프 1개 이상부터 가능해요.'); setDonateSheet(disp); }} disabled={busy} className="rounded-xl border border-amber-300 bg-amber-50 py-3 text-sm font-bold text-amber-700 transition active:scale-[0.98] disabled:opacity-60">기부 💛</button>
+                    <button onClick={() => { if (disp.currentStamps < 1) return flash(t('스탬프 1개 이상부터 가능해요.', 'Need at least 1 stamp.')); redeem(disp); }} disabled={busy} className="rounded-xl bg-brand-600 py-3 text-sm font-bold text-white transition active:scale-[0.98] disabled:opacity-60">{t('적립 전환', 'Redeem')}</button>
+                    <button onClick={() => { if (disp.currentStamps < 1) return flash(t('스탬프 1개 이상부터 가능해요.', 'Need at least 1 stamp.')); setGiftSheet(disp); setGiftCount(1); }} disabled={busy} className="rounded-xl border border-brand-200 bg-white py-3 text-sm font-bold text-brand-700 transition active:scale-[0.98] disabled:opacity-60">{t('친구 선물', 'Gift')}</button>
+                    <button onClick={() => { if (disp.currentStamps < 1) return flash(t('스탬프 1개 이상부터 가능해요.', 'Need at least 1 stamp.')); setDonateSheet(disp); }} disabled={busy} className="rounded-xl border border-amber-300 bg-amber-50 py-3 text-sm font-bold text-amber-700 transition active:scale-[0.98] disabled:opacity-60">{t('기부', 'Donate')} 💛</button>
                   </div>
                 </div>
               </section>
@@ -269,8 +278,8 @@ export default function MePage() {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/sharbee/sharbee5.png" alt="샤비" className="h-11 w-11 shrink-0 object-contain" />
                 <div className="flex-1">
-                  <div className="text-sm font-extrabold text-honey-ink">샤비와 리뷰 쓰고 스탬프 받기</div>
-                  <div className="text-[11px] text-honey-ink/70">대화하듯 리뷰 쓰면 스탬프를 드려요 🐝</div>
+                  <div className="text-sm font-extrabold text-honey-ink">{t('샤비와 리뷰 쓰고 스탬프 받기', 'Write a review with Sharbee')}</div>
+                  <div className="text-[11px] text-honey-ink/70">{t('대화하듯 리뷰 쓰면 스탬프를 드려요 🐝', 'Chat to write a review, earn a stamp 🐝')}</div>
                 </div>
                 <span className="text-honey-ink/50">›</span>
               </Link>
@@ -278,16 +287,16 @@ export default function MePage() {
               {/* 캐시 잔액 — 보조 정보라 작고 조용한 한 줄로 */}
               <section className="ss-card mt-3 flex items-center justify-between p-4">
                 <div>
-                  <div className="text-[11px] font-semibold text-zinc-500">내 스탬프 캐시 잔액</div>
+                  <div className="text-[11px] font-semibold text-zinc-500">{t('내 스탬프 캐시 잔액', 'My stamp cash')}</div>
                   <div className="text-xl font-black text-zinc-800">${balance.toFixed(2)}</div>
                 </div>
-                <button onClick={() => setUseSheet(true)} disabled={balance <= 0} className="ss-chip disabled:opacity-50">캐시 사용</button>
+                <button onClick={() => setUseSheet(true)} disabled={balance <= 0} className="ss-chip disabled:opacity-50">{t('캐시 사용', 'Use cash')}</button>
               </section>
 
               {/* Stamp Timeline */}
               <section className="ss-card mt-3 p-5">
-                <h3 className="text-sm font-extrabold text-brand-700">💬 스탬프 나눔 타임라인</h3>
-                {donations.length === 0 ? <p className="mt-2 text-center text-sm text-zinc-400">아직 활동 내역이 없어요.</p> : (
+                <h3 className="text-sm font-extrabold text-brand-700">💬 {t('스탬프 나눔 타임라인', 'Stamp timeline')}</h3>
+                {donations.length === 0 ? <p className="mt-2 text-center text-sm text-zinc-400">{t('아직 활동 내역이 없어요.', 'No activity yet.')}</p> : (
                   <div className="mt-2 space-y-1.5">
                     {donations.map((d, i) => <div key={i} className="flex justify-between text-sm"><span className="text-zinc-600">{d.storeName} → {d.npoName ?? '기부'}</span><span className="font-bold text-amber-600">${d.amount.toFixed(2)}</span></div>)}
                   </div>
@@ -298,16 +307,16 @@ export default function MePage() {
 
           {/* Donate to Charity */}
           <section className="ss-card mt-3 p-5">
-            <h3 className="text-sm font-extrabold text-brand-700">💛 단체 기부하기</h3>
+            <h3 className="text-sm font-extrabold text-brand-700">💛 {t('단체 기부하기', 'Donate to charity')}</h3>
             <div className="mt-2 space-y-2">
               {NPOS.map((n) => (
                 <div key={n.id} className="flex items-center justify-between rounded-xl bg-zinc-50 p-3">
                   <div><div className="text-sm font-bold">{n.name}</div><div className="text-[11px] text-zinc-500">{n.sub}</div></div>
-                  <button onClick={() => { if (!sel || sel.currentStamps < 1) { flash('스탬프 1개 이상부터 기부 가능해요.'); return; } setNpo(n.id); setDonateSheet(sel); }} className="ss-chip">기부</button>
+                  <button onClick={() => { if (!sel || sel.currentStamps < 1) { flash(t('스탬프 1개 이상부터 기부 가능해요.', 'Need at least 1 stamp to donate.')); return; } setNpo(n.id); setDonateSheet(sel); }} className="ss-chip">{t('기부', 'Donate')}</button>
                 </div>
               ))}
             </div>
-            <p className="mt-2 text-[11px] text-zinc-400">* 스탬프 1개 이상일 때 선물·기부가 활성화돼요.</p>
+            <p className="mt-2 text-[11px] text-zinc-400">{t('* 스탬프 1개 이상일 때 선물·기부가 활성화돼요.', '* Gifting and donating need at least 1 stamp.')}</p>
           </section>
         </>
       )}
@@ -315,12 +324,12 @@ export default function MePage() {
       {nav === 'impact' && (
         <div className="pt-2">
           <section className="ss-card bg-amber-50 p-5 text-center">
-            <div className="text-xs font-semibold text-zinc-500">나의 누적 나눔 💛</div>
+            <div className="text-xs font-semibold text-zinc-500">{t('나의 누적 나눔 💛', 'My total giving 💛')}</div>
             <div className="text-3xl font-black text-amber-600">${donated.toFixed(2)}</div>
           </section>
           <section className="ss-card mt-3 p-5">
-            <h3 className="text-sm font-extrabold text-brand-700">기부 내역</h3>
-            {donations.length === 0 ? <p className="mt-2 text-center text-sm text-zinc-400">아직 기부 내역이 없어요. 스탬프를 NPO에 전해 보세요!</p> : (
+            <h3 className="text-sm font-extrabold text-brand-700">{t('기부 내역', 'Donation history')}</h3>
+            {donations.length === 0 ? <p className="mt-2 text-center text-sm text-zinc-400">{t('아직 기부 내역이 없어요. 스탬프를 NPO에 전해 보세요!', 'No donations yet. Send stamps to an NPO!')}</p> : (
               <div className="mt-2 divide-y divide-zinc-100">
                 {donations.map((d, i) => <div key={i} className="flex justify-between py-2.5 text-sm"><span className="text-zinc-600">{d.storeName} → {d.npoName ?? '기부'}</span><span className="font-bold text-amber-600">${d.amount.toFixed(2)}</span></div>)}
               </div>
@@ -331,16 +340,16 @@ export default function MePage() {
 
       {/* 하단 탭바 */}
       <nav className="fixed inset-x-0 bottom-0 z-40 mx-auto flex max-w-md border-t border-zinc-100 bg-white/95 backdrop-blur">
-        <button onClick={() => setNav('home')} className={`flex-1 py-3 text-center text-xs font-bold ${nav === 'home' ? 'text-brand-700' : 'text-zinc-400'}`}>⭐<div>스탬프</div></button>
-        <button onClick={() => setNav('impact')} className={`flex-1 py-3 text-center text-xs font-bold ${nav === 'impact' ? 'text-brand-700' : 'text-zinc-400'}`}>💛<div>나눔 임팩트</div></button>
+        <button onClick={() => setNav('home')} className={`flex-1 py-3 text-center text-xs font-bold ${nav === 'home' ? 'text-brand-700' : 'text-zinc-400'}`}>⭐<div>{t('스탬프', 'Stamps')}</div></button>
+        <button onClick={() => setNav('impact')} className={`flex-1 py-3 text-center text-xs font-bold ${nav === 'impact' ? 'text-brand-700' : 'text-zinc-400'}`}>💛<div>{t('나눔 임팩트', 'Impact')}</div></button>
       </nav>
 
       {/* 시트들 */}
-      {useSheet && <Sheet onClose={() => setUseSheet(false)}><div className="text-center"><h3 className="text-lg font-black">스탬프 캐시 사용 💳</h3><p className="mt-1 text-sm text-zinc-500">결제 시 점주에게 보여주세요.</p><div className="mt-2 text-3xl font-black text-rose-500">${balance.toFixed(2)}</div>{/* eslint-disable-next-line @next/next/no-img-element */}<img src={useQr} alt="code" className="mx-auto mt-3 h-44 w-44 rounded-xl border border-zinc-100" /><button onClick={() => setUseSheet(false)} className="ss-btn-soft mt-3 w-full">닫기</button></div></Sheet>}
+      {useSheet && <Sheet onClose={() => setUseSheet(false)}><div className="text-center"><h3 className="text-lg font-black">{t('스탬프 캐시 사용 💳', 'Use stamp cash 💳')}</h3><p className="mt-1 text-sm text-zinc-500">{t('결제 시 점주에게 보여주세요.', 'Show this to the owner at checkout.')}</p><div className="mt-2 text-3xl font-black text-rose-500">${balance.toFixed(2)}</div>{/* eslint-disable-next-line @next/next/no-img-element */}<img src={useQr} alt="code" className="mx-auto mt-3 h-44 w-44 rounded-xl border border-zinc-100" /><button onClick={() => setUseSheet(false)} className="ss-btn-soft mt-3 w-full">{t('닫기', 'Close')}</button></div></Sheet>}
 
-      {giftSheet && <Sheet onClose={() => setGiftSheet(null)}><h3 className="text-lg font-black">친구에게 스탬프 선물 🎁</h3><p className="mt-1 text-sm text-zinc-500">{giftSheet.storeName} 스탬프는 같은 매장 친구 카드로만. (친구 7개 초과분 회수)</p><label className="ss-label">친구 전화번호</label><input value={friendPhone} onChange={(e) => setFriendPhone(e.target.value)} className="ss-input" placeholder="010-..." inputMode="tel" /><label className="ss-label">선물 수량 (보유 {giftSheet.currentStamps})</label><input type="number" min={1} max={giftSheet.currentStamps} value={giftCount} onChange={(e) => setGiftCount(parseInt(e.target.value, 10) || 1)} className="ss-input" /><button onClick={confirmGift} disabled={busy} className="ss-btn-primary mt-3 w-full">{busy ? '보내는 중…' : '선물 보내기'}</button></Sheet>}
+      {giftSheet && <Sheet onClose={() => setGiftSheet(null)}><h3 className="text-lg font-black">{t('친구에게 스탬프 선물 🎁', 'Gift stamps to a friend 🎁')}</h3><p className="mt-1 text-sm text-zinc-500">{giftSheet.storeName} {t('스탬프는 같은 매장 친구 카드로만. (친구 7개 초과분 회수)', 'stamps go only to the same store card. (excess over 7 returns to you)')}</p><label className="ss-label">{t('친구 전화번호', "Friend's phone")}</label><input value={friendPhone} onChange={(e) => setFriendPhone(e.target.value)} className="ss-input" placeholder="010-..." inputMode="tel" /><label className="ss-label">{t('선물 수량', 'Amount')} ({t('보유', 'have')} {giftSheet.currentStamps})</label><input type="number" min={1} max={giftSheet.currentStamps} value={giftCount} onChange={(e) => setGiftCount(parseInt(e.target.value, 10) || 1)} className="ss-input" /><button onClick={confirmGift} disabled={busy} className="ss-btn-primary mt-3 w-full">{busy ? '…' : t('선물 보내기', 'Send gift')}</button></Sheet>}
 
-      {donateSheet && <Sheet onClose={() => setDonateSheet(null)}><h3 className="text-lg font-black">스탬프 기부하기 💛</h3><p className="mt-1 text-sm text-zinc-500">{donateSheet.storeName} 가치 <strong className="text-brand-700">${value(donateSheet).toFixed(2)}</strong> 기부</p><div className="mt-3 space-y-2">{NPOS.map((n) => <label key={n.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 ${npo === n.id ? 'border-brand-500 bg-brand-50' : 'border-zinc-200'}`}><input type="radio" name="npo" checked={npo === n.id} onChange={() => setNpo(n.id)} /><span className="text-sm font-semibold">{n.name} <span className="text-zinc-400">· {n.sub}</span></span></label>)}</div><button onClick={confirmDonate} disabled={busy} className="ss-btn-primary mt-4 w-full">{busy ? '기부 중…' : '기부 확정하기'}</button></Sheet>}
+      {donateSheet && <Sheet onClose={() => setDonateSheet(null)}><h3 className="text-lg font-black">{t('스탬프 기부하기 💛', 'Donate stamps 💛')}</h3><p className="mt-1 text-sm text-zinc-500">{donateSheet.storeName} · <strong className="text-brand-700">${value(donateSheet).toFixed(2)}</strong> {t('기부', 'donation')}</p><div className="mt-3 space-y-2">{NPOS.map((n) => <label key={n.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 ${npo === n.id ? 'border-brand-500 bg-brand-50' : 'border-zinc-200'}`}><input type="radio" name="npo" checked={npo === n.id} onChange={() => setNpo(n.id)} /><span className="text-sm font-semibold">{n.name} <span className="text-zinc-400">· {n.sub}</span></span></label>)}</div><button onClick={confirmDonate} disabled={busy} className="ss-btn-primary mt-4 w-full">{busy ? '…' : t('기부 확정하기', 'Confirm donation')}</button></Sheet>}
 
       {toast && <Toast t={toast} />}
     </main>
