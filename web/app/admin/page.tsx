@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getDb } from '@/lib/firebase';
-import { collection, getDocs, collectionGroup } from 'firebase/firestore';
+import { collection, getDocs, collectionGroup, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { DEFAULT_ADS, type AdBanner } from '@/lib/ads';
 
 // 옛 SuperAdmin(본사 관리자) 구성 차용: 통합 대시보드(KPI) · 매장 관리 · NPO 관리 · 월별 정산 원장 · 회원.
 // 새 모델은 매장별 Firestore — 전 매장/회원/기부를 집계해 본사 시점으로 본다.
@@ -18,6 +19,7 @@ const TABS = [
   { id: 'npos', label: 'NPO 관리' },
   { id: 'settlement', label: '월별 정산 원장' },
   { id: 'users', label: '회원' },
+  { id: 'ads', label: '광고 배너 관리' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 
@@ -27,6 +29,10 @@ export default function AdminPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [donations, setDonations] = useState<Donation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [adCustoms, setAdCustoms] = useState<AdBanner[]>([]);
+  const [adHidden, setAdHidden] = useState<Set<string>>(new Set());
+  const [isAdmin, setIsAdmin] = useState(false); // 조PD(admin_jopd) 세션
+  const [adImg, setAdImg] = useState(''); const [adLink, setAdLink] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -40,10 +46,39 @@ export default function AdminPage() {
         setCustomers(cSnap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as Customer)));
         const dSnap = await getDocs(collectionGroup(db, 'donations')).catch(() => null);
         if (dSnap) setDonations(dSnap.docs.map((d) => d.data() as Donation));
+        const [adSnap, hidSnap] = await Promise.all([
+          getDocs(collection(db, 'adBanners')).catch(() => null),
+          getDocs(collection(db, 'adHidden')).catch(() => null),
+        ]);
+        if (adSnap) setAdCustoms(adSnap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as AdBanner)));
+        if (hidSnap) setAdHidden(new Set(hidSnap.docs.map((d) => d.id)));
+        try { setIsAdmin(localStorage.getItem('ss_device_id') === 'admin_jopd'); } catch {}
       } catch { /* noop */ }
       finally { setLoading(false); }
     })();
   }, []);
+
+  const reloadAds = async () => {
+    const db = getDb();
+    const [adSnap, hidSnap] = await Promise.all([
+      getDocs(collection(db, 'adBanners')).catch(() => null),
+      getDocs(collection(db, 'adHidden')).catch(() => null),
+    ]);
+    if (adSnap) setAdCustoms(adSnap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as AdBanner)));
+    setAdHidden(new Set((hidSnap?.docs ?? []).map((d) => d.id)));
+  };
+  const addAd = async () => {
+    if (!adImg.trim()) return;
+    await setDoc(doc(getDb(), 'adBanners', `ad_${Date.now()}`), { imageUrl: adImg.trim(), linkUrl: adLink.trim(), status: 'active' });
+    setAdImg(''); setAdLink(''); await reloadAds();
+  };
+  const delAd = async (id: string) => { await deleteDoc(doc(getDb(), 'adBanners', id)); await reloadAds(); };
+  const toggleAd = async (a: AdBanner) => { await setDoc(doc(getDb(), 'adBanners', a.id), { status: a.status === 'active' ? 'inactive' : 'active' }, { merge: true }); await reloadAds(); };
+  const hideDefault = async (id: string, hide: boolean) => { // 조PD만
+    if (hide) await setDoc(doc(getDb(), 'adHidden', id), { hidden: true });
+    else await deleteDoc(doc(getDb(), 'adHidden', id));
+    await reloadAds();
+  };
 
   const totalDonated = customers.reduce((s, c) => s + (c.donated || 0), 0);
   const totalBalance = customers.reduce((s, c) => s + (c.balance || 0), 0);
@@ -144,6 +179,60 @@ export default function AdminPage() {
             </div>
           ))}
           {customers.filter((c) => c.name).length === 0 && <p className="text-center text-sm text-zinc-400">가입 회원이 없어요.</p>}
+        </div>
+      )}
+
+      {!loading && tab === 'ads' && (
+        <div className="mt-4 space-y-4">
+          <div className="ss-card p-4">
+            <h3 className="text-base font-extrabold">기본 보호 배너</h3>
+            <p className="mt-0.5 text-[11px] text-zinc-400">조PD만 숨김/복원할 수 있어요. {isAdmin ? '(조PD 로그인됨 ✓)' : '(/me에서 조PD로 로그인하면 제어 가능)'}</p>
+            <div className="mt-2 space-y-2">
+              {DEFAULT_ADS.map((a) => {
+                const hidden = adHidden.has(a.id);
+                return (
+                  <div key={a.id} className="rounded-xl border border-zinc-200 p-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={a.imageUrl} alt={a.title} className="w-full rounded-lg" style={{ aspectRatio: '16/4', objectFit: 'cover' }} />
+                    <div className="mt-1.5 flex items-center justify-between">
+                      <span className="text-xs font-bold">{hidden ? '🚫 숨김' : '🟢 노출중'} <span className="ml-1 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] text-brand-700">기본·보호</span></span>
+                      {isAdmin && <button onClick={() => hideDefault(a.id, !hidden)} className="ss-chip">{hidden ? '복원' : '숨기기'}</button>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="ss-card p-4">
+            <h3 className="text-base font-extrabold">광고 추가</h3>
+            <label className="ss-label">이미지 URL (16:4 권장)</label>
+            <input value={adImg} onChange={(e) => setAdImg(e.target.value)} className="ss-input" placeholder="https://..." />
+            <label className="ss-label">클릭 링크 (선택)</label>
+            <input value={adLink} onChange={(e) => setAdLink(e.target.value)} className="ss-input" placeholder="https://... 또는 /me" />
+            <button onClick={addAd} className="ss-btn-primary mt-3 w-full">광고 등록</button>
+          </div>
+
+          <div className="ss-card p-4">
+            <h3 className="text-base font-extrabold">등록된 광고</h3>
+            {adCustoms.length === 0 ? <p className="mt-2 text-sm text-zinc-400">아직 등록한 광고가 없어요.</p> : (
+              <div className="mt-2 space-y-2">
+                {adCustoms.map((a) => (
+                  <div key={a.id} className="rounded-xl border border-zinc-200 p-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={a.imageUrl} alt="ad" className="w-full rounded-lg" style={{ aspectRatio: '16/4', objectFit: 'cover' }} />
+                    <div className="mt-1.5 flex items-center justify-between">
+                      <span className="text-xs font-bold">{a.status === 'active' ? '🟢 노출중' : '⚪ 비활성'}</span>
+                      <div className="flex gap-2">
+                        <button onClick={() => toggleAd(a)} className="ss-chip">{a.status === 'active' ? '내리기' : '노출'}</button>
+                        <button onClick={() => delAd(a.id)} className="text-xs font-bold text-red-500">삭제</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </main>

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
+import AdBannerSlot from './AdBanner';
 import { getDb } from '@/lib/firebase';
 import { collection, getDocs, doc, getDoc, setDoc, query, orderBy, limit } from 'firebase/firestore';
 
@@ -207,12 +208,17 @@ export default function MePage() {
   return (
     <main className="mx-auto max-w-md px-4 pb-24">
       {/* 상단바 */}
-      <div className="flex items-center justify-between py-3">
+      <div className="flex items-center justify-between pt-3 pb-2">
         <span className="flex items-center gap-1.5 text-sm font-bold text-brand-700">👤 {profile.name}</span>
         <div className="flex items-center gap-2">
           <button onClick={toggleLang} className="rounded-full bg-zinc-100 px-2.5 py-1.5 text-xs font-bold text-zinc-600">🌐 {lang === 'ko' ? 'KO' : 'EN'}</button>
           <Link href={cards[0] ? `/store/${cards[0].slug}` : '/'} className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-bold text-white">📷 {t('QR 스캔', 'QR Scan')}</Link>
         </div>
+      </div>
+
+      {/* 상단 광고 배너 (16:4 · 15초 자동순환 · 직각 풀블리드) */}
+      <div className="-mx-4 mb-4">
+        <AdBannerSlot />
       </div>
 
       {nav === 'home' && (
