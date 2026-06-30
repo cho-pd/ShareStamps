@@ -79,6 +79,7 @@ export default function SharbeeReview({ storeId, storeName, menu, guidance }: { 
       const db = getDb();
       const id = `r_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       await setDoc(doc(collection(db, 'stores', storeId, 'reviews'), id), { author: name, rating, comment: draft.trim(), createdAt: new Date().toISOString() });
+      try { window.dispatchEvent(new CustomEvent('ss-review-added')); } catch {} // 미니홈 리뷰 목록 즉시 갱신
       const sns = await postReviewToSns({ storeId, content: `${draft.trim()}\n\n📍 ${storeName}`, networks: [] });
       if (sns.success && sns.postedNetworks.length) setSnsMsg(`매장 SNS(${sns.postedNetworks.join(', ')})에도 게시됐어요.`);
       setStep('done');

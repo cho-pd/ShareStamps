@@ -7,6 +7,7 @@ import StampButton from './StampButton';
 import SharbeeChat from './SharbeeChat';
 import SharbeeReview from './SharbeeReview';
 import ReviewForm from './ReviewForm';
+import StoreReviews from './StoreReviews';
 
 export const revalidate = 60;
 
@@ -148,17 +149,7 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
         <h2 className="text-base font-extrabold">Reviews</h2>
         <SharbeeReview storeId={store.id} storeName={store.name} menu={store.menu} guidance={store.chatbotReview} />
         <ReviewForm storeId={store.id} storeName={store.name} />
-        <div className="mt-3 space-y-3">
-          {store.reviews.map((r) => (
-            <div key={r.id} className="rounded-xl bg-zinc-50 p-3.5">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-bold">{r.author}</span>
-                <span className="text-sm font-bold text-amber-500">★ {r.rating}</span>
-              </div>
-              <p className="mt-1 text-sm text-zinc-600">{r.comment}</p>
-            </div>
-          ))}
-        </div>
+        <StoreReviews storeId={store.id} initial={store.reviews} />
       </section>
 
       {/* FAQ */}

@@ -53,6 +53,7 @@ export default function ReviewForm({ storeId, storeName }: { storeId: string; st
         comment: comment.trim(),
         createdAt: new Date().toISOString(),
       });
+      try { window.dispatchEvent(new CustomEvent('ss-review-added')); } catch {} // 미니홈 리뷰 목록 즉시 갱신
       const sns = await postReviewToSns({ storeId, content: `${comment.trim()}\n\n📍 ${storeName}`, networks: [] });
       if (sns.success && sns.postedNetworks.length) setSnsMsg(`매장 SNS(${sns.postedNetworks.join(', ')})에도 게시됐어요.`);
       setDone(true);
