@@ -51,7 +51,8 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
   if (!store) notFound();
 
   const avg = averageRating(store.reviews);
-  const faq = buildFaq(store);
+  // 점주가 등록한 FAQ가 있으면 우선 사용, 없으면 자동 생성
+  const faq = store.faqs && store.faqs.length ? store.faqs.filter((f) => f.q?.trim() && f.a?.trim()) : buildFaq(store);
   const storeJsonLd = buildStoreJsonLd(store);
   const faqJsonLd = buildFaqJsonLd(faq);
 

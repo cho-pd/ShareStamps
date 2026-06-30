@@ -47,6 +47,7 @@ export default function OwnerDashboard() {
   const [newItem, setNewItem] = useState({ name: '', price: '', signature: false });
   const [stampPhone, setStampPhone] = useState('');
   const [cbMenu, setCbMenu] = useState(''); const [cbReview, setCbReview] = useState('');
+  const [faqs, setFaqs] = useState<{ q: string; a: string }[]>([]);
   const [ownerCh, setOwnerCh] = useState<{ name: string; linkUrl: string }[]>([{ name: '', linkUrl: '' }, { name: '', linkUrl: '' }]);
   const [lang, setLang] = useState<'ko' | 'en'>('ko');
 
@@ -102,7 +103,7 @@ export default function OwnerDashboard() {
       const storeSnap = await getDocs(query(collection(db, 'stores'), where('slug', '==', target), limit(1)));
       if (storeSnap.empty) { setError(t('해당 slug의 매장을 찾지 못했어요.', 'No store found for that slug.')); setData(null); return; }
       const sd = storeSnap.docs[0];
-      const st = sd.data() as { name: string; slug: string; pointRewardPer7Stamps?: number; earningIntervalMinutes?: number; bannerUrl?: string; description?: string; snsChannels?: string[]; chatbotMenu?: string; chatbotReview?: string };
+      const st = sd.data() as { name: string; slug: string; pointRewardPer7Stamps?: number; earningIntervalMinutes?: number; bannerUrl?: string; description?: string; snsChannels?: string[]; chatbotMenu?: string; chatbotReview?: string; faqs?: { q: string; a: string }[] };
       const [cardsSnap, reviewsSnap, menuSnap, custSnap, donSnap, chSnap] = await Promise.all([
         getDocs(collection(db, 'stores', sd.id, 'stampCards')),
         getDocs(collection(db, 'stores', sd.id, 'reviews')),
@@ -134,7 +135,7 @@ export default function OwnerDashboard() {
         reviews: reviews.slice(0, 8), menu, cardholders, donations, charities,
       });
       setReward(String(rwd)); setIntervalV(String(itv)); setBanner(st.bannerUrl || ''); setDesc(st.description || ''); setSns(st.snsChannels || []);
-      setCbMenu(st.chatbotMenu || ''); setCbReview(st.chatbotReview || '');
+      setCbMenu(st.chatbotMenu || ''); setCbReview(st.chatbotReview || ''); setFaqs(st.faqs || []);
       try { localStorage.setItem('ss_owner_store', target); } catch {}
     } catch { setError(t('불러오기에 실패했어요.', 'Failed to load.')); }
     finally { setBusy(false); }
@@ -418,6 +419,28 @@ export default function OwnerDashboard() {
                   <label className="flex items-center gap-1.5 whitespace-nowrap text-sm text-zinc-600"><input type="checkbox" checked={newItem.signature} onChange={(e) => setNewItem({ ...newItem, signature: e.target.checked })} /> {t('시그니처', 'Signature')}</label>
                   <button onClick={addMenu} className="ss-btn-primary px-5">{t('추가', 'Add')}</button>
                 </div>
+              </section>
+
+              <section className="ss-card mt-4 p-5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-extrabold">{t('❓ FAQ 관리', '❓ FAQ')}</h3>
+                  <button onClick={() => setFaqs((p) => [...p, { q: '', a: '' }])} className="ss-chip">{t('＋ 질문 추가', '＋ Add question')}</button>
+                </div>
+                <p className="mt-1 text-[11px] text-zinc-400">{t('비우면 매장 정보로 자동 생성돼요. 등록하면 미니홈·AI 검색에 그대로 노출.', 'Leave empty to auto-generate. Saved FAQs show on the mini-home & AI search.')}</p>
+                <div className="mt-3 space-y-3">
+                  {faqs.length === 0 && <p className="text-sm text-zinc-400">{t('등록된 FAQ가 없어요. (지금은 자동 생성 사용 중)', 'No custom FAQ yet. (auto-generated for now)')}</p>}
+                  {faqs.map((f, i) => (
+                    <div key={i} className="rounded-xl border border-zinc-200 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-zinc-500">Q{i + 1}</span>
+                        <button onClick={() => setFaqs((p) => p.filter((_, j) => j !== i))} className="text-xs font-bold text-red-500">{t('삭제', 'Delete')}</button>
+                      </div>
+                      <input value={f.q} onChange={(e) => setFaqs((p) => p.map((x, j) => j === i ? { ...x, q: e.target.value } : x))} placeholder={t('질문 (예: 주차 되나요?)', 'Question (e.g. Is parking available?)')} className="ss-input mt-1" />
+                      <textarea value={f.a} onChange={(e) => setFaqs((p) => p.map((x, j) => j === i ? { ...x, a: e.target.value } : x))} placeholder={t('답변', 'Answer')} className="ss-input mt-1.5 min-h-16" />
+                    </div>
+                  ))}
+                </div>
+                <button onClick={() => saveStore({ faqs: faqs.filter((f) => f.q.trim() && f.a.trim()).map((f) => ({ q: f.q.trim(), a: f.a.trim() })) })} className="ss-btn-primary mt-3 w-full max-w-xs">{t('FAQ 저장', 'Save FAQ')}</button>
               </section>
             </div>
           )}
