@@ -53,7 +53,7 @@ export default function OwnerScanPage() {
     const stop = () => { streamRef.current?.getTracks().forEach((t) => t.stop()); streamRef.current = null; };
     const start = async () => {
       try {
-        const ms = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } });
+        const ms = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } } });
         if (cancelled) { ms.getTracks().forEach((t) => t.stop()); return; }
         streamRef.current = ms; setCamError(false);
         if (videoRef.current) videoRef.current.srcObject = ms;
@@ -187,10 +187,10 @@ export default function OwnerScanPage() {
               <p className="mt-0.5 text-xs text-zinc-300 sm:text-sm">아래 버튼을 누르면 적립용 QR이 만들어져요.</p>
             </div>
 
-            {/* 영수증 스캔 영역 — 세로형(영수증 비율), 바깥은 어둡게 마스킹해 안쪽만 또렷하게 */}
+            {/* 영수증 스캔 영역 — 세로형(영수증 비율), 바깥만 살짝 어둡게(0.42)해 안쪽 라이브 영상은 또렷하게 */}
             <div className="relative flex w-full flex-1 items-center justify-center">
-              <div className="relative rounded-[26px]" style={{ width: 'min(66%, 380px)', aspectRatio: '3 / 4.4', boxShadow: '0 0 0 9999px rgba(0,0,0,0.62)' }}>
-                <div className="absolute inset-0 rounded-[26px] border-2 border-dashed border-white/35" />
+              <div className="relative rounded-[26px] ring-1 ring-white/25" style={{ width: 'min(66%, 380px)', aspectRatio: '3 / 4.4', boxShadow: '0 0 0 9999px rgba(0,0,0,0.42)' }}>
+                <div className="absolute inset-0 rounded-[26px] border-2 border-dashed border-white/55" />
                 {/* 코너 가이드 */}
                 <span className="absolute -left-px -top-px h-8 w-8 rounded-tl-[22px] border-l-[5px] border-t-[5px] border-brand-500" />
                 <span className="absolute -right-px -top-px h-8 w-8 rounded-tr-[22px] border-r-[5px] border-t-[5px] border-brand-500" />
