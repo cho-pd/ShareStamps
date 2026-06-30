@@ -289,7 +289,7 @@ export default function AdminPage() {
             <h2 className="text-xl font-black tracking-tight">{mf.name} <span className={`ml-1 rounded px-1.5 py-0.5 align-middle text-[11px] font-bold ${TIER_CLS[mf.tier]}`}>{TIER_LABEL[mf.tier]}</span></h2>
             {managed && (
               <div className="flex items-center gap-3">
-                <a href={`/owner/dashboard?store=${managed.slug}`} target="_blank" rel="noopener noreferrer" className="ss-btn-primary px-4 py-2 text-sm">🛠 사장 페이지 열기</a>
+                <a href={`/owner/dashboard?store=${managed.slug}&hq=1`} target="_blank" rel="noopener noreferrer" className="ss-btn-primary px-4 py-2 text-sm">🛠 사장 페이지 열기</a>
                 <a href={`/store/${managed.slug}`} target="_blank" rel="noopener noreferrer" className="text-sm font-bold text-brand-600 hover:underline">미니홈 ↗</a>
               </div>
             )}

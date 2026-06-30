@@ -54,11 +54,40 @@ export default function OwnerDashboard() {
 
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
 
+  const [authed, setAuthed] = useState(false);
+  const [gate, setGate] = useState<{ id: string; name: string; slug: string; ownerStatus?: string; ownerPassword?: string } | null>(null);
+  const [pwIn, setPwIn] = useState(''); const [gateErr, setGateErr] = useState('');
+
+  // 점주 로그인 게이트: 인증된 점주(또는 본사 hq=1)만 대시보드 입장.
+  const prepare = async (s: string, hq = false) => {
+    const target = s.trim(); if (!target) return;
+    setSlug(target); setBusy(true); setError(null);
+    try {
+      const snap = await getDocs(query(collection(getDb(), 'stores'), where('slug', '==', target), limit(1)));
+      if (snap.empty) { setError(t('해당 slug의 매장을 찾지 못했어요.', 'No store found for that slug.')); setGate(null); setAuthed(false); setData(null); return; }
+      const d = snap.docs[0]; const sd = d.data() as { name: string; ownerStatus?: string; ownerPassword?: string };
+      setGate({ id: d.id, name: sd.name, slug: target, ownerStatus: sd.ownerStatus, ownerPassword: sd.ownerPassword });
+      let sess = ''; try { sess = localStorage.getItem('ss_owner_auth') || ''; } catch {}
+      if (hq || sess === target) { setAuthed(true); await load(target); }
+      else { setAuthed(false); setData(null); }
+    } catch { setError(t('불러오기에 실패했어요.', 'Failed to load.')); }
+    finally { setBusy(false); }
+  };
+  const submitGate = () => {
+    if (!gate) return;
+    if (gate.ownerStatus !== 'approved') { setGateErr(t('아직 본사 승인 전 매장이에요.', 'This store is not approved by HQ yet.')); return; }
+    if ((gate.ownerPassword || '') !== pwIn) { setGateErr(t('비밀번호가 올바르지 않아요.', 'Incorrect password.')); return; }
+    try { localStorage.setItem('ss_owner_auth', gate.slug); } catch {}
+    setGateErr(''); setPwIn(''); setAuthed(true); load(gate.slug);
+  };
+  const logout = () => { try { localStorage.removeItem('ss_owner_auth'); } catch {} setAuthed(false); setData(null); setPwIn(''); };
+
   useEffect(() => {
     try {
-      const q = new URLSearchParams(window.location.search).get('store'); // 본사 콘솔에서 ?store=slug 로 진입
-      const s = q || localStorage.getItem('ss_owner_store');
-      if (s) { setSlug(s); load(s); }
+      const sp = new URLSearchParams(window.location.search);
+      const hq = sp.get('hq') === '1'; // 본사 콘솔에서 hq=1 로 진입 시 게이트 우회
+      const s = sp.get('store') || localStorage.getItem('ss_owner_store');
+      if (s) prepare(s, hq);
     } catch {}
     // eslint-disable-next-line
   }, []);
@@ -165,23 +194,47 @@ export default function OwnerDashboard() {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <button onClick={toggleLang} className="rounded-full border border-zinc-300 bg-white px-3 py-2 text-xs font-bold text-zinc-600">{lang === 'ko' ? 'EN' : '한국어'}</button>
-          <Link href={`/owner/scan${(data?.slug || slug) ? `?store=${data?.slug || slug}` : ''}`} className="ss-btn-primary px-5 py-2.5">{t('📷 QR 스캔 모드', '📷 QR Scan Mode')}</Link>
+          {authed && <Link href={`/owner/scan${(data?.slug || slug) ? `?store=${data?.slug || slug}` : ''}`} className="ss-btn-primary px-5 py-2.5">{t('📷 QR 스캔 모드', '📷 QR Scan Mode')}</Link>}
         </div>
       </header>
 
-      <form onSubmit={(e) => { e.preventDefault(); load(slug); }} className="mt-4 flex max-w-md gap-2">
-        <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder={t('매장 slug (예: loveletter-fullerton)', 'Store slug (e.g. loveletter-fullerton)')} className="ss-input flex-1" />
-        <button type="submit" disabled={busy} className="ss-btn-primary px-4 py-2.5">{busy ? '…' : t('조회', 'Load')}</button>
-      </form>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {/* 로그인 게이트 — 인증 안 된 점주 */}
+      {!authed && (
+        <div className="mt-8 flex flex-col items-center">
+          <div className="ss-card w-full max-w-sm p-7 text-center">
+            {gate ? (
+              <>
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-brand-100 text-2xl">🔒</div>
+                <h2 className="mt-3 text-lg font-black">{gate.name}</h2>
+                <p className="mt-1 text-sm text-zinc-500">{t('점주 비밀번호를 입력해 입장하세요.', 'Enter the owner password to continue.')}</p>
+                <input type="password" value={pwIn} onChange={(e) => { setPwIn(e.target.value); setGateErr(''); }} onKeyDown={(e) => { if (e.key === 'Enter') submitGate(); }} className="ss-input mt-4 text-center" placeholder={t('점주 비밀번호', 'Owner password')} autoFocus />
+                {gateErr && <p className="mt-2 text-sm font-semibold text-rose-500">{gateErr}</p>}
+                <button onClick={submitGate} className="ss-btn-primary mt-4 block w-full py-3">{t('입장', 'Enter')}</button>
+                <Link href="/owner/new" className="mt-3 block text-xs font-bold text-brand-600">{t('점주 신청 / 다른 매장', 'Owner signup / other store')}</Link>
+              </>
+            ) : (
+              <>
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-zinc-100 text-2xl">🔒</div>
+                <p className="mt-3 text-sm text-zinc-500">{t('인증된 점주만 대시보드에 입장할 수 있어요.', 'Only verified owners can enter the dashboard.')}</p>
+                <form onSubmit={(e) => { e.preventDefault(); prepare(slug); }} className="mt-3 flex gap-2">
+                  <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder={t('매장 slug', 'Store slug')} className="ss-input flex-1" />
+                  <button type="submit" disabled={busy} className="ss-btn-primary px-4">{busy ? '…' : t('확인', 'Go')}</button>
+                </form>
+                <Link href="/owner/new" className="mt-4 block text-sm font-bold text-brand-600">{t('점주 시작하기 →', 'Start as owner →')}</Link>
+              </>
+            )}
+          </div>
+          {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        </div>
+      )}
 
-      {data && (
+      {authed && data && (
         <>
           <div className="mt-5 flex items-center gap-3 border-b border-zinc-100 pb-px">
             {TABS.map((tb) => (
               <button key={tb.id} onClick={() => setTab(tb.id)} className={`-mb-px whitespace-nowrap border-b-2 px-2 pb-2 text-sm font-bold transition ${tab === tb.id ? 'border-brand-600 text-brand-700' : 'border-transparent text-zinc-400 hover:text-zinc-600'}`}>{lang === 'ko' ? tb.ko : tb.en}</button>
             ))}
-            <span className="ml-auto text-sm font-extrabold text-zinc-700">{data.storeName}</span>
+            <span className="ml-auto flex items-center gap-2 text-sm font-extrabold text-zinc-700">{data.storeName}<button onClick={logout} className="rounded-full border border-zinc-200 px-2 py-0.5 text-[11px] font-bold text-zinc-400 hover:text-zinc-600">{t('로그아웃', 'Logout')}</button></span>
           </div>
 
           {/* 📊 오버뷰 */}
