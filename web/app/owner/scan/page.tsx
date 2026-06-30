@@ -173,33 +173,40 @@ export default function OwnerScanPage() {
         <div className="w-20 text-right text-[10px] text-zinc-600">{phase === 'camera' ? '● 카메라' : phase === 'qr' ? '● QR' : ''}</div>
       </div>
 
-      {/* 본문 카드 */}
-      <div className="relative mx-auto mb-6 flex w-full max-w-md flex-1 items-center justify-center overflow-hidden rounded-3xl border border-zinc-800 bg-black">
+      {/* 본문 카드 — 10인치 태블릿 세로 기준, 반응형 */}
+      <div className="relative mx-auto mb-5 flex w-[92%] max-w-[720px] flex-1 items-center justify-center overflow-hidden rounded-3xl border border-zinc-800 bg-black">
         {/* 카메라 영상 / 캡처 이미지 (배경) */}
         {phase === 'camera' && !camError && <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover" />}
         {(phase === 'analyzing') && shot && <img src={shot} alt="receipt" className="absolute inset-0 h-full w-full object-cover opacity-70" />}
 
         {/* CAMERA */}
         {phase === 'camera' && (
-          <div className="relative z-10 flex h-full w-full flex-col items-center justify-between p-6">
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-between gap-3 p-5 sm:p-7">
             <div className="rounded-2xl bg-black/70 px-5 py-3 text-center backdrop-blur">
-              <h3 className="text-base font-extrabold">영수증을 비춰 주세요</h3>
-              <p className="mt-0.5 text-xs text-zinc-300">촬영하면 적립용 QR이 생성돼요.</p>
+              <h3 className="text-lg font-extrabold sm:text-xl">영수증을 스캔 영역에 맞춰 주세요</h3>
+              <p className="mt-0.5 text-xs text-zinc-300 sm:text-sm">아래 버튼을 누르면 적립용 QR이 만들어져요.</p>
             </div>
-            {/* 뷰파인더 */}
-            <div className="relative flex w-[78%] flex-1 items-center justify-center" style={{ margin: '14px 0' }}>
-              <div className="absolute inset-0 rounded-3xl border-2 border-dashed border-white/40" />
-              <span className="absolute left-0 top-0 h-7 w-7 rounded-tl-2xl border-l-4 border-t-4 border-brand-500" />
-              <span className="absolute right-0 top-0 h-7 w-7 rounded-tr-2xl border-r-4 border-t-4 border-brand-500" />
-              <span className="absolute bottom-0 left-0 h-7 w-7 rounded-bl-2xl border-b-4 border-l-4 border-brand-500" />
-              <span className="absolute bottom-0 right-0 h-7 w-7 rounded-br-2xl border-b-4 border-r-4 border-brand-500" />
-              {camError ? (
-                <p className="px-6 text-center text-sm text-zinc-400">카메라를 열 수 없어요.<br />아래 버튼으로 바로 QR을 생성하세요.</p>
-              ) : (
-                <span className="rounded-lg bg-black/50 px-2 py-1 text-xs font-bold text-white/80">영수증을 사각형에 맞춰주세요</span>
-              )}
+
+            {/* 영수증 스캔 영역 — 세로형(영수증 비율), 바깥은 어둡게 마스킹해 안쪽만 또렷하게 */}
+            <div className="relative flex w-full flex-1 items-center justify-center">
+              <div className="relative rounded-[26px]" style={{ width: 'min(66%, 380px)', aspectRatio: '3 / 4.4', boxShadow: '0 0 0 9999px rgba(0,0,0,0.62)' }}>
+                <div className="absolute inset-0 rounded-[26px] border-2 border-dashed border-white/35" />
+                {/* 코너 가이드 */}
+                <span className="absolute -left-px -top-px h-8 w-8 rounded-tl-[22px] border-l-[5px] border-t-[5px] border-brand-500" />
+                <span className="absolute -right-px -top-px h-8 w-8 rounded-tr-[22px] border-r-[5px] border-t-[5px] border-brand-500" />
+                <span className="absolute -bottom-px -left-px h-8 w-8 rounded-bl-[22px] border-b-[5px] border-l-[5px] border-brand-500" />
+                <span className="absolute -bottom-px -right-px h-8 w-8 rounded-br-[22px] border-b-[5px] border-r-[5px] border-brand-500" />
+                {/* 스캔 레이저 */}
+                {!camError && <div className="ss-scanline absolute inset-x-2 h-0.5 rounded bg-rose-500" style={{ boxShadow: '0 0 10px #f43f5e' }} />}
+                {/* 안내 */}
+                <div className="absolute inset-x-0 bottom-3 flex justify-center">
+                  <span className="rounded-lg bg-black/55 px-2.5 py-1 text-center text-xs font-bold text-white/85">{camError ? '카메라 없이 바로 QR 생성' : '🧾 영수증을 세로로 맞춰주세요'}</span>
+                </div>
+              </div>
             </div>
-            <button onClick={capture} className="w-full max-w-xs rounded-2xl bg-brand-600 py-4 text-base font-extrabold shadow-lg active:scale-[0.98]">📷 영수증 촬영 &amp; 스탬프 적립</button>
+
+            <button onClick={capture} className="w-full max-w-sm rounded-2xl bg-brand-600 py-4 text-base font-extrabold shadow-lg active:scale-[0.98] sm:text-lg">📷 영수증 촬영 &amp; 스탬프 적립</button>
+            <style>{`@keyframes ssscan{0%{top:4%;opacity:0}12%{opacity:1}88%{opacity:1}100%{top:96%;opacity:0}}.ss-scanline{animation:ssscan 2.4s ease-in-out infinite}`}</style>
           </div>
         )}
 
