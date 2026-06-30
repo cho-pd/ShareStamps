@@ -25,7 +25,8 @@ async function askSharbee(prompt: string): Promise<string | null> {
   } catch { return null; }
 }
 
-export default function SharbeeReview({ storeId, storeName, menu }: { storeId: string; storeName: string; menu: MenuItem[] }) {
+export default function SharbeeReview({ storeId, storeName, menu, guidance }: { storeId: string; storeName: string; menu: MenuItem[]; guidance?: string }) {
+  const ownerGuide = guidance?.trim() ? `\n[매장 맞춤 안내 — 점주가 설정, 우선 반영]\n${guidance.trim()}\n` : '';
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<'chat' | 'draft' | 'done'>('chat');
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -58,7 +59,7 @@ export default function SharbeeReview({ storeId, storeName, menu }: { storeId: s
     const next: Msg[] = [...msgs, { who: 'me', text: t }];
     setMsgs(next); setBusy(true);
     const convo = next.map((m) => `${m.who === 'me' ? '손님' : '샤비'}: ${m.text}`).join('\n');
-    const reply = await askSharbee(`당신은 "샤비", 손님이 ${storeName} 방문 리뷰를 쓰도록 돕는 다정한 꿀벌이에요. 아래 대화에 이어, 리뷰에 쓸 만한 점(맛·메뉴·분위기·서비스 중 아직 안 나온 것) 1가지만 짧고 따뜻하게 한국어로 물어보세요. 1~2문장, 이모지 1개 이내.\n\n${convo}\n샤비:`);
+    const reply = await askSharbee(`당신은 "샤비", 손님이 ${storeName} 방문 리뷰를 쓰도록 돕는 다정한 꿀벌이에요. 아래 대화에 이어, 리뷰에 쓸 만한 점(맛·메뉴·분위기·서비스 중 아직 안 나온 것) 1가지만 짧고 따뜻하게 한국어로 물어보세요. 1~2문장, 이모지 1개 이내.${ownerGuide}\n${convo}\n샤비:`);
     setMsgs((m) => [...m, { who: 'bee', text: reply ?? '좋아요! 더 남기고 싶은 말 있으면 적어주세요 🐝' }]);
     setBusy(false);
   };
@@ -66,7 +67,7 @@ export default function SharbeeReview({ storeId, storeName, menu }: { storeId: s
   const makeDraft = async () => {
     setBusy(true);
     const answers = msgs.filter((m) => m.who === 'me').map((m) => m.text).join(' / ');
-    const text = await askSharbee(`당신은 "샤비". 아래 손님 답변으로 ${storeName} 방문 리뷰를 1인칭 한국어 2~3문장으로 써주세요. 구체적 디테일을 살리고 과장은 줄이며, 매장 이름을 한 번 자연스럽게 넣으세요. 리뷰 본문만 출력.\n손님 답변: ${answers || '(전반적으로 좋았어요)'}`);
+    const text = await askSharbee(`당신은 "샤비". 아래 손님 답변으로 ${storeName} 방문 리뷰를 1인칭 한국어 2~3문장으로 써주세요. 구체적 디테일을 살리고 과장은 줄이며, 매장 이름을 한 번 자연스럽게 넣으세요. 리뷰 본문만 출력.${ownerGuide}\n손님 답변: ${answers || '(전반적으로 좋았어요)'}`);
     setDraft(text ?? (answers || `${storeName} 잘 다녀왔어요. 다음에 또 올게요.`));
     setStep('draft'); setBusy(false);
   };

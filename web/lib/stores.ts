@@ -50,6 +50,8 @@ export interface Store {
   geo?: { lat: number; lng: number }; // LocalBusiness 위/경도 (AEO 지역 매칭)
   thumbnailUrl?: string;
   bannerUrl?: string;
+  chatbotMenu?: string;    // 점주 설정: 메뉴 추천 챗봇 맞춤 안내(성격/추천 포인트)
+  chatbotReview?: string;  // 점주 설정: 리뷰 챗봇 맞춤 안내(물어볼 포인트/톤)
   protected?: boolean;     // 기본 보호 매장(삭제 불가)
   menu: MenuItem[];
   reviews: Review[];

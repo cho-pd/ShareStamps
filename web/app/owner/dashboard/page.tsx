@@ -28,6 +28,7 @@ const TABS = [
   { id: 'customers', ko: '🔍 고객', en: '🔍 Customers' },
   { id: 'settlement', ko: '📈 정산', en: '📈 Settlement' },
   { id: 'minihome', ko: '🏠 미니홈피', en: '🏠 Mini-Home' },
+  { id: 'chatbot', ko: '🤖 챗봇', en: '🤖 Chatbot' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 
@@ -45,6 +46,7 @@ export default function OwnerDashboard() {
   const [sns, setSns] = useState<string[]>([]);
   const [newItem, setNewItem] = useState({ name: '', price: '', signature: false });
   const [stampPhone, setStampPhone] = useState('');
+  const [cbMenu, setCbMenu] = useState(''); const [cbReview, setCbReview] = useState('');
   const [ownerCh, setOwnerCh] = useState<{ name: string; linkUrl: string }[]>([{ name: '', linkUrl: '' }, { name: '', linkUrl: '' }]);
   const [lang, setLang] = useState<'ko' | 'en'>('ko');
 
@@ -100,7 +102,7 @@ export default function OwnerDashboard() {
       const storeSnap = await getDocs(query(collection(db, 'stores'), where('slug', '==', target), limit(1)));
       if (storeSnap.empty) { setError(t('해당 slug의 매장을 찾지 못했어요.', 'No store found for that slug.')); setData(null); return; }
       const sd = storeSnap.docs[0];
-      const st = sd.data() as { name: string; slug: string; pointRewardPer7Stamps?: number; earningIntervalMinutes?: number; bannerUrl?: string; description?: string; snsChannels?: string[] };
+      const st = sd.data() as { name: string; slug: string; pointRewardPer7Stamps?: number; earningIntervalMinutes?: number; bannerUrl?: string; description?: string; snsChannels?: string[]; chatbotMenu?: string; chatbotReview?: string };
       const [cardsSnap, reviewsSnap, menuSnap, custSnap, donSnap, chSnap] = await Promise.all([
         getDocs(collection(db, 'stores', sd.id, 'stampCards')),
         getDocs(collection(db, 'stores', sd.id, 'reviews')),
@@ -132,6 +134,7 @@ export default function OwnerDashboard() {
         reviews: reviews.slice(0, 8), menu, cardholders, donations, charities,
       });
       setReward(String(rwd)); setIntervalV(String(itv)); setBanner(st.bannerUrl || ''); setDesc(st.description || ''); setSns(st.snsChannels || []);
+      setCbMenu(st.chatbotMenu || ''); setCbReview(st.chatbotReview || '');
       try { localStorage.setItem('ss_owner_store', target); } catch {}
     } catch { setError(t('불러오기에 실패했어요.', 'Failed to load.')); }
     finally { setBusy(false); }
@@ -416,6 +419,27 @@ export default function OwnerDashboard() {
                   <button onClick={addMenu} className="ss-btn-primary px-5">{t('추가', 'Add')}</button>
                 </div>
               </section>
+            </div>
+          )}
+
+          {/* 🤖 챗봇 */}
+          {tab === 'chatbot' && (
+            <div className="mt-5">
+              <p className="text-sm text-zinc-500">{t('매장 페이지의 샤비(메뉴 추천·리뷰)를 매장 특성에 맞게 안내해요. 저장하면 손님 챗봇에 바로 반영돼요.', 'Guide Sharbee (menu & review) to fit your store. Saved guidance applies to the customer chatbot right away.')}</p>
+              <div className="mt-3 grid gap-4 md:grid-cols-2 md:items-start">
+                <section className="ss-card p-5">
+                  <h3 className="text-base font-extrabold">{t('🍽 메뉴 추천 챗봇', '🍽 Menu Chatbot')}</h3>
+                  <p className="mt-1 text-[11px] text-zinc-400">{t('손님이 메뉴 고를 때 샤비가 우선 반영할 안내 — 추천 포인트·말투·특이사항.', 'What Sharbee prioritizes when helping pick — highlights, tone, notes.')}</p>
+                  <textarea value={cbMenu} onChange={(e) => setCbMenu(e.target.value)} className="ss-input mt-2 min-h-32" placeholder={t('예: 매운맛 약한 분께는 순두부보다 갈비탕을 먼저 권해줘. 시그니처는 불고기야. 둘이 오면 2인 세트 추천.', 'e.g. For mild-spice guests recommend galbitang first. Signature is bulgogi. Suggest the combo for pairs.')} />
+                </section>
+                <section className="ss-card p-5">
+                  <h3 className="text-base font-extrabold">{t('✍️ 리뷰 챗봇', '✍️ Review Chatbot')}</h3>
+                  <p className="mt-1 text-[11px] text-zinc-400">{t('리뷰 쓸 때 샤비가 우선 물어볼 포인트·톤.', 'Points/tone Sharbee prioritizes when helping write reviews.')}</p>
+                  <textarea value={cbReview} onChange={(e) => setCbReview(e.target.value)} className="ss-input mt-2 min-h-32" placeholder={t('예: 분위기와 직원 친절도를 꼭 물어봐줘. 가족 모임 후기면 더 좋아. 너무 과장하진 말고.', 'e.g. Always ask about ambiance and staff friendliness. Family-visit reviews are great. Keep it honest.')} />
+                </section>
+              </div>
+              <button onClick={() => saveStore({ chatbotMenu: cbMenu.trim(), chatbotReview: cbReview.trim() })} className="ss-btn-primary mt-4 w-full max-w-xs">{t('챗봇 안내 저장', 'Save Chatbot Guidance')}</button>
+              <p className="mt-2 text-[11px] text-zinc-400">{t('* 비워두면 샤비 기본 성격으로 동작해요. 메뉴/가격은 메뉴 관리에 등록된 것만 추천합니다.', '* Leave blank for default Sharbee. Only registered menu items/prices are recommended.')}</p>
             </div>
           )}
         </>

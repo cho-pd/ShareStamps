@@ -6,7 +6,7 @@ import type { MenuItem } from '@/lib/stores';
 type Msg = { who: 'bee' | 'me'; text: string };
 type Mode = 'browse' | 'waiting';
 
-function systemPrompt(storeName: string, menu: MenuItem[], mode: Mode): string {
+function systemPrompt(storeName: string, menu: MenuItem[], mode: Mode, guidance?: string): string {
   const menuLines = menu
     .map((m) => `- ${m.name} (${m.price}) ${m.signature ? '[signature]' : ''}${m.description ? ` — ${m.description}` : ''}`)
     .join('\n');
@@ -14,12 +14,13 @@ function systemPrompt(storeName: string, menu: MenuItem[], mode: Mode): string {
     mode === 'waiting'
       ? `현재 손님은 "주문을 마치고 음식을 기다리는 중"입니다. 기다리는 동안 도움이 될 일을 먼저 "~할까요?" 형태로 다정하게 제안하세요. (예: "리뷰 미리 써둘까요?", "다음에 드실 메뉴 봐둘까요?", "스탬프 적립해 둘까요?") 한 번에 하나만 제안.`
       : `현재 손님은 메뉴를 고르는 중입니다. 취향을 물어 메뉴를 좁혀 추천하세요. 추천은 반드시 아래 메뉴 목록 안에서만, 없는 메뉴/가격은 절대 지어내지 마세요.`;
+  const ownerGuide = guidance?.trim() ? `\n[매장 맞춤 안내 — 점주가 설정, 우선 반영]\n${guidance.trim()}` : '';
   return `You are "샤비"(Sharbee), a warm, cute honeybee menu concierge for the store "${storeName}".
 다정하고 귀여운 말투(🐝, 꿀 이모지)로, 한국어로, 1~2문장 짧게 답하세요. 절대 캐릭터를 깨지 마세요.
 [메뉴 목록 — 이 안에서만 추천]
 ${menuLines}
 [행동 규칙]
-${modeRule}`;
+${modeRule}${ownerGuide}`;
 }
 
 async function askSharbee(sys: string, history: Msg[], userText: string): Promise<string | null> {
@@ -38,7 +39,7 @@ async function askSharbee(sys: string, history: Msg[], userText: string): Promis
   }
 }
 
-export default function SharbeeChat({ storeName, menu }: { storeName: string; menu: MenuItem[] }) {
+export default function SharbeeChat({ storeName, menu, guidance }: { storeName: string; menu: MenuItem[]; guidance?: string }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<Mode>('browse');
   const [msgs, setMsgs] = useState<Msg[]>([{ who: 'bee', text: '안녕하세요, 샤비예요 🐝 메뉴 고르는 거 도와드릴까요?' }]);
@@ -57,7 +58,7 @@ export default function SharbeeChat({ storeName, menu }: { storeName: string; me
     push({ who: 'me', text });
     setInput('');
     setBusy(true);
-    const reply = await askSharbee(systemPrompt(storeName, menu, useMode), msgs, text);
+    const reply = await askSharbee(systemPrompt(storeName, menu, useMode, guidance), msgs, text);
     push({ who: 'bee', text: reply ?? '앗, 잠시 연결이 흔들렸어요 🐝 다시 한 번 말씀해 주실래요?' });
     setBusy(false);
   };
@@ -65,7 +66,7 @@ export default function SharbeeChat({ storeName, menu }: { storeName: string; me
   const enterWaiting = async () => {
     setMode('waiting');
     setBusy(true);
-    const reply = await askSharbee(systemPrompt(storeName, menu, 'waiting'), msgs, '주문 마쳤어요, 기다리는 중이에요.');
+    const reply = await askSharbee(systemPrompt(storeName, menu, 'waiting', guidance), msgs, '주문 마쳤어요, 기다리는 중이에요.');
     push({ who: 'bee', text: reply ?? '주문 잘 들어갔어요! 🐝 기다리는 동안 리뷰 미리 써둘까요?' });
     setBusy(false);
   };
