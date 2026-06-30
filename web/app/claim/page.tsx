@@ -19,6 +19,11 @@ const normPhone = (p: string) => p.replace(/[^0-9]/g, '');
 
 type State = 'working' | 'signup' | 'done' | 'expired' | 'used' | 'error' | 'nostore';
 
+// 모듈 스코프 — 컴포넌트 안에 두면 매 렌더마다 새 타입이라 입력 포커스가 풀린다.
+function Wrap({ children }: { children: React.ReactNode }) {
+  return <main className="flex min-h-dvh flex-col items-center justify-center px-6 text-center" style={{ background: '#F2F3F6' }}>{children}</main>;
+}
+
 export default function ClaimPage() {
   const [state, setState] = useState<State>('working');
   const [info, setInfo] = useState<{ storeName: string; slug: string; total: number; stamps: number } | null>(null);
@@ -87,10 +92,6 @@ export default function ClaimPage() {
       goCustomer(slugRef.current);
     } catch { setBusy(false); }
   };
-
-  const Wrap = ({ children }: { children: React.ReactNode }) => (
-    <main className="flex min-h-dvh flex-col items-center justify-center px-6 text-center" style={{ background: '#F2F3F6' }}>{children}</main>
-  );
 
   // 스캔 즉시 안내
   if (state === 'working') return (

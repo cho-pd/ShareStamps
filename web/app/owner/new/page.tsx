@@ -10,6 +10,15 @@ import { collection, getDocs, doc, setDoc, onSnapshot } from 'firebase/firestore
 
 type S = { id: string; name: string; slug: string; ownerStatus?: string; ownerName?: string; ownerPassword?: string };
 
+// 모듈 스코프 — 컴포넌트 안에 두면 매 렌더마다 새 타입이라 입력 포커스가 풀린다.
+function Wrap({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="flex min-h-dvh flex-col items-center justify-center px-5 py-10" style={{ background: '#F2F3F6' }}>
+      <div className="w-full max-w-sm">{children}</div>
+    </main>
+  );
+}
+
 export default function OwnerStartPage() {
   const [stores, setStores] = useState<S[]>([]);
   const [mode, setMode] = useState<'claim' | 'login'>('claim');
@@ -68,12 +77,6 @@ export default function OwnerStartPage() {
     if ((s.ownerPassword || '') !== pw) { setErr('비밀번호가 올바르지 않아요.'); return; }
     enter(s.slug);
   };
-
-  const Wrap = ({ children }: { children: React.ReactNode }) => (
-    <main className="flex min-h-dvh flex-col items-center justify-center px-5 py-10" style={{ background: '#F2F3F6' }}>
-      <div className="w-full max-w-sm">{children}</div>
-    </main>
-  );
 
   // 승인 대기 / 승인 완료
   if (stage === 'waiting') return (
