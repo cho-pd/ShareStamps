@@ -49,6 +49,7 @@ export default function MePage() {
   const [panel, setPanel] = useState<'redeem' | 'gift' | 'donate' | null>(null); // 버튼 바로 아래 인라인 패널
   const [useSheet, setUseSheet] = useState(false);
   const [npo, setNpo] = useState(NPOS[0].id);
+  const [storeCharities, setStoreCharities] = useState<{ id: string; name: string; source: string }[]>([]);
   const [friendPhone, setFriendPhone] = useState(''); const [giftCount, setGiftCount] = useState(1);
   const [lang, setLang] = useState<'ko' | 'en'>('ko');
 
@@ -146,6 +147,29 @@ export default function MePage() {
 
   const sel = useMemo(() => cards.find((c) => c.storeId === selId) || cards[0], [cards, selId]);
   const disp = sel ?? DEMO; // 카드 없으면 미리보기로 허니컴 항상 표시
+
+  // 선택 매장의 승인된 기부 단체 로드 (사장 지정 approved + 본사 지정) — 없으면 기본 NPOS 폴백
+  useEffect(() => {
+    const sid = disp.storeId;
+    if (!sid || sid === 'demo') { setStoreCharities([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await getDocs(collection(getDb(), 'stores', sid, 'charities'));
+        if (cancelled) return;
+        setStoreCharities(snap.docs
+          .map((d) => ({ id: d.id, ...(d.data() as { name?: string; source?: string; status?: string }) }))
+          .filter((c) => c.name && (c.source === 'hq' || c.status === 'approved'))
+          .map((c) => ({ id: c.id, name: c.name as string, source: c.source || 'hq' })));
+      } catch { if (!cancelled) setStoreCharities([]); }
+    })();
+    return () => { cancelled = true; };
+  }, [disp.storeId]);
+  const charityList = storeCharities.length
+    ? storeCharities.map((c) => ({ id: c.id, name: c.name, sub: c.source === 'owner' ? t('사장 지정 단체', 'Owner-picked') : t('본사 지정 단체', 'HQ-picked') }))
+    : NPOS;
+  useEffect(() => { const l = storeCharities.length ? storeCharities : NPOS; if (!l.some((n) => n.id === npo)) setNpo(l[0].id); }, [storeCharities]); // eslint-disable-line
+
   const unit = (c: Card) => c.reward / 7;
   const value = (c: Card) => unit(c) * Math.min(c.currentStamps, 7);
 
@@ -163,7 +187,7 @@ export default function MePage() {
   const confirmDonate = async () => {
     const c = disp; if (c.currentStamps < 1) return; setBusy(true);
     try { const db = getDb(); const id = getDeviceId(); const now = new Date().toISOString(); const v = value(c);
-      const n = NPOS.find((x) => x.id === npo)?.name;
+      const n = charityList.find((x) => x.id === npo)?.name;
       await reset(db, id, c, now); await setDoc(doc(db, 'customers', id), { donated: donated + v }, { merge: true });
       await setDoc(doc(collection(db, 'customers', id, 'donations'), `d_${Date.now()}`), { storeId: c.storeId, storeName: c.storeName, npoName: n, amount: v, currency: c.currency, createdAt: now });
       setPanel(null); flash(`${c.currency} ${v.toFixed(2)} 기부 완료! 💛 ${n}`, 3500); await load();
@@ -347,7 +371,7 @@ export default function MePage() {
                         <div>
                           <p className="text-sm font-bold">{t('어디에 기부할까요? 💛', 'Donate to? 💛')} <span className="text-zinc-400">(${value(disp).toFixed(2)})</span></p>
                           <div className="mt-2 space-y-1.5">
-                            {NPOS.map((n) => (
+                            {charityList.map((n) => (
                               <label key={n.id} className={`flex cursor-pointer items-center gap-2.5 rounded-xl border p-2.5 ${npo === n.id ? 'border-brand-500 bg-brand-50' : 'border-zinc-200'}`}>
                                 <input type="radio" name="npo2" checked={npo === n.id} onChange={() => setNpo(n.id)} />
                                 <span className="text-sm font-semibold">{n.name} <span className="text-[11px] text-zinc-400">· {n.sub}</span></span>
@@ -396,9 +420,9 @@ export default function MePage() {
 
           {/* Donate to Charity */}
           <section className="ss-card mt-3 p-5">
-            <h3 className="text-sm font-extrabold text-brand-700">💛 {t('단체 기부하기', 'Donate to charity')}</h3>
+            <h3 className="text-sm font-extrabold text-brand-700">💛 {t('단체 기부하기', 'Donate to charity')}{storeCharities.length > 0 && <span className="ml-1 text-[11px] font-medium text-zinc-400">· {disp.storeName}</span>}</h3>
             <div className="mt-2 space-y-2">
-              {NPOS.map((n) => (
+              {charityList.map((n) => (
                 <div key={n.id} className="flex items-center justify-between rounded-xl bg-zinc-50 p-3">
                   <div><div className="text-sm font-bold">{n.name}</div><div className="text-[11px] text-zinc-500">{n.sub}</div></div>
                   <button onClick={() => { if (!sel || sel.currentStamps < 1) { flash(t('스탬프 1개 이상부터 기부 가능해요.', 'Need at least 1 stamp to donate.')); return; } setNpo(n.id); setPanel('donate'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="ss-chip">{t('기부', 'Donate')}</button>
