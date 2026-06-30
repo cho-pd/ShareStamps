@@ -23,6 +23,12 @@ type Loaded = {
 };
 
 const SNS_CHANNELS = ['facebook', 'instagram', 'google', 'tiktok', 'youtube'];
+const FAQ_TEMPLATES = [
+  { q: '영업시간이 어떻게 되나요?', a: '' },
+  { q: '주차 가능한가요?', a: '' },
+  { q: '예약이 되나요?', a: '' },
+  { q: '대표 메뉴가 뭔가요?', a: '' },
+];
 const TABS = [
   { id: 'overview', ko: '📊 오버뷰', en: '📊 Overview' },
   { id: 'customers', ko: '🔍 고객', en: '🔍 Customers' },
@@ -428,7 +434,11 @@ export default function OwnerDashboard() {
                 </div>
                 <p className="mt-1 text-[11px] text-zinc-400">{t('비우면 매장 정보로 자동 생성돼요. 등록하면 미니홈·AI 검색에 그대로 노출.', 'Leave empty to auto-generate. Saved FAQs show on the mini-home & AI search.')}</p>
                 <div className="mt-3 space-y-3">
-                  {faqs.length === 0 && <p className="text-sm text-zinc-400">{t('등록된 FAQ가 없어요. (지금은 자동 생성 사용 중)', 'No custom FAQ yet. (auto-generated for now)')}</p>}
+                  {faqs.length === 0 && (
+                    <p className="text-sm text-zinc-400">{t('등록된 FAQ가 없어요. (지금은 자동 생성 사용 중)', 'No custom FAQ yet. (auto-generated for now)')}
+                      <button onClick={() => setFaqs(FAQ_TEMPLATES.map((x) => ({ ...x })))} className="ml-2 font-bold text-brand-600">{t('기본 질문으로 시작', 'Start with templates')}</button>
+                    </p>
+                  )}
                   {faqs.map((f, i) => (
                     <div key={i} className="rounded-xl border border-zinc-200 p-3">
                       <div className="flex items-center justify-between">
@@ -441,6 +451,20 @@ export default function OwnerDashboard() {
                   ))}
                 </div>
                 <button onClick={() => saveStore({ faqs: faqs.filter((f) => f.q.trim() && f.a.trim()).map((f) => ({ q: f.q.trim(), a: f.a.trim() })) })} className="ss-btn-primary mt-3 w-full max-w-xs">{t('FAQ 저장', 'Save FAQ')}</button>
+
+                {faqs.some((f) => f.q.trim() && f.a.trim()) && (
+                  <div className="mt-5 rounded-xl bg-zinc-50 p-4">
+                    <h4 className="text-xs font-bold text-zinc-500">{t('미리보기 — 미니홈에 이렇게 보여요', 'Preview — how it shows on the mini-home')}</h4>
+                    <div className="mt-2 divide-y divide-zinc-100">
+                      {faqs.filter((f) => f.q.trim() && f.a.trim()).map((f, i) => (
+                        <div key={i} className="py-2.5">
+                          <div className="text-sm font-bold">{f.q}</div>
+                          <p className="mt-0.5 text-sm text-zinc-600">{f.a}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </section>
             </div>
           )}
