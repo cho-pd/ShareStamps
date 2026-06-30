@@ -3,7 +3,6 @@ import { notFound } from 'next/navigation';
 import { getAllStores, getStoreBySlug, averageRating, SITE_URL, type FaqItem, type Store } from '@/lib/stores';
 import { buildStoreJsonLd, buildFaqJsonLd } from '@/lib/schema';
 import { sampleHero } from '@/lib/sampleImages';
-import StampButton from './StampButton';
 import SharbeeChat from './SharbeeChat';
 import SharbeeReview from './SharbeeReview';
 import ReviewForm from './ReviewForm';
@@ -99,11 +98,6 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
           <p className="mt-3 text-[15px] leading-relaxed text-zinc-600">{store.description}</p>
         </div>
       </section>
-
-      {/* 스탬프 */}
-      <div className="mt-4">
-        <StampButton storeId={store.id} storeName={store.name} slug={store.slug} intervalMinutes={store.earningIntervalMinutes ?? 60} reward={store.pointRewardPer7Stamps} currency={store.currency} />
-      </div>
 
       {/* 샤비 */}
       <div className="mt-4">
