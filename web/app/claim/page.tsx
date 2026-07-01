@@ -17,7 +17,7 @@ function getDeviceId(): string {
 }
 const normPhone = (p: string) => p.replace(/[^0-9]/g, '');
 
-type State = 'working' | 'signup' | 'done' | 'expired' | 'used' | 'error' | 'nostore';
+type State = 'working' | 'signup' | 'done' | 'expired' | 'used' | 'error' | 'nostore' | 'suspended';
 
 // 모듈 스코프 — 컴포넌트 안에 두면 매 렌더마다 새 타입이라 입력 포커스가 풀린다.
 function Wrap({ children }: { children: React.ReactNode }) {
@@ -60,6 +60,8 @@ export default function ClaimPage() {
           if (t.status === 'claimed') throw new Error('used'); // 이미 다른 폰이 적립함 → 2개 스캔 불가
           if (t.expiresAt && new Date(t.expiresAt).getTime() < Date.now()) throw new Error('expired');
           stamps = t.stamps || 1;
+          const mirrorSnap = await tx.get(mirrorRef);
+          if (mirrorSnap.exists() && mirrorSnap.data().suspended) throw new Error('suspended'); // 이 매장에서 활동정지된 회원 — 적립 차단
           const cardSnap = await tx.get(cardRef);
           const cur = cardSnap.exists() ? ((cardSnap.data().currentStamps as number) || 0) : 0;
           const next = cur + stamps;
@@ -70,7 +72,7 @@ export default function ClaimPage() {
         });
       } catch (e) {
         const m = (e as Error).message;
-        setState(m === 'used' ? 'used' : m === 'expired' ? 'expired' : 'error');
+        setState(m === 'used' ? 'used' : m === 'expired' ? 'expired' : m === 'suspended' ? 'suspended' : 'error');
         return;
       }
 
@@ -147,13 +149,14 @@ export default function ClaimPage() {
     );
   }
 
-  const msg: Record<'expired' | 'used' | 'nostore' | 'error', { icon: string; title: string; desc: string }> = {
+  const msg: Record<'expired' | 'used' | 'nostore' | 'error' | 'suspended', { icon: string; title: string; desc: string }> = {
     expired: { icon: '⌛', title: 'QR 유효시간이 지났어요', desc: '매장 태블릿에서 다시 영수증을 스캔해 주세요.' },
     used: { icon: '🙅', title: '이미 사용된 QR이에요', desc: '이 QR은 한 번만 적립돼요. 새 QR을 받아 주세요.' },
     nostore: { icon: '🏪', title: '매장을 찾지 못했어요', desc: 'QR을 다시 확인해 주세요.' },
     error: { icon: '⚠️', title: '적립할 수 없어요', desc: 'QR이 올바르지 않거나 만료됐어요. 다시 스캔해 주세요.' },
+    suspended: { icon: '🚫', title: '적립할 수 없어요', desc: '이 매장에서 활동이 정지된 계정이에요. 매장에 문의해 주세요.' },
   };
-  const m = msg[state as 'expired' | 'used' | 'nostore' | 'error'];
+  const m = msg[state as 'expired' | 'used' | 'nostore' | 'error' | 'suspended'];
   return (
     <Wrap>
       <div className="ss-card w-full max-w-sm p-7">

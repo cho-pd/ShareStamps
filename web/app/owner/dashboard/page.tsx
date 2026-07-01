@@ -12,7 +12,7 @@ import { collection, getDocs, getDoc, collectionGroup, doc, setDoc, deleteDoc, q
 type Review = { author: string; rating: number; comment: string; createdAt: string };
 type MenuItem = { id: string; name: string; price: number; signature?: boolean; description?: string; category?: string };
 type Cardholder = { name: string; phone?: string; stamps: number };
-type Member = { deviceId: string; name: string; phone?: string; stamps: number; balance: number; donated: number };
+type Member = { deviceId: string; name: string; phone?: string; stamps: number; balance: number; donated: number; suspended?: boolean };
 type Donation = { npoName?: string; amount: number; createdAt: string };
 type Charity = { id: string; name: string; linkUrl?: string; source: 'owner' | 'hq'; status: 'pending' | 'approved' | 'rejected' };
 type Loaded = {
@@ -56,6 +56,7 @@ export default function OwnerDashboard() {
   const [custQ, setCustQ] = useState('');
   const [selMemberId, setSelMemberId] = useState<string | null>(null);
   const [showAddMember, setShowAddMember] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [newMemberName, setNewMemberName] = useState(''); const [newMemberPhone, setNewMemberPhone] = useState('');
   const normPhone = (p: string) => p.replace(/\D/g, '');
   const [memberDonations, setMemberDonations] = useState<{ npoName?: string; storeName?: string; amount: number; createdAt: string }[]>([]);
@@ -161,7 +162,7 @@ export default function OwnerDashboard() {
         .filter((c) => c.stamps > 0).sort((a, b) => b.stamps - a.stamps);
       // 회원 명부: 이 매장에 카드가 있는 모든 회원(스탬프 0 포함)
       const members: Member[] = cardsSnap.docs
-        .map((d) => { const c = custMap.get(d.id) || {}; return { deviceId: d.id, name: c.name || '', phone: c.phone, stamps: (d.data().currentStamps as number) || 0, balance: c.balance || 0, donated: c.donated || 0 }; })
+        .map((d) => { const c = custMap.get(d.id) || {}; return { deviceId: d.id, name: c.name || '', phone: c.phone, stamps: (d.data().currentStamps as number) || 0, balance: c.balance || 0, donated: c.donated || 0, suspended: !!d.data().suspended }; })
         .sort((a, b) => b.stamps - a.stamps || (b.balance - a.balance));
       const donations: Donation[] = (donSnap?.docs ?? [])
         .map((d) => d.data() as Donation & { storeId?: string })
@@ -233,6 +234,30 @@ export default function OwnerDashboard() {
       flash(`${name || t('회원', 'Member')}: ${delta > 0 ? '+' : ''}${delta} → ${next}/7`);
       await load(data.slug);
     } catch { flash(t('처리 실패', 'Failed.')); } finally { setBusy(false); }
+  };
+
+  // 회원 활동정지/해제 — 이 매장 카드 기준(다른 매장 계정엔 영향 없음). 정지 시 이 매장 적립도 막힘(/claim에서 체크).
+  const toggleMemberSuspend = async (deviceId: string, name: string, suspend: boolean) => {
+    if (!data) return;
+    setBusy(true);
+    try {
+      await setDoc(doc(getDb(), 'stores', data.storeId, 'stampCards', deviceId), { suspended: suspend, updatedAt: new Date().toISOString() }, { merge: true });
+      flash(suspend ? `${name || t('회원', 'Member')} ${t('활동정지됨', 'suspended')}` : `${name || t('회원', 'Member')} ${t('정지 해제됨', 'unsuspended')}`);
+      await load(data.slug);
+    } catch { flash(t('처리 실패', 'Failed.')); } finally { setBusy(false); }
+  };
+  // 회원 삭제 — 이 매장의 카드만 제거(글로벌 계정·다른 매장 카드는 유지)
+  const deleteMember = async (deviceId: string) => {
+    if (!data) return;
+    setBusy(true);
+    try {
+      const db = getDb();
+      await deleteDoc(doc(db, 'stores', data.storeId, 'stampCards', deviceId));
+      await deleteDoc(doc(db, 'customers', deviceId, 'cards', data.storeId));
+      flash(t('회원이 이 매장에서 삭제됐어요.', 'Member removed from this store.'));
+      setSelMemberId(null);
+      await load(data.slug);
+    } catch { flash(t('삭제 실패', 'Delete failed.')); } finally { setBusy(false); }
   };
 
   // 사장 지정 기부단체 등록(본사 승인 대기)
@@ -422,8 +447,8 @@ export default function OwnerDashboard() {
                   </thead>
                   <tbody>
                     {filteredMembers.map((m) => (
-                      <tr key={m.deviceId} onClick={() => setSelMemberId(m.deviceId)} className="cursor-pointer border-b border-zinc-100 hover:bg-zinc-50">
-                        <td className="px-3 py-2.5 font-bold text-brand-700 hover:underline">{m.name || t('손님', 'Guest')}</td>
+                      <tr key={m.deviceId} onClick={() => { setSelMemberId(m.deviceId); setConfirmDelete(false); }} className={`cursor-pointer border-b border-zinc-100 hover:bg-zinc-50 ${m.suspended ? 'opacity-50' : ''}`}>
+                        <td className="px-3 py-2.5 font-bold text-brand-700 hover:underline">{m.name || t('손님', 'Guest')}{m.suspended && <span className="ml-1.5 rounded bg-zinc-200 px-1.5 py-0.5 align-middle text-[10px] font-bold text-zinc-500">{t('정지', 'Suspended')}</span>}</td>
                         <td className="px-3 py-2.5 text-zinc-500">{fmtPhone(m.phone)}</td>
                         <td className="px-3 py-2.5"><span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">⭐ {Math.min(m.stamps, 7)}/7</span></td>
                         <td className="px-3 py-2.5 font-semibold text-zinc-700">${m.balance.toFixed(2)}</td>
@@ -442,22 +467,22 @@ export default function OwnerDashboard() {
           {/* 🔍 고객 — 회원 상세 (사장용: 단순 리스트) */}
           {tab === 'customers' && selMember && (
             <div className="mx-auto mt-5 max-w-2xl">
-              <button onClick={() => setSelMemberId(null)} className="text-sm font-bold text-zinc-500 hover:text-zinc-700">{t('← 회원 명부', '← Members')}</button>
+              <button onClick={() => { setSelMemberId(null); setConfirmDelete(false); }} className="text-sm font-bold text-zinc-500 hover:text-zinc-700">{t('← 회원 명부', '← Members')}</button>
 
               <div className="ss-card mt-3 divide-y divide-zinc-100 p-0">
                 {/* 이름·전화 + 스탬프 조정 */}
                 <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4">
                   <div className="min-w-0">
-                    <div className="text-lg font-black leading-tight">{selMember.name || t('손님', 'Guest')}</div>
+                    <div className="text-lg font-black leading-tight">{selMember.name || t('손님', 'Guest')}{selMember.suspended && <span className="ml-2 rounded bg-zinc-200 px-1.5 py-0.5 align-middle text-[11px] font-bold text-zinc-500">{t('활동정지됨', 'Suspended')}</span>}</div>
                     <div className="text-sm text-zinc-500">{fmtPhone(selMember.phone)}</div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => adjustMemberStamp(selMember.deviceId, selMember.name, -1)} disabled={busy} className="h-8 w-8 rounded-lg border border-zinc-200 text-lg font-bold text-zinc-500 hover:bg-zinc-50 disabled:opacity-40">−</button>
+                    <button onClick={() => adjustMemberStamp(selMember.deviceId, selMember.name, -1)} disabled={busy || selMember.suspended} className="h-8 w-8 rounded-lg border border-zinc-200 text-lg font-bold text-zinc-500 hover:bg-zinc-50 disabled:opacity-40">−</button>
                     <div className="flex items-center gap-1">
                       {Array.from({ length: 7 }).map((_, i) => (<span key={i} className={`h-2.5 w-2.5 rounded-full ${i < Math.min(selMember.stamps, 7) ? 'bg-brand-600' : 'bg-zinc-200'}`} />))}
                       <span className="ml-1.5 text-sm font-bold text-zinc-700">{Math.min(selMember.stamps, 7)}/7</span>
                     </div>
-                    <button onClick={() => adjustMemberStamp(selMember.deviceId, selMember.name, 1)} disabled={busy} className="h-8 w-8 rounded-lg bg-brand-600 text-lg font-bold text-white hover:bg-brand-700 disabled:opacity-40">＋</button>
+                    <button onClick={() => adjustMemberStamp(selMember.deviceId, selMember.name, 1)} disabled={busy || selMember.suspended} className="h-8 w-8 rounded-lg bg-brand-600 text-lg font-bold text-white hover:bg-brand-700 disabled:opacity-40">＋</button>
                   </div>
                 </div>
 
@@ -481,6 +506,28 @@ export default function OwnerDashboard() {
                       ))}
                     </div>
                   )}
+                </div>
+
+                {/* 회원 관리 — 활동정지/해제, 삭제 */}
+                <div className="px-4 py-4">
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t('회원 관리', 'Member Management')}</div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {selMember.suspended ? (
+                      <button onClick={() => toggleMemberSuspend(selMember.deviceId, selMember.name, false)} disabled={busy} className="rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-sm font-bold text-emerald-600 disabled:opacity-50">{t('정지 해제', 'Unsuspend')}</button>
+                    ) : (
+                      <button onClick={() => toggleMemberSuspend(selMember.deviceId, selMember.name, true)} disabled={busy} className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-bold text-zinc-600 disabled:opacity-50">{t('활동정지', 'Suspend')}</button>
+                    )}
+                    {!confirmDelete ? (
+                      <button onClick={() => setConfirmDelete(true)} className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-sm font-bold text-rose-600">{t('회원 삭제', 'Delete Member')}</button>
+                    ) : (
+                      <span className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-1.5 text-sm">
+                        <span className="font-semibold text-rose-600">{t('정말 삭제할까요?', 'Delete for real?')}</span>
+                        <button onClick={() => deleteMember(selMember.deviceId)} disabled={busy} className="font-bold text-rose-700 underline disabled:opacity-50">{t('삭제', 'Delete')}</button>
+                        <button onClick={() => setConfirmDelete(false)} className="font-bold text-zinc-500">{t('취소', 'Cancel')}</button>
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-2 text-[11px] text-zinc-400">{t('* 정지 시 이 매장에서 스탬프 지급/적립이 막혀요. 삭제는 이 매장 카드만 지워지고, 회원 계정과 다른 매장 기록은 남아요.', '* Suspending blocks giving/earning stamps at this store. Deleting removes only this store’s card — the account and other stores are unaffected.')}</p>
                 </div>
               </div>
             </div>
