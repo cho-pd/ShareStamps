@@ -32,6 +32,7 @@ const TABS = [
   { id: 'charities', ko: '💛 기부 단체 승인', en: '💛 Charity Approval' },
   { id: 'settlement', ko: '📈 정산', en: '📈 Settlement' },
   { id: 'users', ko: '👥 회원', en: '👥 Members' },
+  { id: 'message', ko: '📣 문자 발송', en: '📣 SMS Blast' },
   { id: 'ads', ko: '🖼 광고 배너', en: '🖼 Ad Banners' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
@@ -59,6 +60,9 @@ export default function AdminPage() {
   const payLabel = (p: Pay) => tr({ paid: '입금', overdue: '연체', unpaid: '미납' }[p], { paid: 'Paid', overdue: 'Overdue', unpaid: 'Unpaid' }[p]);
   const [showNew, setShowNew] = useState(false);
   const [ownerPopupSeen, setOwnerPopupSeen] = useState(false);
+  const [msgStoreId, setMsgStoreId] = useState('');
+  const [msgMembers, setMsgMembers] = useState<{ name: string; phone: string }[]>([]);
+  const [msgText, setMsgText] = useState('');
   const NS0 = { name: '', category: 'Korean Restaurant', ownerName: '', manager: '', phone: '', street: '', city: '', region: '', reward: '5', tier: 'free' as Tier, tablets: '0', stands: '0' };
   const [ns, setNs] = useState(NS0);
   const [manageId, setManageId] = useState<string | null>(null);
@@ -158,6 +162,30 @@ export default function AdminPage() {
   const delAd = async (id: string) => { await deleteDoc(doc(getDb(), 'adBanners', id)); await reloadAds(); };
   const toggleAd = async (a: AdBanner) => { await setDoc(doc(getDb(), 'adBanners', a.id), { status: a.status === 'active' ? 'inactive' : 'active' }, { merge: true }); await reloadAds(); };
   const hideDefault = async (id: string, hide: boolean) => { if (hide) await setDoc(doc(getDb(), 'adHidden', id), { hidden: true }); else await deleteDoc(doc(getDb(), 'adHidden', id)); await reloadAds(); };
+
+  // 📣 매장별 문자 발송 — 그 매장 회원의 전화번호 수집(본사 전용)
+  const pickMsgStore = async (sid: string) => {
+    setMsgStoreId(sid); setMsgMembers([]);
+    if (!sid) return;
+    try {
+      const snap = await getDocs(collection(getDb(), 'stores', sid, 'stampCards'));
+      const seen = new Set<string>(); const list: { name: string; phone: string }[] = [];
+      snap.docs.forEach((d) => {
+        const c = customers.find((x) => x.id === d.id);
+        const phone = (c?.phone || '').trim();
+        if (phone && !seen.has(phone)) { seen.add(phone); list.push({ name: c?.name || tr('손님', 'Guest'), phone }); }
+      });
+      setMsgMembers(list);
+    } catch { setMsgMembers([]); }
+  };
+  const copyText = async (text: string, ok: string) => { try { await navigator.clipboard.writeText(text); flash(ok); } catch { flash(tr('복사 실패', 'Copy failed')); } };
+  const downloadCsv = () => {
+    const rows = [['name', 'phone'], ...msgMembers.map((m) => [m.name, m.phone])];
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob); const a = document.createElement('a');
+    a.href = url; a.download = `members_${msgStoreId}.csv`; a.click(); URL.revokeObjectURL(url);
+  };
 
   const totalDonated = customers.reduce((s, c) => s + (c.donated || 0), 0);
   const totalBalance = customers.reduce((s, c) => s + (c.balance || 0), 0);
@@ -433,6 +461,58 @@ export default function AdminPage() {
             </div>
           ))}
           {customers.filter((c) => c.name).length === 0 && <p className="text-center text-sm text-zinc-400">{tr('가입 회원이 없어요.', 'No members yet.')}</p>}
+        </div>
+      )}
+
+      {!loading && tab === 'message' && (
+        <div className="mt-5 max-w-3xl">
+          <div className="ss-card p-5">
+            <label className="ss-label">{tr('매장 선택', 'Select store')}</label>
+            <select value={msgStoreId} onChange={(e) => pickMsgStore(e.target.value)} className="ss-input">
+              <option value="">{tr('매장 선택…', 'Select store…')}</option>
+              {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            {msgStoreId && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-bold">{tr('수신자', 'Recipients')} <b className="text-brand-700">{msgMembers.length}</b>{tr('명', '')}</span>
+                {msgMembers.length > 0 && (
+                  <>
+                    <button onClick={() => copyText(msgMembers.map((m) => m.phone).join('\n'), tr('번호 복사됨 ✓', 'Phones copied ✓'))} className="ss-chip">{tr('번호 복사', 'Copy phones')}</button>
+                    <button onClick={downloadCsv} className="ss-chip">{tr('CSV 다운로드', 'CSV')}</button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {msgStoreId && (
+            <>
+              <section className="ss-card mt-4 p-5">
+                <h3 className="text-base font-extrabold">{tr('메시지', 'Message')}</h3>
+                <textarea value={msgText} onChange={(e) => setMsgText(e.target.value)} className="ss-input mt-2 min-h-28" placeholder={tr('회원에게 보낼 문자 내용…', 'Message to send to members…')} />
+                <div className="mt-1 flex items-center justify-between text-[11px] text-zinc-400">
+                  <span>{msgText.length}{tr('자', ' chars')}</span>
+                  <button onClick={() => copyText(msgText, tr('메시지 복사됨 ✓', 'Message copied ✓'))} className="font-bold text-brand-600">{tr('메시지 복사', 'Copy message')}</button>
+                </div>
+                <button onClick={() => flash(tr('SMS 게이트웨이 연동 후 실제 발송돼요. 지금은 번호·메시지 복사로 발송하세요.', 'SMS gateway pending — copy phones & message to send externally for now.'))} disabled={!msgText.trim() || msgMembers.length === 0} className="ss-btn-primary mt-3 w-full max-w-xs disabled:opacity-50">{tr('일괄 발송', 'Send blast')} ({msgMembers.length})</button>
+                <p className="mt-2 text-[11px] text-zinc-400">{tr('* 본사 전용. 실제 발송은 SMS 게이트웨이(예: Twilio) 연동 후 활성화돼요.', '* HQ only. Actual sending activates after SMS gateway (e.g. Twilio) integration.')}</p>
+              </section>
+
+              <section className="ss-card mt-4 p-0">
+                <div className="border-b border-zinc-100 px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-zinc-400">{tr('수신자 목록', 'Recipient list')}</div>
+                {msgMembers.length === 0 ? <p className="py-4 text-center text-sm text-zinc-400">{tr('전화번호가 있는 회원이 없어요.', 'No members with a phone.')}</p> : (
+                  <div className="max-h-72 divide-y divide-zinc-50 overflow-y-auto">
+                    {msgMembers.map((m, i) => (
+                      <div key={i} className="flex items-center justify-between px-4 py-2 text-sm">
+                        <span className="font-semibold">{m.name}</span>
+                        <span className="text-zinc-600">{m.phone}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </>
+          )}
         </div>
       )}
 
