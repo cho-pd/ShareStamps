@@ -13,13 +13,14 @@ const normPhone = (p: string) => p.replace(/[^0-9]/g, '');
 type Review = { author: string; rating: number; comment: string; createdAt: string };
 type MenuItem = { id: string; name: string; price: number; signature?: boolean; description?: string; category?: string };
 type Cardholder = { name: string; phone?: string; stamps: number };
+type Member = { deviceId: string; name: string; phone?: string; stamps: number; balance: number; donated: number };
 type Donation = { npoName?: string; amount: number; createdAt: string };
 type Charity = { id: string; name: string; linkUrl?: string; source: 'owner' | 'hq'; status: 'pending' | 'approved' | 'rejected' };
 type Loaded = {
   storeId: string; storeName: string; slug: string;
   reward: number; interval: number; banner: string; description: string; sns: string[];
   customers: number; activeStamps: number; issuedValue: number;
-  reviews: Review[]; menu: MenuItem[]; cardholders: Cardholder[]; donations: Donation[]; charities: Charity[];
+  reviews: Review[]; menu: MenuItem[]; cardholders: Cardholder[]; members: Member[]; donations: Donation[]; charities: Charity[];
 };
 
 const SNS_CHANNELS = ['facebook', 'instagram', 'google', 'tiktok', 'youtube'];
@@ -54,6 +55,8 @@ export default function OwnerDashboard() {
   const [stampPhone, setStampPhone] = useState('');
   const [cbMenu, setCbMenu] = useState(''); const [cbReview, setCbReview] = useState('');
   const [faqs, setFaqs] = useState<{ q: string; a: string }[]>([]);
+  const [custQ, setCustQ] = useState('');
+  const maskPhone = (p?: string) => { if (!p) return '—'; const d = p.replace(/\D/g, ''); return d.length >= 4 ? `···${d.slice(-4)}` : d; };
   const [ownerCh, setOwnerCh] = useState<{ name: string; linkUrl: string }[]>([{ name: '', linkUrl: '' }, { name: '', linkUrl: '' }]);
   const [lang, setLang] = useState<'ko' | 'en'>('ko');
 
@@ -125,11 +128,15 @@ export default function OwnerDashboard() {
       const activeStamps = cardsSnap.docs.reduce((s2, d) => s2 + ((d.data().currentStamps as number) || 0), 0);
       const reviews = reviewsSnap.docs.map((d) => d.data() as Review).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       const menu = menuSnap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as MenuItem));
-      const custMap = new Map<string, { name?: string; phone?: string }>();
-      (custSnap?.docs ?? []).forEach((d) => custMap.set(d.id, d.data() as { name?: string; phone?: string }));
+      const custMap = new Map<string, { name?: string; phone?: string; balance?: number; donated?: number }>();
+      (custSnap?.docs ?? []).forEach((d) => custMap.set(d.id, d.data() as { name?: string; phone?: string; balance?: number; donated?: number }));
       const cardholders: Cardholder[] = cardsSnap.docs
         .map((d) => ({ name: custMap.get(d.id)?.name || '', phone: custMap.get(d.id)?.phone, stamps: (d.data().currentStamps as number) || 0 }))
         .filter((c) => c.stamps > 0).sort((a, b) => b.stamps - a.stamps);
+      // 회원 명부: 이 매장에 카드가 있는 모든 회원(스탬프 0 포함)
+      const members: Member[] = cardsSnap.docs
+        .map((d) => { const c = custMap.get(d.id) || {}; return { deviceId: d.id, name: c.name || '', phone: c.phone, stamps: (d.data().currentStamps as number) || 0, balance: c.balance || 0, donated: c.donated || 0 }; })
+        .sort((a, b) => b.stamps - a.stamps || (b.balance - a.balance));
       const donations: Donation[] = (donSnap?.docs ?? [])
         .map((d) => d.data() as Donation & { storeId?: string })
         .filter((d) => (d as { storeId?: string }).storeId === sd.id)
@@ -138,7 +145,7 @@ export default function OwnerDashboard() {
         storeId: sd.id, storeName: st.name, slug: st.slug, reward: rwd, interval: itv,
         banner: st.bannerUrl || '', description: st.description || '', sns: st.snsChannels || [],
         customers: cardsSnap.size, activeStamps, issuedValue: activeStamps * (rwd / 7),
-        reviews: reviews.slice(0, 8), menu, cardholders, donations, charities,
+        reviews: reviews.slice(0, 8), menu, cardholders, members, donations, charities,
       });
       setReward(String(rwd)); setIntervalV(String(itv)); setBanner(st.bannerUrl || ''); setDesc(st.description || ''); setSns(st.snsChannels || []);
       setCbMenu(st.chatbotMenu || ''); setCbReview(st.chatbotReview || ''); setFaqs(st.faqs || []);
@@ -158,6 +165,24 @@ export default function OwnerDashboard() {
     setNewItem({ name: '', price: '', signature: false }); flash(t('메뉴 추가됨 ✓', 'Menu added ✓')); await load(data.slug);
   };
   const delMenu = async (id: string) => { if (!data) return; await deleteDoc(doc(getDb(), 'stores', data.storeId, 'menuItems', id)); await load(data.slug); };
+
+  // 회원 명부에서 스탬프 직접 조정 (deviceId로 — 명부 행의 +/−)
+  const adjustMemberStamp = async (deviceId: string, name: string, delta: number) => {
+    if (!data) return;
+    setBusy(true);
+    try {
+      const db = getDb();
+      const cardRef = doc(db, 'stores', data.storeId, 'stampCards', deviceId);
+      const snap = await getDoc(cardRef);
+      const cur = snap.exists() ? ((snap.data().currentStamps as number) || 0) : 0;
+      const next = Math.max(0, Math.min(7, cur + delta));
+      const now = new Date().toISOString();
+      await setDoc(cardRef, { deviceId, currentStamps: next, updatedAt: now }, { merge: true });
+      await setDoc(doc(db, 'customers', deviceId, 'cards', data.storeId), { storeId: data.storeId, storeName: data.storeName, slug: data.slug, currentStamps: next, reward: data.reward, currency: 'USD', interval: data.interval, updatedAt: now }, { merge: true });
+      flash(`${name || t('회원', 'Member')}: ${delta > 0 ? '+' : ''}${delta} → ${next}/7`);
+      await load(data.slug);
+    } catch { flash(t('처리 실패', 'Failed.')); } finally { setBusy(false); }
+  };
 
   // 회원 스탬프 직접 지급/차감 (전화번호로)
   const adjustStamp = async (delta: number) => {
@@ -194,6 +219,7 @@ export default function OwnerDashboard() {
   const qr = data ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=8&data=${encodeURIComponent(storeUrl)}` : '';
   const donatedTotal = data ? data.donations.reduce((s, d) => s + (d.amount || 0), 0) : 0;
   const chStatus = (s?: string) => s === 'approved' ? t('승인됨', 'Approved') : s === 'rejected' ? t('반려됨', 'Rejected') : t('승인 대기', 'Pending');
+  const filteredMembers = data ? data.members.filter((m) => { const q = custQ.trim().toLowerCase(); if (!q) return true; return (m.name || '').toLowerCase().includes(q) || (m.phone || '').replace(/\D/g, '').includes(q.replace(/\D/g, '')); }) : [];
 
   return (
     <main className="mx-auto max-w-5xl px-6 pb-16">
@@ -329,26 +355,52 @@ export default function OwnerDashboard() {
             </div>
           )}
 
-          {/* 🔍 고객 */}
+          {/* 🔍 고객 — 회원 명부 */}
           {tab === 'customers' && (
-            <div className="mt-5 grid gap-4 md:grid-cols-2 md:items-start">
-              <section className="ss-card p-5">
-                <h3 className="text-base font-extrabold">{t('🎫 단골 스탬프 카드 현황', '🎫 Regulars — Stamp Cards')}</h3>
-                {data.cardholders.length === 0 ? <p className="mt-2 text-sm text-zinc-400">{t('아직 적립한 고객이 없어요.', 'No customers have earned yet.')}</p> : (
-                  <div className="mt-2 divide-y divide-zinc-100">
-                    {data.cardholders.map((c, i) => (
-                      <div key={i} className="flex items-center justify-between py-2.5">
-                        <div className="text-sm"><span className="font-bold">{c.name || t('손님', 'Guest')}</span> <span className="text-zinc-400">{c.phone || ''}</span></div>
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">⭐ {Math.min(c.stamps, 7)}/7</span>
-                      </div>
+            <div className="mt-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="font-bold">{t('회원 명부', 'Members')} <b className="text-brand-700">{data.members.length}</b></span>
+                  <span className="text-zinc-300">·</span>
+                  <span className="text-zinc-500">{t('활성 단골', 'Active')} {data.members.filter((m) => m.stamps > 0).length}</span>
+                  <span className="text-zinc-300">·</span>
+                  <span className="text-zinc-500">7/7 {data.members.filter((m) => m.stamps >= 7).length}</span>
+                </div>
+                <input value={custQ} onChange={(e) => setCustQ(e.target.value)} placeholder={t('이름·전화 검색', 'Search name/phone')} className="ss-input w-full max-w-xs" />
+              </div>
+              <div className="ss-card mt-3 overflow-x-auto p-0">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-zinc-200 text-left text-[11px] font-bold uppercase tracking-wide text-zinc-400">
+                      <th className="px-3 py-3">{t('회원', 'Member')}</th>
+                      <th className="px-3 py-3">{t('전화', 'Phone')}</th>
+                      <th className="px-3 py-3">{t('스탬프', 'Stamps')}</th>
+                      <th className="px-3 py-3">{t('캐시', 'Cash')}</th>
+                      <th className="px-3 py-3">{t('기부', 'Donated')}</th>
+                      <th className="px-3 py-3 text-right">{t('스탬프 조정', 'Adjust')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredMembers.map((m) => (
+                      <tr key={m.deviceId} className="border-b border-zinc-100 hover:bg-zinc-50">
+                        <td className="px-3 py-2.5 font-bold">{m.name || t('손님', 'Guest')}</td>
+                        <td className="px-3 py-2.5 text-zinc-500">{maskPhone(m.phone)}</td>
+                        <td className="px-3 py-2.5"><span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">⭐ {Math.min(m.stamps, 7)}/7</span></td>
+                        <td className="px-3 py-2.5 font-semibold text-zinc-700">${m.balance.toFixed(2)}</td>
+                        <td className="px-3 py-2.5 text-amber-600">${m.donated.toFixed(2)}</td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex justify-end gap-1.5">
+                            <button onClick={() => adjustMemberStamp(m.deviceId, m.name, -1)} disabled={busy} className="h-7 w-7 rounded-full border border-rose-200 bg-white text-sm font-bold text-rose-600 disabled:opacity-50">−</button>
+                            <button onClick={() => adjustMemberStamp(m.deviceId, m.name, 1)} disabled={busy} className="h-7 w-7 rounded-full bg-brand-600 text-sm font-bold text-white disabled:opacity-50">＋</button>
+                          </div>
+                        </td>
+                      </tr>
                     ))}
-                  </div>
-                )}
-              </section>
-              <section className="ss-card p-5">
-                <h3 className="text-base font-extrabold">{t('스탬프 직접 지급', 'Give Stamps')}</h3>
-                <p className="mt-2 text-center text-sm text-zinc-400">{t('전화번호로 단골에게 스탬프 직접 지급 — 다음 단계.', 'Give stamps to regulars by phone — coming next.')}</p>
-              </section>
+                  </tbody>
+                </table>
+                {filteredMembers.length === 0 && <p className="py-5 text-center text-sm text-zinc-400">{data.members.length === 0 ? t('아직 회원이 없어요.', 'No members yet.') : t('검색 결과가 없어요.', 'No matches.')}</p>}
+              </div>
+              <p className="mt-2 text-[11px] text-zinc-400">{t('* 전화는 뒤 4자리만 표시. +/− 로 스탬프 즉시 조정돼요.', '* Only last 4 phone digits shown. +/− adjusts stamps instantly.')}</p>
             </div>
           )}
 
