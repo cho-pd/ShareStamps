@@ -55,6 +55,9 @@ export default function OwnerDashboard() {
   const [faqs, setFaqs] = useState<{ q: string; a: string }[]>([]);
   const [custQ, setCustQ] = useState('');
   const [selMemberId, setSelMemberId] = useState<string | null>(null);
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [newMemberName, setNewMemberName] = useState(''); const [newMemberPhone, setNewMemberPhone] = useState('');
+  const normPhone = (p: string) => p.replace(/\D/g, '');
   const [memberDonations, setMemberDonations] = useState<{ npoName?: string; storeName?: string; amount: number; createdAt: string }[]>([]);
   // 사장 마케팅용 — 전화번호 전체 표시(보기 좋게 포맷)
   const fmtPhone = (p?: string) => {
@@ -188,6 +191,31 @@ export default function OwnerDashboard() {
     setNewItem({ name: '', price: '', signature: false }); flash(t('메뉴 추가됨 ✓', 'Menu added ✓')); await load(data.slug);
   };
   const delMenu = async (id: string) => { if (!data) return; await deleteDoc(doc(getDb(), 'stores', data.storeId, 'menuItems', id)); await load(data.slug); };
+
+  // 점주가 신규 회원을 수동으로 추가 (이름+전화) — 앱 없이 방문한 손님 온보딩용
+  const addMember = async () => {
+    if (!data) return;
+    const phone = normPhone(newMemberPhone);
+    if (!newMemberName.trim()) { flash(t('회원 이름을 입력해 주세요.', 'Enter the member name.')); return; }
+    if (phone.length < 8) { flash(t('전화번호를 입력해 주세요.', 'Enter a phone number.')); return; }
+    setBusy(true);
+    try {
+      const db = getDb();
+      const idx = await getDoc(doc(db, 'phoneIndex', phone));
+      const id = idx.exists() ? (idx.data().deviceId as string) : `dev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const now = new Date().toISOString();
+      await setDoc(doc(db, 'customers', id), { name: newMemberName.trim(), phone, role: 'customer' }, { merge: true });
+      await setDoc(doc(db, 'phoneIndex', phone), { deviceId: id, name: newMemberName.trim() }, { merge: true });
+      const cardRef = doc(db, 'stores', data.storeId, 'stampCards', id);
+      const already = await getDoc(cardRef);
+      const cur = already.exists() ? ((already.data().currentStamps as number) || 0) : 0;
+      await setDoc(cardRef, { deviceId: id, currentStamps: cur, updatedAt: now }, { merge: true });
+      await setDoc(doc(db, 'customers', id, 'cards', data.storeId), { storeId: data.storeId, storeName: data.storeName, slug: data.slug, currentStamps: cur, reward: data.reward, currency: 'USD', interval: data.interval, updatedAt: now }, { merge: true });
+      flash(`${newMemberName.trim()} ${t('회원 추가됨 ✓', 'added ✓')}`);
+      setNewMemberName(''); setNewMemberPhone(''); setShowAddMember(false);
+      await load(data.slug);
+    } catch { flash(t('추가 실패', 'Failed to add.')); } finally { setBusy(false); }
+  };
 
   // 회원 명부에서 스탬프 직접 조정 (deviceId로 — 명부 행의 +/−)
   const adjustMemberStamp = async (deviceId: string, name: string, delta: number) => {
@@ -357,8 +385,28 @@ export default function OwnerDashboard() {
                   <span className="text-zinc-300">·</span>
                   <span className="text-zinc-500">7/7 {data.members.filter((m) => m.stamps >= 7).length}</span>
                 </div>
-                <input value={custQ} onChange={(e) => setCustQ(e.target.value)} placeholder={t('이름·전화 검색', 'Search name/phone')} className="ss-input w-full max-w-xs" />
+                <div className="flex items-center gap-2">
+                  <input value={custQ} onChange={(e) => setCustQ(e.target.value)} placeholder={t('이름·전화 검색', 'Search name/phone')} className="ss-input w-full max-w-xs" />
+                  <button onClick={() => setShowAddMember((v) => !v)} className="ss-btn-primary shrink-0 px-4 py-2 text-sm">{showAddMember ? t('닫기', 'Close') : t('＋ 회원 추가', '＋ Add Member')}</button>
+                </div>
               </div>
+
+              {showAddMember && (
+                <section className="ss-card mt-3 p-4">
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="flex-1">
+                      <label className="ss-label">{t('이름', 'Name')}</label>
+                      <input value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} className="ss-input" placeholder={t('홍길동', 'e.g. John Kim')} />
+                    </div>
+                    <div className="flex-1">
+                      <label className="ss-label">{t('전화번호', 'Phone')}</label>
+                      <input value={newMemberPhone} onChange={(e) => setNewMemberPhone(e.target.value)} className="ss-input" placeholder="000-000-0000" inputMode="tel" />
+                    </div>
+                    <button onClick={addMember} disabled={busy} className="ss-btn-primary px-5 py-2.5">{t('추가', 'Add')}</button>
+                  </div>
+                  <p className="mt-2 text-[11px] text-zinc-400">{t('* 앱 없이 방문한 손님도 이름·전화로 등록해 스탬프를 관리할 수 있어요.', '* Onboard walk-in customers by name & phone, even without the app.')}</p>
+                </section>
+              )}
 
               <div className="ss-card mt-3 overflow-x-auto p-0">
                 <table className="w-full text-sm">
