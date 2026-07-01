@@ -304,22 +304,11 @@ export default function OwnerDashboard() {
                 </section>
               </div>
 
-              <div className="mt-4 grid gap-4 md:grid-cols-2 md:items-start">
-                <section className="ss-card p-5">
-                  <h3 className="text-base font-extrabold">{t('회원 스탬프 직접 지급/차감', 'Give / Deduct Member Stamps')}</h3>
-                  <p className="mt-1 text-[11px] text-zinc-400">{t('회원 전화번호로 스탬프를 직접 ± 해요.', 'Adjust stamps directly by member phone.')}</p>
-                  <input value={stampPhone} onChange={(e) => setStampPhone(e.target.value)} placeholder="000-000-0000" inputMode="tel" className="ss-input mt-2" />
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <button onClick={() => adjustStamp(1)} disabled={busy} className="ss-btn-primary">{t('＋1 지급', '＋1 Give')}</button>
-                    <button onClick={() => adjustStamp(-1)} disabled={busy} className="rounded-xl border border-rose-200 bg-white py-3 text-sm font-bold text-rose-600 disabled:opacity-50">{t('－1 차감', '－1 Deduct')}</button>
-                  </div>
-                </section>
-                <section className="ss-card p-5">
-                  <h3 className="text-base font-extrabold">{t('💰 실시간 캐시 승인 큐', '💰 Live Cash Approval Queue')}</h3>
-                  <p className="mt-2 text-center text-sm text-zinc-400">{t('대기 중인 승인이 없어요.', 'No pending approvals.')}</p>
-                  <p className="mt-1 text-center text-[11px] text-zinc-400">{t('* 손님 결제 승인 연동은 다음 단계.', '* Customer payment approval — coming next.')}</p>
-                </section>
-              </div>
+              <section className="ss-card mt-4 p-5">
+                <h3 className="text-base font-extrabold">{t('💰 실시간 캐시 승인 큐', '💰 Live Cash Approval Queue')}</h3>
+                <p className="mt-2 text-center text-sm text-zinc-400">{t('대기 중인 승인이 없어요.', 'No pending approvals.')}</p>
+                <p className="mt-1 text-center text-[11px] text-zinc-400">{t('* 회원 스탬프 지급/차감은 🔍 고객 탭(회원 명부)에서. 손님 결제 승인 연동은 다음 단계.', '* Give/deduct member stamps in the 🔍 Customers tab. Customer payment approval — coming next.')}</p>
+              </section>
 
               <section className="ss-card mt-4 p-5">
                 <h3 className="text-base font-extrabold">{t('기부 단체', 'Charities')} <span className="text-xs font-medium text-zinc-400">{t('(사장 2 · 본사 3 · 모두 본사 관리)', '(Owner 2 · HQ 3 · all HQ-managed)')}</span></h3>
@@ -368,6 +357,15 @@ export default function OwnerDashboard() {
                 </div>
                 <input value={custQ} onChange={(e) => setCustQ(e.target.value)} placeholder={t('이름·전화 검색', 'Search name/phone')} className="ss-input w-full max-w-xs" />
               </div>
+
+              <div className="ss-card mt-3 flex flex-wrap items-center gap-2 p-3">
+                <span className="text-xs font-bold text-zinc-600">{t('전화번호로 지급/차감', 'By phone')}</span>
+                <input value={stampPhone} onChange={(e) => setStampPhone(e.target.value)} placeholder="000-000-0000" inputMode="tel" className="ss-input h-9 w-44 py-1.5" />
+                <button onClick={() => adjustStamp(1)} disabled={busy} className="ss-btn-primary px-3 py-1.5 text-sm">{t('＋1 지급', '＋1')}</button>
+                <button onClick={() => adjustStamp(-1)} disabled={busy} className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-sm font-bold text-rose-600 disabled:opacity-50">{t('－1 차감', '−1')}</button>
+                <span className="text-[11px] text-zinc-400">{t('명부에 없는 회원도 전화로 지급돼요.', 'Also onboards members not in the list.')}</span>
+              </div>
+
               <div className="ss-card mt-3 overflow-x-auto p-0">
                 <table className="w-full text-sm">
                   <thead>
