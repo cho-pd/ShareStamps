@@ -56,7 +56,14 @@ export default function OwnerDashboard() {
   const [custQ, setCustQ] = useState('');
   const [selMemberId, setSelMemberId] = useState<string | null>(null);
   const [memberDonations, setMemberDonations] = useState<{ npoName?: string; storeName?: string; amount: number; createdAt: string }[]>([]);
-  const maskPhone = (p?: string) => { if (!p) return '—'; const d = p.replace(/\D/g, ''); return d.length >= 4 ? `···${d.slice(-4)}` : d; };
+  // 사장 마케팅용 — 전화번호 전체 표시(보기 좋게 포맷)
+  const fmtPhone = (p?: string) => {
+    if (!p) return '—';
+    const d = p.replace(/\D/g, '');
+    if (d.length === 11 && d.startsWith('1')) return `${d[0]}-${d.slice(1, 4)}-${d.slice(4, 7)}-${d.slice(7)}`;
+    if (d.length === 10) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+    return p;
+  };
   const [ownerCh, setOwnerCh] = useState<{ name: string; linkUrl: string }[]>([{ name: '', linkUrl: '' }, { name: '', linkUrl: '' }]);
   const [lang, setLang] = useState<'ko' | 'en'>('ko');
 
@@ -369,7 +376,7 @@ export default function OwnerDashboard() {
                     {filteredMembers.map((m) => (
                       <tr key={m.deviceId} onClick={() => setSelMemberId(m.deviceId)} className="cursor-pointer border-b border-zinc-100 hover:bg-zinc-50">
                         <td className="px-3 py-2.5 font-bold text-brand-700 hover:underline">{m.name || t('손님', 'Guest')}</td>
-                        <td className="px-3 py-2.5 text-zinc-500">{maskPhone(m.phone)}</td>
+                        <td className="px-3 py-2.5 text-zinc-500">{fmtPhone(m.phone)}</td>
                         <td className="px-3 py-2.5"><span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">⭐ {Math.min(m.stamps, 7)}/7</span></td>
                         <td className="px-3 py-2.5 font-semibold text-zinc-700">${m.balance.toFixed(2)}</td>
                         <td className="px-3 py-2.5 text-amber-600">${m.donated.toFixed(2)}</td>
@@ -394,7 +401,7 @@ export default function OwnerDashboard() {
                 <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4">
                   <div className="min-w-0">
                     <div className="text-lg font-black leading-tight">{selMember.name || t('손님', 'Guest')}</div>
-                    <div className="text-sm text-zinc-500">{maskPhone(selMember.phone)}</div>
+                    <div className="text-sm text-zinc-500">{fmtPhone(selMember.phone)}</div>
                   </div>
                   <div className="flex items-center gap-2">
                     <button onClick={() => adjustMemberStamp(selMember.deviceId, selMember.name, -1)} disabled={busy} className="h-8 w-8 rounded-lg border border-zinc-200 text-lg font-bold text-zinc-500 hover:bg-zinc-50 disabled:opacity-40">−</button>
