@@ -15,11 +15,12 @@ type Cardholder = { name: string; phone?: string; stamps: number };
 type Member = { deviceId: string; name: string; phone?: string; stamps: number; balance: number; donated: number; suspended?: boolean; memo?: string; allergy?: string };
 type Donation = { npoName?: string; amount: number; createdAt: string };
 type Charity = { id: string; name: string; linkUrl?: string; source: 'owner' | 'hq'; status: 'pending' | 'approved' | 'rejected' };
+type StampLog = { name: string; amount: number | null; source: 'receipt' | 'review' | string; createdAt: string };
 type Loaded = {
   storeId: string; storeName: string; slug: string;
   reward: number; interval: number; banner: string; description: string; sns: string[];
   customers: number; activeStamps: number; issuedValue: number;
-  reviews: Review[]; menu: MenuItem[]; cardholders: Cardholder[]; members: Member[]; donations: Donation[]; charities: Charity[];
+  reviews: Review[]; menu: MenuItem[]; cardholders: Cardholder[]; members: Member[]; donations: Donation[]; charities: Charity[]; stampLogs: StampLog[];
 };
 
 const SNS_CHANNELS = ['facebook', 'instagram', 'google', 'tiktok', 'youtube'];
@@ -141,13 +142,14 @@ export default function OwnerDashboard() {
       if (storeSnap.empty) { setError(t('해당 slug의 매장을 찾지 못했어요.', 'No store found for that slug.')); setData(null); return; }
       const sd = storeSnap.docs[0];
       const st = sd.data() as { name: string; slug: string; pointRewardPer7Stamps?: number; earningIntervalMinutes?: number; bannerUrl?: string; description?: string; snsChannels?: string[]; chatbotMenu?: string; chatbotReview?: string; faqs?: { q: string; a: string }[] };
-      const [cardsSnap, reviewsSnap, menuSnap, custSnap, donSnap, chSnap] = await Promise.all([
+      const [cardsSnap, reviewsSnap, menuSnap, custSnap, donSnap, chSnap, logSnap] = await Promise.all([
         getDocs(collection(db, 'stores', sd.id, 'stampCards')),
         getDocs(collection(db, 'stores', sd.id, 'reviews')),
         getDocs(collection(db, 'stores', sd.id, 'menuItems')),
         getDocs(collection(db, 'customers')).catch(() => null),
         getDocs(collectionGroup(db, 'donations')).catch(() => null),
         getDocs(collection(db, 'stores', sd.id, 'charities')).catch(() => null),
+        getDocs(collection(db, 'stores', sd.id, 'stampLog')).catch(() => null),
       ]);
       const charities: Charity[] = (chSnap?.docs ?? []).map((d) => ({ id: d.id, ...(d.data() as object) } as Charity));
       const o1 = charities.find((c) => c.id === 'owner_1'); const o2 = charities.find((c) => c.id === 'owner_2');
@@ -169,11 +171,14 @@ export default function OwnerDashboard() {
         .map((d) => d.data() as Donation & { storeId?: string })
         .filter((d) => (d as { storeId?: string }).storeId === sd.id)
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      const stampLogs: StampLog[] = (logSnap?.docs ?? [])
+        .map((d) => { const l = d.data() as { deviceId?: string; amount?: number | null; source?: string; createdAt: string }; return { name: custMap.get(l.deviceId || '')?.name || t('손님', 'Guest'), amount: l.amount ?? null, source: l.source || 'receipt', createdAt: l.createdAt }; })
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setData({
         storeId: sd.id, storeName: st.name, slug: st.slug, reward: rwd, interval: itv,
         banner: st.bannerUrl || '', description: st.description || '', sns: st.snsChannels || [],
         customers: cardsSnap.size, activeStamps, issuedValue: activeStamps * (rwd / 7),
-        reviews: reviews.slice(0, 8), menu, cardholders, members, donations, charities,
+        reviews: reviews.slice(0, 8), menu, cardholders, members, donations, charities, stampLogs,
       });
       setReward(String(rwd)); setIntervalV(String(itv)); setBanner(st.bannerUrl || ''); setDesc(st.description || ''); setSns(st.snsChannels || []);
       setCbMenu(st.chatbotMenu || ''); setCbReview(st.chatbotReview || ''); setFaqs(st.faqs || []);
@@ -284,6 +289,7 @@ export default function OwnerDashboard() {
   const storeUrl = data ? `${SITE_URL}/store/${data.slug}` : '';
   const qr = data ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=8&data=${encodeURIComponent(storeUrl)}` : '';
   const donatedTotal = data ? data.donations.reduce((s, d) => s + (d.amount || 0), 0) : 0;
+  const receiptTotal = data ? data.stampLogs.reduce((s, l) => s + (l.amount || 0), 0) : 0;
   const chStatus = (s?: string) => s === 'approved' ? t('승인됨', 'Approved') : s === 'rejected' ? t('반려됨', 'Rejected') : t('승인 대기', 'Pending');
   const filteredMembers = data ? data.members.filter((m) => { const q = custQ.trim().toLowerCase(); if (!q) return true; return (m.name || '').toLowerCase().includes(q) || (m.phone || '').replace(/\D/g, '').includes(q.replace(/\D/g, '')); }) : [];
   const selMember = data && selMemberId ? data.members.find((m) => m.deviceId === selMemberId) || null : null;
@@ -567,10 +573,31 @@ export default function OwnerDashboard() {
           {/* 📈 정산 */}
           {tab === 'settlement' && (
             <div className="mt-5">
-              <div className="grid max-w-md grid-cols-2 gap-4">
+              <div className="grid max-w-2xl grid-cols-3 gap-4">
                 <Stat label={t('발행 적립금', 'Issued Reward')} value={`$${data.issuedValue.toFixed(2)}`} accent="rose" />
                 <Stat label={t('기부 정산 💛', 'Donations 💛')} value={`$${donatedTotal.toFixed(2)}`} accent="amber" />
+                <Stat label={t('영수증 총액 🧾', 'Receipt Total 🧾')} value={`$${receiptTotal.toFixed(2)}`} accent="brand" />
               </div>
+
+              <section className="ss-card mt-4 p-5">
+                <h3 className="text-base font-extrabold">{t('🧾 스탬프 적립 내역', 'Stamp Earning Log')}</h3>
+                <p className="mt-0.5 text-[11px] text-zinc-400">{t('영수증 스캔은 금액이 기록되고, 리뷰 적립은 금액 없이 기록돼요.', 'Receipt scans record an amount; review-earned stamps show no amount.')}</p>
+                {data.stampLogs.length === 0 ? <p className="mt-2 text-sm text-zinc-400">{t('적립 내역이 없어요.', 'No stamp log yet.')}</p> : (
+                  <div className="mt-2 max-h-80 divide-y divide-zinc-100 overflow-y-auto">
+                    {data.stampLogs.map((l, i) => (
+                      <div key={i} className="flex items-center justify-between py-2.5 text-sm">
+                        <div>
+                          <span className="font-semibold">{l.name}</span>
+                          <span className="ml-1.5 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-bold text-zinc-500">{l.source === 'review' ? t('리뷰', 'Review') : t('영수증', 'Receipt')}</span>
+                          <span className="ml-1.5 text-[11px] text-zinc-400">{new Date(l.createdAt).toLocaleDateString()}</span>
+                        </div>
+                        <span className="font-bold text-brand-700">{l.amount != null ? `$${l.amount.toFixed(2)}` : t('금액 없음', 'No amount')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
               <section className="ss-card mt-4 p-5">
                 <h3 className="text-base font-extrabold">{t('📊 매장 기부 정산 대장', '📊 Donation Ledger')}</h3>
                 {data.donations.length === 0 ? <p className="mt-2 text-sm text-zinc-400">{t('정산할 기부 내역이 없어요.', 'No donations to settle.')}</p> : (

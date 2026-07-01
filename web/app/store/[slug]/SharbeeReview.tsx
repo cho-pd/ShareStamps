@@ -72,6 +72,25 @@ export default function SharbeeReview({ storeId, storeName, menu, guidance }: { 
     setStep('draft'); setBusy(false);
   };
 
+  // 리뷰 등록 → 스탬프 +1 지급(금액 없음 — 영수증 스캔과 구분). 정지된 회원은 지급하지 않음.
+  const grantReviewStamp = async () => {
+    try {
+      const db = getDb(); const idv = getDeviceId(); const now = new Date().toISOString();
+      const mirrorRef = doc(db, 'stores', storeId, 'stampCards', idv);
+      const mirrorSnap = await getDoc(mirrorRef);
+      if (mirrorSnap.exists() && mirrorSnap.data().suspended) return;
+      const storeSnap = await getDoc(doc(db, 'stores', storeId));
+      const st = storeSnap.exists() ? (storeSnap.data() as { name?: string; slug?: string; pointRewardPer7Stamps?: number; earningIntervalMinutes?: number; currency?: string }) : {};
+      const cardRef = doc(db, 'customers', idv, 'cards', storeId);
+      const cardSnap = await getDoc(cardRef);
+      const cur = cardSnap.exists() ? ((cardSnap.data().currentStamps as number) || 0) : 0;
+      const next = cur + 1;
+      await setDoc(cardRef, { storeId, storeName: st.name || storeName, slug: st.slug || '', currentStamps: next, reward: st.pointRewardPer7Stamps ?? 5, currency: st.currency || 'USD', interval: st.earningIntervalMinutes ?? 60, updatedAt: now }, { merge: true });
+      await setDoc(mirrorRef, { deviceId: idv, currentStamps: next, updatedAt: now }, { merge: true });
+      await setDoc(doc(collection(db, 'stores', storeId, 'stampLog')), { deviceId: idv, amount: null, source: 'review', createdAt: now });
+    } catch { /* 스탬프 지급 실패해도 리뷰 등록 자체는 유지 */ }
+  };
+
   const submit = async () => {
     if (draft.trim().length < 5) return;
     setBusy(true);
@@ -80,6 +99,7 @@ export default function SharbeeReview({ storeId, storeName, menu, guidance }: { 
       const id = `r_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       await setDoc(doc(collection(db, 'stores', storeId, 'reviews'), id), { author: name, rating, comment: draft.trim(), createdAt: new Date().toISOString() });
       try { window.dispatchEvent(new CustomEvent('ss-review-added')); } catch {} // 미니홈 리뷰 목록 즉시 갱신
+      await grantReviewStamp();
       const sns = await postReviewToSns({ storeId, content: `${draft.trim()}\n\n📍 ${storeName}`, networks: [] });
       if (sns.success && sns.postedNetworks.length) setSnsMsg(`매장 SNS(${sns.postedNetworks.join(', ')})에도 게시됐어요.`);
       setStep('done');

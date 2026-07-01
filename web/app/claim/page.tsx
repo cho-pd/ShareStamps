@@ -56,10 +56,11 @@ export default function ClaimPage() {
         total = await runTransaction(db, async (tx) => {
           const tSnap = await tx.get(tRef);
           if (!tSnap.exists()) throw new Error('error');
-          const t = tSnap.data() as { status?: string; stamps?: number; expiresAt?: string };
+          const t = tSnap.data() as { status?: string; stamps?: number; expiresAt?: string; amount?: number | null };
           if (t.status === 'claimed') throw new Error('used'); // 이미 다른 폰이 적립함 → 2개 스캔 불가
           if (t.expiresAt && new Date(t.expiresAt).getTime() < Date.now()) throw new Error('expired');
           stamps = t.stamps || 1;
+          const receiptAmount = typeof t.amount === 'number' ? t.amount : null;
           const mirrorSnap = await tx.get(mirrorRef);
           if (mirrorSnap.exists() && mirrorSnap.data().suspended) throw new Error('suspended'); // 이 매장에서 활동정지된 회원 — 적립 차단
           const cardSnap = await tx.get(cardRef);
@@ -68,6 +69,7 @@ export default function ClaimPage() {
           tx.set(cardRef, { storeId, storeName: st.name || slug, slug, currentStamps: next, reward: st.pointRewardPer7Stamps ?? 5, currency: st.currency || 'USD', interval: st.earningIntervalMinutes ?? 60, updatedAt: now }, { merge: true });
           tx.set(mirrorRef, { deviceId: id, currentStamps: next, updatedAt: now }, { merge: true });
           tx.set(tRef, { status: 'claimed', claimedBy: id, claimedAt: now }, { merge: true });
+          tx.set(doc(collection(db, 'stores', storeId, 'stampLog')), { deviceId: id, amount: receiptAmount, source: 'receipt', createdAt: now });
           return next;
         });
       } catch (e) {
