@@ -270,7 +270,7 @@ export default function OwnerDashboard() {
         <>
           <div className="mt-5 flex items-center gap-3 border-b border-zinc-100 pb-px">
             {TABS.map((tb) => (
-              <button key={tb.id} onClick={() => setTab(tb.id)} className={`-mb-px whitespace-nowrap border-b-2 px-2 pb-2 text-sm font-bold transition ${tab === tb.id ? 'border-brand-600 text-brand-700' : 'border-transparent text-zinc-400 hover:text-zinc-600'}`}>{lang === 'ko' ? tb.ko : tb.en}</button>
+              <button key={tb.id} onClick={() => { setTab(tb.id); setSelMemberId(null); }} className={`-mb-px whitespace-nowrap border-b-2 px-2 pb-2 text-sm font-bold transition ${tab === tb.id ? 'border-brand-600 text-brand-700' : 'border-transparent text-zinc-400 hover:text-zinc-600'}`}>{lang === 'ko' ? tb.ko : tb.en}</button>
             ))}
             <span className="ml-auto flex items-center gap-2 text-sm font-extrabold text-zinc-700">{data.storeName}<button onClick={logout} className="rounded-full border border-zinc-200 px-2 py-0.5 text-[11px] font-bold text-zinc-400 hover:text-zinc-600">{t('로그아웃', 'Logout')}</button></span>
           </div>
