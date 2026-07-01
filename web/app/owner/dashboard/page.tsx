@@ -384,54 +384,49 @@ export default function OwnerDashboard() {
             </div>
           )}
 
-          {/* 🔍 고객 — 회원 상세 */}
+          {/* 🔍 고객 — 회원 상세 (사장용: 단순 리스트) */}
           {tab === 'customers' && selMember && (
-            <div className="mt-5">
+            <div className="mx-auto mt-5 max-w-2xl">
               <button onClick={() => setSelMemberId(null)} className="text-sm font-bold text-zinc-500 hover:text-zinc-700">{t('← 회원 명부', '← Members')}</button>
-              <div className="mt-3 grid gap-4 md:grid-cols-2 md:items-start">
-                <section className="ss-card p-6 text-center">
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-brand-100 text-2xl font-black text-brand-700">{(selMember.name || '?').slice(0, 1)}</div>
-                  <h2 className="mt-3 text-xl font-black">{selMember.name || t('손님', 'Guest')}</h2>
-                  <p className="text-sm text-zinc-500">{maskPhone(selMember.phone)}</p>
-                  <div className="mt-5 flex items-center justify-center gap-1.5">
-                    {Array.from({ length: 7 }).map((_, i) => (
-                      <span key={i} className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${i < Math.min(selMember.stamps, 7) ? 'bg-brand-600 text-white' : 'bg-zinc-200 text-zinc-400'}`}>{i < Math.min(selMember.stamps, 7) ? '★' : ''}</span>
-                    ))}
-                  </div>
-                  <div className="mt-2 text-sm font-bold text-zinc-700">{Math.min(selMember.stamps, 7)}/7</div>
-                  <div className="mt-5 flex items-center justify-center gap-3">
-                    <button onClick={() => adjustMemberStamp(selMember.deviceId, selMember.name, -1)} disabled={busy} className="rounded-xl border border-rose-200 bg-white px-5 py-2.5 text-sm font-bold text-rose-600 disabled:opacity-50">{t('－1 차감', '－1 Deduct')}</button>
-                    <button onClick={() => adjustMemberStamp(selMember.deviceId, selMember.name, 1)} disabled={busy} className="ss-btn-primary px-6 py-2.5">{t('＋1 지급', '＋1 Give')}</button>
-                  </div>
-                </section>
-                <section className="ss-card p-6">
-                  <h3 className="text-base font-extrabold">{t('회원 요약', 'Member Summary')}</h3>
-                  <div className="mt-3 space-y-2.5 text-sm">
-                    <div className="flex justify-between border-b border-zinc-50 pb-2"><span className="text-zinc-500">{t('보유 스탬프', 'Stamps')}</span><span className="font-bold">{Math.min(selMember.stamps, 7)}/7</span></div>
-                    <div className="flex justify-between border-b border-zinc-50 pb-2"><span className="text-zinc-500">{t('스탬프 가치', 'Stamp value')}</span><span className="font-bold">${(Math.min(selMember.stamps, 7) * (data.reward / 7)).toFixed(2)}</span></div>
-                    <div className="flex justify-between border-b border-zinc-50 pb-2"><span className="text-zinc-500">{t('캐시 잔액', 'Cash balance')}</span><span className="font-bold text-zinc-700">${selMember.balance.toFixed(2)}</span></div>
-                    <div className="flex justify-between"><span className="text-zinc-500">{t('누적 기부', 'Total donated')}</span><span className="font-bold text-amber-600">${selMember.donated.toFixed(2)}</span></div>
-                  </div>
-                  <p className="mt-4 text-[11px] text-zinc-400">{t('* ＋/− 는 즉시 반영돼요. 7개를 다 채우면 손님이 적립금으로 전환합니다.', '* +/- applies instantly. At 7 stamps the customer redeems the reward.')}</p>
-                </section>
 
-                {memberDonations.length > 0 && (
-                  <section className="ss-card p-6 md:col-span-2">
-                    <h3 className="text-base font-extrabold">{t('기부한 곳', 'Donations')} <span className="text-xs font-medium text-zinc-400">{memberDonations.length}{t('건', '')}</span></h3>
-                    <div className="mt-2 divide-y divide-zinc-100">
+              <div className="ss-card mt-3 divide-y divide-zinc-100 p-0">
+                {/* 이름·전화 + 스탬프 조정 */}
+                <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4">
+                  <div className="min-w-0">
+                    <div className="text-lg font-black leading-tight">{selMember.name || t('손님', 'Guest')}</div>
+                    <div className="text-sm text-zinc-500">{maskPhone(selMember.phone)}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => adjustMemberStamp(selMember.deviceId, selMember.name, -1)} disabled={busy} className="h-8 w-8 rounded-lg border border-zinc-200 text-lg font-bold text-zinc-500 hover:bg-zinc-50 disabled:opacity-40">−</button>
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: 7 }).map((_, i) => (<span key={i} className={`h-2.5 w-2.5 rounded-full ${i < Math.min(selMember.stamps, 7) ? 'bg-brand-600' : 'bg-zinc-200'}`} />))}
+                      <span className="ml-1.5 text-sm font-bold text-zinc-700">{Math.min(selMember.stamps, 7)}/7</span>
+                    </div>
+                    <button onClick={() => adjustMemberStamp(selMember.deviceId, selMember.name, 1)} disabled={busy} className="h-8 w-8 rounded-lg bg-brand-600 text-lg font-bold text-white hover:bg-brand-700 disabled:opacity-40">＋</button>
+                  </div>
+                </div>
+
+                {/* 요약: 라벨 / 값 리스트 */}
+                <div className="flex items-center justify-between px-4 py-3 text-sm"><span className="text-zinc-500">{t('스탬프 가치', 'Stamp value')}</span><span className="font-bold text-zinc-800">${(Math.min(selMember.stamps, 7) * (data.reward / 7)).toFixed(2)}</span></div>
+                <div className="flex items-center justify-between px-4 py-3 text-sm"><span className="text-zinc-500">{t('캐시 잔액', 'Cash balance')}</span><span className="font-bold text-zinc-800">${selMember.balance.toFixed(2)}</span></div>
+                <div className="flex items-center justify-between px-4 py-3 text-sm"><span className="text-zinc-500">{t('누적 기부', 'Total donated')}</span><span className="font-bold text-amber-600">${selMember.donated.toFixed(2)}</span></div>
+
+                {/* 기부 내역 */}
+                <div className="px-4 py-4">
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t('기부 내역', 'Donation history')} · {memberDonations.length}{t('건', '')}</div>
+                  {memberDonations.length === 0 ? (
+                    <p className="mt-2 text-sm text-zinc-400">{t('기부 내역이 없어요.', 'No donations.')}</p>
+                  ) : (
+                    <div className="mt-1.5 divide-y divide-zinc-50">
                       {memberDonations.map((d, i) => (
-                        <div key={i} className="flex items-center justify-between py-2.5 text-sm">
-                          <div>
-                            <span className="font-bold">💛 {d.npoName || t('기부', 'Donation')}</span>
-                            {d.storeName && <span className="ml-1.5 text-zinc-400">· {d.storeName}</span>}
-                            {d.createdAt && <span className="ml-1.5 text-[11px] text-zinc-400">{new Date(d.createdAt).toLocaleDateString()}</span>}
-                          </div>
-                          <span className="font-bold text-amber-600">${(d.amount || 0).toFixed(2)}</span>
+                        <div key={i} className="flex items-center justify-between gap-3 py-2 text-sm">
+                          <div className="min-w-0 truncate"><span className="font-semibold">💛 {d.npoName || t('기부', 'Donation')}</span><span className="ml-1.5 text-[11px] text-zinc-400">{d.storeName ? `${d.storeName} · ` : ''}{d.createdAt ? new Date(d.createdAt).toLocaleDateString() : ''}</span></div>
+                          <span className="shrink-0 font-bold text-amber-600">${(d.amount || 0).toFixed(2)}</span>
                         </div>
                       ))}
                     </div>
-                  </section>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           )}
