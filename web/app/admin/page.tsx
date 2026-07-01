@@ -190,8 +190,11 @@ export default function AdminPage() {
   const totalDonated = customers.reduce((s, c) => s + (c.donated || 0), 0);
   const totalBalance = customers.reduce((s, c) => s + (c.balance || 0), 0);
   const activeMembers = customers.filter((c) => c.name).length;
-  const byNpo = new Map<string, number>();
-  donations.forEach((d) => byNpo.set(d.npoName || '기타', (byNpo.get(d.npoName || '기타') || 0) + (d.amount || 0)));
+  const byNpo = new Map<string, { amount: number; count: number }>();
+  donations.forEach((d) => {
+    const n = d.npoName || '기타'; const cur = byNpo.get(n) || { amount: 0, count: 0 };
+    byNpo.set(n, { amount: cur.amount + (d.amount || 0), count: cur.count + 1 });
+  });
   const pendingCharities = charities.filter((c) => c.source === 'owner' && c.status === 'pending');
   const managed = manageId ? stores.find((s) => s.id === manageId) || null : null;
   const pendingOwners = stores.filter((s) => s.ownerStatus === 'pending');
@@ -230,54 +233,63 @@ export default function AdminPage() {
         {loading && <p className="mt-8 text-center text-sm text-zinc-400">{tr('집계 중…', 'Loading…')}</p>}
 
       {!loading && tab === 'kpi' && (
-        <div className="mt-5">
-          {/* 핵심 지표 — 한 줄 4열 */}
+        <div className="mt-5 space-y-4">
+          {/* 핵심 지표 — 아이콘 + 라벨/값/보조설명, 4개 동일 비중 (옛 SuperAdmin 스타일) */}
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <div className="ss-card bg-brand-600 p-5 text-white">
-              <div className="text-xs font-semibold text-white/80">{tr('플랫폼 총 누적 기부액 💛', 'Platform total donated 💛')}</div>
-              <div className="text-3xl font-black">${totalDonated.toFixed(2)}</div>
-            </div>
-            <Kpi label={tr('매장', 'Stores')} value={stores.length} />
-            <Kpi label={tr('활성 회원', 'Active members')} value={activeMembers} />
-            <Kpi label={tr('미사용 적립금', 'Unused reward')} value={`$${totalBalance.toFixed(0)}`} />
+            <IconKpi icon="💛" tint="brand" label={tr('플랫폼 총 누적 기부액', 'Total Platform Donations')} value={`$${totalDonated.toFixed(2)}`} sub={`${tr('기부 건수', 'Donations')}: ${donations.length}${tr('건', '')}`} />
+            <IconKpi icon="🏪" tint="blue" label={tr('플랫폼 입점 매장', 'Active Stores')} value={tr(`${stores.length}개 매장`, `${stores.length} Stores`)} sub={tr('전체 등록 매장 수', 'Total registered stores')} />
+            <IconKpi icon="👥" tint="green" label={tr('적립 활성 회원', 'Active Members')} value={tr(`${activeMembers}명`, `${activeMembers} Members`)} sub={tr('총 가입 유저 수', 'Total registered members')} />
+            <IconKpi icon="🪙" tint="purple" label={tr('미사용 적립금', 'Unused Reward')} value={`$${totalBalance.toFixed(0)}`} sub={tr('회원 보유 미사용 캐시', 'Cash balances held by members')} />
           </div>
 
-          {/* 승인 대기 액션(점주+기부단체) + NPO 분포 — 관련 항목끼리 묶어 나란히 */}
-          <div className="mt-4 grid gap-4 xl:grid-cols-3">
-            <section className="ss-card p-5 xl:col-span-2">
-              <h3 className="text-base font-extrabold">{tr('⏳ 승인 대기 액션', '⏳ Pending Actions')} {(pendingOwners.length + pendingCharities.length) > 0 && <span className="text-rose-500">({pendingOwners.length + pendingCharities.length})</span>}</h3>
-              {pendingOwners.length === 0 && pendingCharities.length === 0 ? (
-                <p className="mt-2 text-sm text-zinc-400">{tr('승인 대기 중인 항목이 없어요.', 'Nothing pending approval.')}</p>
-              ) : (
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  {pendingOwners.map((s) => (
-                    <div key={s.id} onClick={() => { setTab('stores'); openManage(s); }} className="cursor-pointer rounded-xl border border-amber-200 bg-amber-50/40 p-3 hover:bg-amber-50">
-                      <div className="text-[11px] font-bold text-amber-600">{tr('점주 인증', 'Owner claim')}</div>
+          {/* 승인 대기 액션 — 풀와이드 (점주 인증 + 기부단체, 클릭 시 해당 탭으로) */}
+          <section className="ss-card p-5">
+            <h3 className="border-b border-zinc-100 pb-3 text-base font-extrabold">{tr('⏳ 승인 대기 액션', '⏳ Pending Actions')} {(pendingOwners.length + pendingCharities.length) > 0 && <span className="text-rose-500">({pendingOwners.length + pendingCharities.length})</span>}</h3>
+            {pendingOwners.length === 0 && pendingCharities.length === 0 ? (
+              <p className="mt-3 text-sm text-zinc-400">{tr('승인 대기 중인 항목이 없어요.', 'Nothing pending approval.')}</p>
+            ) : (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {pendingOwners.map((s) => (
+                  <div key={s.id} onClick={() => { setTab('stores'); openManage(s); }} className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-zinc-100 bg-zinc-50 p-3 hover:bg-amber-50">
+                    <div className="min-w-0">
                       <div className="text-sm font-bold">{s.name}</div>
                       <div className="text-xs text-zinc-500">{tr('사장', 'Owner')} {s.ownerName || '—'}</div>
                     </div>
-                  ))}
-                  {pendingCharities.map((c) => (
-                    <div key={`${c.storeId}_${c.id}`} onClick={() => setTab('charities')} className="cursor-pointer rounded-xl border border-brand-200 bg-brand-50/40 p-3 hover:bg-brand-50">
-                      <div className="text-[11px] font-bold text-brand-600">{tr('기부 단체', 'Charity')}</div>
+                    <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">{tr('점주 인증', 'Owner')}</span>
+                  </div>
+                ))}
+                {pendingCharities.map((c) => (
+                  <div key={`${c.storeId}_${c.id}`} onClick={() => setTab('charities')} className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-zinc-100 bg-zinc-50 p-3 hover:bg-brand-50">
+                    <div className="min-w-0">
                       <div className="text-sm font-bold">{c.name}</div>
                       <div className="text-xs text-zinc-500">{storeName(c.storeId)}</div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </section>
-            <section className="ss-card p-5">
-              <h3 className="text-base font-extrabold">{tr('NPO별 기부 분포', 'Donations by NPO')}</h3>
-              {byNpo.size === 0 ? <p className="mt-2 text-sm text-zinc-400">{tr('아직 기부 내역이 없어요.', 'No donations yet.')}</p> : (
-                <div className="mt-2 space-y-1.5">
-                  {[...byNpo.entries()].sort((a, b) => b[1] - a[1]).map(([n, v]) => (
-                    <div key={n} className="flex justify-between text-sm"><span className="text-zinc-600">{n}</span><span className="font-bold text-amber-600">${v.toFixed(2)}</span></div>
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
+                    <span className="shrink-0 rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-bold text-brand-700">{tr('기부 단체', 'Charity')}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* NPO별 누적 모금 현황 — 풀와이드 리스트 (옛 SuperAdmin 스타일) */}
+          <section className="ss-card p-5">
+            <h3 className="border-b border-zinc-100 pb-3 text-base font-extrabold">🎗️ {tr('비영리 단체(NPO)별 누적 모금 현황', 'Cumulative Donations by NPO')}</h3>
+            {byNpo.size === 0 ? (
+              <p className="mt-3 text-sm text-zinc-400">{tr('아직 기부 내역이 없어요.', 'No donations yet.')}</p>
+            ) : (
+              <div className="mt-3 space-y-2">
+                {[...byNpo.entries()].sort((a, b) => b[1].amount - a[1].amount).map(([n, v]) => (
+                  <div key={n} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-100 bg-zinc-50 p-3.5">
+                    <strong className="text-[15px]">{n}</strong>
+                    <div className="text-right">
+                      <div className="text-lg font-black text-brand-700">${v.amount.toFixed(2)}</div>
+                      <span className="text-xs text-zinc-500">{tr('기부 건수', 'Donations')}: {v.count}{tr('건', '')}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </div>
       )}
 
@@ -647,11 +659,23 @@ export default function AdminPage() {
   );
 }
 
-function Kpi({ label, value }: { label: string; value: number | string }) {
+const TINTS = {
+  brand: 'bg-brand-50 text-brand-700',
+  blue: 'bg-sky-50 text-sky-600',
+  green: 'bg-emerald-50 text-emerald-600',
+  purple: 'bg-purple-50 text-purple-600',
+} as const;
+
+// 옛 SuperAdmin KPI 카드 스타일: 아이콘(색상 박스) + 라벨/값/보조설명, 4개 동일 비중.
+function IconKpi({ icon, tint, label, value, sub }: { icon: string; tint: keyof typeof TINTS; label: string; value: string; sub: string }) {
   return (
-    <div className="ss-card bg-brand-50/60 p-3 text-center">
-      <div className="text-[11px] font-semibold text-zinc-500">{label}</div>
-      <div className="text-xl font-black text-brand-700">{value}</div>
+    <div className="ss-card flex items-center gap-4 p-4">
+      <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl ${TINTS[tint]}`}>{icon}</div>
+      <div className="min-w-0">
+        <div className="text-[13px] font-semibold text-zinc-500">{label}</div>
+        <div className="mt-0.5 truncate text-xl font-black text-zinc-800">{value}</div>
+        <div className="mt-0.5 truncate text-[11px] text-zinc-400">{sub}</div>
+      </div>
     </div>
   );
 }
