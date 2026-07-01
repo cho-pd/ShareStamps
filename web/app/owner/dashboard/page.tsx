@@ -6,7 +6,6 @@ import { getDb } from '@/lib/firebase';
 import { SITE_URL } from '@/lib/stores';
 import { collection, getDocs, getDoc, collectionGroup, doc, setDoc, deleteDoc, query, where, limit } from 'firebase/firestore';
 
-const normPhone = (p: string) => p.replace(/[^0-9]/g, '');
 
 // 옛 OwnerDashboard 4탭 구성 차용(기프트카드 제외) · 태블릿/PC 레이아웃: 📊오버뷰 · 🔍고객 · 📈정산 · 🏠미니홈피.
 
@@ -52,7 +51,6 @@ export default function OwnerDashboard() {
   const [desc, setDesc] = useState('');
   const [sns, setSns] = useState<string[]>([]);
   const [newItem, setNewItem] = useState({ name: '', price: '', signature: false });
-  const [stampPhone, setStampPhone] = useState('');
   const [cbMenu, setCbMenu] = useState(''); const [cbReview, setCbReview] = useState('');
   const [faqs, setFaqs] = useState<{ q: string; a: string }[]>([]);
   const [custQ, setCustQ] = useState('');
@@ -185,28 +183,6 @@ export default function OwnerDashboard() {
     } catch { flash(t('처리 실패', 'Failed.')); } finally { setBusy(false); }
   };
 
-  // 회원 스탬프 직접 지급/차감 (전화번호로)
-  const adjustStamp = async (delta: number) => {
-    if (!data) return;
-    const phone = normPhone(stampPhone);
-    if (phone.length < 8) { flash(t('회원 전화번호를 입력해 주세요.', 'Enter the member phone number.')); return; }
-    setBusy(true);
-    try {
-      const db = getDb();
-      const idx = await getDoc(doc(db, 'phoneIndex', phone));
-      if (!idx.exists()) { flash(t('해당 번호의 회원을 찾지 못했어요. (회원 가입 필요)', 'No member found for that number. (sign-up required)')); setBusy(false); return; }
-      const did = idx.data().deviceId as string;
-      const cardRef = doc(db, 'stores', data.storeId, 'stampCards', did);
-      const snap = await getDoc(cardRef);
-      const cur = snap.exists() ? ((snap.data().currentStamps as number) || 0) : 0;
-      const next = Math.max(0, Math.min(7, cur + delta));
-      const now = new Date().toISOString();
-      await setDoc(cardRef, { deviceId: did, currentStamps: next, updatedAt: now }, { merge: true });
-      await setDoc(doc(db, 'customers', did, 'cards', data.storeId), { storeId: data.storeId, storeName: data.storeName, slug: data.slug, currentStamps: next, reward: data.reward, currency: 'USD', interval: data.interval, updatedAt: now }, { merge: true });
-      flash(`${idx.data().name || t('회원', 'Member')}: ${delta > 0 ? '+' : ''}${delta} → ${next}/7`);
-      await load(data.slug);
-    } catch { flash(t('처리 실패', 'Failed.')); } finally { setBusy(false); }
-  };
   // 사장 지정 기부단체 등록(본사 승인 대기)
   const saveOwnerCharity = async (slot: number) => {
     if (!data) return;
@@ -358,14 +334,6 @@ export default function OwnerDashboard() {
                   <span className="text-zinc-500">7/7 {data.members.filter((m) => m.stamps >= 7).length}</span>
                 </div>
                 <input value={custQ} onChange={(e) => setCustQ(e.target.value)} placeholder={t('이름·전화 검색', 'Search name/phone')} className="ss-input w-full max-w-xs" />
-              </div>
-
-              <div className="ss-card mt-3 flex flex-wrap items-center gap-2 p-3">
-                <span className="text-xs font-bold text-zinc-600">{t('전화번호로 지급/차감', 'By phone')}</span>
-                <input value={stampPhone} onChange={(e) => setStampPhone(e.target.value)} placeholder="000-000-0000" inputMode="tel" className="ss-input h-9 w-44 py-1.5" />
-                <button onClick={() => adjustStamp(1)} disabled={busy} className="ss-btn-primary px-3 py-1.5 text-sm">{t('＋1 지급', '＋1')}</button>
-                <button onClick={() => adjustStamp(-1)} disabled={busy} className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-sm font-bold text-rose-600 disabled:opacity-50">{t('－1 차감', '−1')}</button>
-                <span className="text-[11px] text-zinc-400">{t('명부에 없는 회원도 전화로 지급돼요.', 'Also onboards members not in the list.')}</span>
               </div>
 
               <div className="ss-card mt-3 overflow-x-auto p-0">
