@@ -55,6 +55,7 @@ export default function OwnerDashboard() {
   const [faqs, setFaqs] = useState<{ q: string; a: string }[]>([]);
   const [custQ, setCustQ] = useState('');
   const [selMemberId, setSelMemberId] = useState<string | null>(null);
+  const [memberDonations, setMemberDonations] = useState<{ npoName?: string; storeName?: string; amount: number; createdAt: string }[]>([]);
   const maskPhone = (p?: string) => { if (!p) return '—'; const d = p.replace(/\D/g, ''); return d.length >= 4 ? `···${d.slice(-4)}` : d; };
   const [ownerCh, setOwnerCh] = useState<{ name: string; linkUrl: string }[]>([{ name: '', linkUrl: '' }, { name: '', linkUrl: '' }]);
   const [lang, setLang] = useState<'ko' | 'en'>('ko');
@@ -102,6 +103,22 @@ export default function OwnerDashboard() {
     } catch {}
     // eslint-disable-next-line
   }, []);
+
+  // 회원 상세 열 때 그 회원의 기부 내역 로드 (customers/{deviceId}/donations)
+  useEffect(() => {
+    if (!selMemberId) { setMemberDonations([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await getDocs(collection(getDb(), 'customers', selMemberId, 'donations'));
+        if (cancelled) return;
+        setMemberDonations(snap.docs
+          .map((d) => d.data() as { npoName?: string; storeName?: string; amount: number; createdAt: string })
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      } catch { if (!cancelled) setMemberDonations([]); }
+    })();
+    return () => { cancelled = true; };
+  }, [selMemberId]);
 
   const load = async (s: string) => {
     const target = s.trim(); if (!target) return;
@@ -397,6 +414,24 @@ export default function OwnerDashboard() {
                   </div>
                   <p className="mt-4 text-[11px] text-zinc-400">{t('* ＋/− 는 즉시 반영돼요. 7개를 다 채우면 손님이 적립금으로 전환합니다.', '* +/- applies instantly. At 7 stamps the customer redeems the reward.')}</p>
                 </section>
+
+                {memberDonations.length > 0 && (
+                  <section className="ss-card p-6 md:col-span-2">
+                    <h3 className="text-base font-extrabold">{t('기부한 곳', 'Donations')} <span className="text-xs font-medium text-zinc-400">{memberDonations.length}{t('건', '')}</span></h3>
+                    <div className="mt-2 divide-y divide-zinc-100">
+                      {memberDonations.map((d, i) => (
+                        <div key={i} className="flex items-center justify-between py-2.5 text-sm">
+                          <div>
+                            <span className="font-bold">💛 {d.npoName || t('기부', 'Donation')}</span>
+                            {d.storeName && <span className="ml-1.5 text-zinc-400">· {d.storeName}</span>}
+                            {d.createdAt && <span className="ml-1.5 text-[11px] text-zinc-400">{new Date(d.createdAt).toLocaleDateString()}</span>}
+                          </div>
+                          <span className="font-bold text-amber-600">${(d.amount || 0).toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
               </div>
             </div>
           )}
