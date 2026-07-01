@@ -207,8 +207,8 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-7xl">
-      <aside className="w-56 shrink-0 border-r border-zinc-200 bg-white px-3 py-6">
+    <div className="mx-auto flex min-h-dvh w-full max-w-[1680px]">
+      <aside className="w-60 shrink-0 border-r border-zinc-200 bg-white px-3 py-6">
         <div className="px-2">
           <div className="text-base font-black leading-tight">{tr('🏢 본사 관리자', '🏢 HQ Admin')}</div>
           <div className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">HQ Console</div>
@@ -225,32 +225,58 @@ export default function AdminPage() {
         </nav>
       </aside>
 
-      <main className="min-w-0 flex-1 px-8 py-7">
+      <main className="min-w-0 flex-1 px-10 py-8">
         <h1 className="text-xl font-black tracking-tight">{curTab ? (lang === 'ko' ? curTab.ko : curTab.en) : ''}</h1>
         {loading && <p className="mt-8 text-center text-sm text-zinc-400">{tr('집계 중…', 'Loading…')}</p>}
 
       {!loading && tab === 'kpi' && (
-        <div className="mt-5 grid gap-4 md:grid-cols-2 md:items-start">
-          <div>
+        <div className="mt-5">
+          {/* 핵심 지표 — 한 줄 4열 */}
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             <div className="ss-card bg-brand-600 p-5 text-white">
               <div className="text-xs font-semibold text-white/80">{tr('플랫폼 총 누적 기부액 💛', 'Platform total donated 💛')}</div>
               <div className="text-3xl font-black">${totalDonated.toFixed(2)}</div>
             </div>
-            <div className="mt-4 grid grid-cols-3 gap-3">
-              <Kpi label={tr('매장', 'Stores')} value={stores.length} />
-              <Kpi label={tr('활성 회원', 'Active members')} value={activeMembers} />
-              <Kpi label={tr('미사용 적립금', 'Unused reward')} value={`$${totalBalance.toFixed(0)}`} />
-            </div>
+            <Kpi label={tr('매장', 'Stores')} value={stores.length} />
+            <Kpi label={tr('활성 회원', 'Active members')} value={activeMembers} />
+            <Kpi label={tr('미사용 적립금', 'Unused reward')} value={`$${totalBalance.toFixed(0)}`} />
           </div>
-          <div className="ss-card p-5">
-            <h3 className="text-base font-extrabold">{tr('NPO별 기부 분포', 'Donations by NPO')}</h3>
-            {byNpo.size === 0 ? <p className="mt-2 text-sm text-zinc-400">{tr('아직 기부 내역이 없어요.', 'No donations yet.')}</p> : (
-              <div className="mt-2 space-y-1.5">
-                {[...byNpo.entries()].sort((a, b) => b[1] - a[1]).map(([n, v]) => (
-                  <div key={n} className="flex justify-between text-sm"><span className="text-zinc-600">{n}</span><span className="font-bold text-amber-600">${v.toFixed(2)}</span></div>
-                ))}
-              </div>
-            )}
+
+          {/* 승인 대기 액션(점주+기부단체) + NPO 분포 — 관련 항목끼리 묶어 나란히 */}
+          <div className="mt-4 grid gap-4 xl:grid-cols-3">
+            <section className="ss-card p-5 xl:col-span-2">
+              <h3 className="text-base font-extrabold">{tr('⏳ 승인 대기 액션', '⏳ Pending Actions')} {(pendingOwners.length + pendingCharities.length) > 0 && <span className="text-rose-500">({pendingOwners.length + pendingCharities.length})</span>}</h3>
+              {pendingOwners.length === 0 && pendingCharities.length === 0 ? (
+                <p className="mt-2 text-sm text-zinc-400">{tr('승인 대기 중인 항목이 없어요.', 'Nothing pending approval.')}</p>
+              ) : (
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {pendingOwners.map((s) => (
+                    <div key={s.id} onClick={() => { setTab('stores'); openManage(s); }} className="cursor-pointer rounded-xl border border-amber-200 bg-amber-50/40 p-3 hover:bg-amber-50">
+                      <div className="text-[11px] font-bold text-amber-600">{tr('점주 인증', 'Owner claim')}</div>
+                      <div className="text-sm font-bold">{s.name}</div>
+                      <div className="text-xs text-zinc-500">{tr('사장', 'Owner')} {s.ownerName || '—'}</div>
+                    </div>
+                  ))}
+                  {pendingCharities.map((c) => (
+                    <div key={`${c.storeId}_${c.id}`} onClick={() => setTab('charities')} className="cursor-pointer rounded-xl border border-brand-200 bg-brand-50/40 p-3 hover:bg-brand-50">
+                      <div className="text-[11px] font-bold text-brand-600">{tr('기부 단체', 'Charity')}</div>
+                      <div className="text-sm font-bold">{c.name}</div>
+                      <div className="text-xs text-zinc-500">{storeName(c.storeId)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+            <section className="ss-card p-5">
+              <h3 className="text-base font-extrabold">{tr('NPO별 기부 분포', 'Donations by NPO')}</h3>
+              {byNpo.size === 0 ? <p className="mt-2 text-sm text-zinc-400">{tr('아직 기부 내역이 없어요.', 'No donations yet.')}</p> : (
+                <div className="mt-2 space-y-1.5">
+                  {[...byNpo.entries()].sort((a, b) => b[1] - a[1]).map(([n, v]) => (
+                    <div key={n} className="flex justify-between text-sm"><span className="text-zinc-600">{n}</span><span className="font-bold text-amber-600">${v.toFixed(2)}</span></div>
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
         </div>
       )}
@@ -329,7 +355,7 @@ export default function AdminPage() {
           </div>
           <p className="mt-1 text-[11px] text-zinc-400">{tr('사장이 직접 처리 못하는 설정(적립·메뉴·미니홈 등)을 본사 관리팀이 사장 페이지에서 대신 처리.', 'HQ can handle settings the owner cannot (rewards, menu, mini-home) via the owner page.')}</p>
 
-          <div className="mt-4 grid gap-4 md:grid-cols-2 md:items-start">
+          <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3 xl:items-start">
             <section className="ss-card p-5">
               <h3 className="text-base font-extrabold">{tr('기본 정보', 'Basic Info')}</h3>
               <div className="mt-1 grid grid-cols-2 gap-3">
@@ -365,23 +391,30 @@ export default function AdminPage() {
               </div>
             </section>
 
-            <section className="ss-card p-5">
-              <h3 className="text-base font-extrabold">{tr('특이사항 (메모)', 'Notes (memo)')}</h3>
-              <textarea value={mf.memo} onChange={(e) => set('memo', e.target.value)} className="ss-input mt-1 min-h-24" placeholder={tr('가맹점 운영 메모·특이사항…', 'Franchise notes…')} />
-              <div className="mt-4 rounded-xl bg-zinc-50 p-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-bold">{tr('점주 인증', 'Owner Verification')}</div>
-                  {managed?.ownerStatus === 'approved' ? <span className="rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700">{tr('승인됨', 'Approved')}</span>
-                    : managed?.ownerStatus === 'pending' ? <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">{tr('승인 대기', 'Pending')}</span>
-                    : <span className="rounded bg-zinc-100 px-2 py-0.5 text-[11px] font-bold text-zinc-400">{tr('미신청', 'None')}</span>}
+            <section className="ss-card p-5 md:col-span-2 xl:col-span-3">
+              <div className="grid gap-5 md:grid-cols-2">
+                <div>
+                  <h3 className="text-base font-extrabold">{tr('특이사항 (메모)', 'Notes (memo)')}</h3>
+                  <textarea value={mf.memo} onChange={(e) => set('memo', e.target.value)} className="ss-input mt-1 min-h-24" placeholder={tr('가맹점 운영 메모·특이사항…', 'Franchise notes…')} />
                 </div>
-                <div className="mt-1 text-xs text-zinc-500">{managed?.ownerName ? `${tr('사장', 'Owner')}: ${managed.ownerName}` : tr('아직 점주 신청이 없어요.', 'No owner claim yet.')}</div>
-                {managed?.ownerStatus === 'pending' && (
-                  <div className="mt-2 flex gap-2">
-                    <button onClick={() => rejectOwner(managed)} className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-bold text-zinc-500">{tr('반려', 'Reject')}</button>
-                    <button onClick={() => approveOwner(managed)} className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white">{tr('승인', 'Approve')}</button>
+                <div>
+                  <h3 className="text-base font-extrabold">{tr('점주 인증', 'Owner Verification')}</h3>
+                  <div className="mt-1 rounded-xl bg-zinc-50 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-bold">{managed?.ownerName || tr('미신청', 'Not applied')}</div>
+                      {managed?.ownerStatus === 'approved' ? <span className="rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700">{tr('승인됨', 'Approved')}</span>
+                        : managed?.ownerStatus === 'pending' ? <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">{tr('승인 대기', 'Pending')}</span>
+                        : <span className="rounded bg-zinc-100 px-2 py-0.5 text-[11px] font-bold text-zinc-400">{tr('미신청', 'None')}</span>}
+                    </div>
+                    {!managed?.ownerName && <div className="mt-1 text-xs text-zinc-500">{tr('아직 점주 신청이 없어요.', 'No owner claim yet.')}</div>}
+                    {managed?.ownerStatus === 'pending' && (
+                      <div className="mt-2 flex gap-2">
+                        <button onClick={() => rejectOwner(managed)} className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-bold text-zinc-500">{tr('반려', 'Reject')}</button>
+                        <button onClick={() => approveOwner(managed)} className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white">{tr('승인', 'Approve')}</button>
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
             </section>
           </div>
@@ -453,55 +486,59 @@ export default function AdminPage() {
       )}
 
       {!loading && tab === 'users' && (
-        <div className="mt-5 grid gap-2 md:grid-cols-2">
-          {customers.filter((c) => c.name).map((c) => (
-            <div key={c.id} className="ss-card flex items-center justify-between p-4">
-              <div><div className="font-bold">{c.name}</div><div className="text-xs text-zinc-500">{c.phone || '—'}</div></div>
-              <div className="text-right text-xs"><div className="font-bold text-rose-500">{tr('잔액', 'Balance')} ${(c.balance || 0).toFixed(2)}</div><div className="text-amber-600">{tr('기부', 'Donated')} ${(c.donated || 0).toFixed(2)}</div></div>
-            </div>
-          ))}
-          {customers.filter((c) => c.name).length === 0 && <p className="text-center text-sm text-zinc-400">{tr('가입 회원이 없어요.', 'No members yet.')}</p>}
+        <div className="mt-5">
+          <p className="text-sm text-zinc-500">{tr('총', 'Total')} <b className="text-zinc-700">{customers.filter((c) => c.name).length}</b>{tr('명 가입', ' members')}</p>
+          <div className="ss-card mt-3 overflow-x-auto p-0">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200 text-left text-[11px] font-bold uppercase tracking-wide text-zinc-400">
+                  <th className="px-3 py-3">{tr('이름', 'Name')}</th>
+                  <th className="px-3 py-3">{tr('전화', 'Phone')}</th>
+                  <th className="px-3 py-3">{tr('잔액', 'Balance')}</th>
+                  <th className="px-3 py-3">{tr('기부', 'Donated')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {customers.filter((c) => c.name).map((c) => (
+                  <tr key={c.id} className="border-b border-zinc-100">
+                    <td className="px-3 py-2.5 font-bold">{c.name}</td>
+                    <td className="px-3 py-2.5 text-zinc-600">{c.phone || '—'}</td>
+                    <td className="px-3 py-2.5 font-bold text-rose-500">${(c.balance || 0).toFixed(2)}</td>
+                    <td className="px-3 py-2.5 font-bold text-amber-600">${(c.donated || 0).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {customers.filter((c) => c.name).length === 0 && <p className="py-5 text-center text-sm text-zinc-400">{tr('가입 회원이 없어요.', 'No members yet.')}</p>}
+          </div>
         </div>
       )}
 
       {!loading && tab === 'message' && (
-        <div className="mt-5 max-w-3xl">
-          <div className="ss-card p-5">
+        <div className="mt-5">
+          <div className="ss-card max-w-md p-5">
             <label className="ss-label">{tr('매장 선택', 'Select store')}</label>
             <select value={msgStoreId} onChange={(e) => pickMsgStore(e.target.value)} className="ss-input">
               <option value="">{tr('매장 선택…', 'Select store…')}</option>
               {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
-            {msgStoreId && (
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-bold">{tr('수신자', 'Recipients')} <b className="text-brand-700">{msgMembers.length}</b>{tr('명', '')}</span>
-                {msgMembers.length > 0 && (
-                  <>
-                    <button onClick={() => copyText(msgMembers.map((m) => m.phone).join('\n'), tr('번호 복사됨 ✓', 'Phones copied ✓'))} className="ss-chip">{tr('번호 복사', 'Copy phones')}</button>
-                    <button onClick={downloadCsv} className="ss-chip">{tr('CSV 다운로드', 'CSV')}</button>
-                  </>
-                )}
-              </div>
-            )}
           </div>
 
           {msgStoreId && (
-            <>
-              <section className="ss-card mt-4 p-5">
-                <h3 className="text-base font-extrabold">{tr('메시지', 'Message')}</h3>
-                <textarea value={msgText} onChange={(e) => setMsgText(e.target.value)} className="ss-input mt-2 min-h-28" placeholder={tr('회원에게 보낼 문자 내용…', 'Message to send to members…')} />
-                <div className="mt-1 flex items-center justify-between text-[11px] text-zinc-400">
-                  <span>{msgText.length}{tr('자', ' chars')}</span>
-                  <button onClick={() => copyText(msgText, tr('메시지 복사됨 ✓', 'Message copied ✓'))} className="font-bold text-brand-600">{tr('메시지 복사', 'Copy message')}</button>
+            <div className="mt-4 grid gap-4 xl:grid-cols-3">
+              {/* 좌: 수신자 (매장과 직결된 정보라 함께) */}
+              <section className="ss-card p-0 xl:col-span-1">
+                <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3">
+                  <span className="text-sm font-bold">{tr('수신자', 'Recipients')} <b className="text-brand-700">{msgMembers.length}</b>{tr('명', '')}</span>
+                  {msgMembers.length > 0 && (
+                    <div className="flex gap-1.5">
+                      <button onClick={() => copyText(msgMembers.map((m) => m.phone).join('\n'), tr('번호 복사됨 ✓', 'Phones copied ✓'))} className="ss-chip">{tr('번호 복사', 'Copy')}</button>
+                      <button onClick={downloadCsv} className="ss-chip">CSV</button>
+                    </div>
+                  )}
                 </div>
-                <button onClick={() => flash(tr('SMS 게이트웨이 연동 후 실제 발송돼요. 지금은 번호·메시지 복사로 발송하세요.', 'SMS gateway pending — copy phones & message to send externally for now.'))} disabled={!msgText.trim() || msgMembers.length === 0} className="ss-btn-primary mt-3 w-full max-w-xs disabled:opacity-50">{tr('일괄 발송', 'Send blast')} ({msgMembers.length})</button>
-                <p className="mt-2 text-[11px] text-zinc-400">{tr('* 본사 전용. 실제 발송은 SMS 게이트웨이(예: Twilio) 연동 후 활성화돼요.', '* HQ only. Actual sending activates after SMS gateway (e.g. Twilio) integration.')}</p>
-              </section>
-
-              <section className="ss-card mt-4 p-0">
-                <div className="border-b border-zinc-100 px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-zinc-400">{tr('수신자 목록', 'Recipient list')}</div>
-                {msgMembers.length === 0 ? <p className="py-4 text-center text-sm text-zinc-400">{tr('전화번호가 있는 회원이 없어요.', 'No members with a phone.')}</p> : (
-                  <div className="max-h-72 divide-y divide-zinc-50 overflow-y-auto">
+                {msgMembers.length === 0 ? <p className="py-6 text-center text-sm text-zinc-400">{tr('전화번호가 있는 회원이 없어요.', 'No members with a phone.')}</p> : (
+                  <div className="max-h-[420px] divide-y divide-zinc-50 overflow-y-auto">
                     {msgMembers.map((m, i) => (
                       <div key={i} className="flex items-center justify-between px-4 py-2 text-sm">
                         <span className="font-semibold">{m.name}</span>
@@ -511,7 +548,19 @@ export default function AdminPage() {
                   </div>
                 )}
               </section>
-            </>
+
+              {/* 우: 메시지 작성+발송 (수신자 대상 확정 후 바로 옆에서 작성) */}
+              <section className="ss-card p-5 xl:col-span-2">
+                <h3 className="text-base font-extrabold">{tr('메시지 작성', 'Compose Message')}</h3>
+                <textarea value={msgText} onChange={(e) => setMsgText(e.target.value)} className="ss-input mt-2 min-h-40" placeholder={tr('회원에게 보낼 문자 내용…', 'Message to send to members…')} />
+                <div className="mt-1 flex items-center justify-between text-[11px] text-zinc-400">
+                  <span>{msgText.length}{tr('자', ' chars')}</span>
+                  <button onClick={() => copyText(msgText, tr('메시지 복사됨 ✓', 'Message copied ✓'))} className="font-bold text-brand-600">{tr('메시지 복사', 'Copy message')}</button>
+                </div>
+                <button onClick={() => flash(tr('SMS 게이트웨이 연동 후 실제 발송돼요. 지금은 번호·메시지 복사로 발송하세요.', 'SMS gateway pending — copy phones & message to send externally for now.'))} disabled={!msgText.trim() || msgMembers.length === 0} className="ss-btn-primary mt-3 w-full max-w-xs disabled:opacity-50">{tr('일괄 발송', 'Send blast')} ({msgMembers.length})</button>
+                <p className="mt-2 text-[11px] text-zinc-400">{tr('* 본사 전용. 실제 발송은 SMS 게이트웨이(예: Twilio) 연동 후 활성화돼요.', '* HQ only. Actual sending activates after SMS gateway (e.g. Twilio) integration.')}</p>
+              </section>
+            </div>
           )}
         </div>
       )}
