@@ -12,7 +12,7 @@ import { collection, getDocs, getDoc, collectionGroup, doc, setDoc, deleteDoc, q
 type Review = { author: string; rating: number; comment: string; createdAt: string };
 type MenuItem = { id: string; name: string; price: number; signature?: boolean; description?: string; category?: string };
 type Cardholder = { name: string; phone?: string; stamps: number };
-type Member = { deviceId: string; name: string; phone?: string; stamps: number; balance: number; donated: number; suspended?: boolean };
+type Member = { deviceId: string; name: string; phone?: string; stamps: number; balance: number; donated: number; suspended?: boolean; memo?: string; allergy?: string };
 type Donation = { npoName?: string; amount: number; createdAt: string };
 type Charity = { id: string; name: string; linkUrl?: string; source: 'owner' | 'hq'; status: 'pending' | 'approved' | 'rejected' };
 type Loaded = {
@@ -57,6 +57,7 @@ export default function OwnerDashboard() {
   const [selMemberId, setSelMemberId] = useState<string | null>(null);
   const [showAddMember, setShowAddMember] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [memoDraft, setMemoDraft] = useState(''); const [allergyDraft, setAllergyDraft] = useState('');
   const [newMemberName, setNewMemberName] = useState(''); const [newMemberPhone, setNewMemberPhone] = useState('');
   const normPhone = (p: string) => p.replace(/\D/g, '');
   const [memberDonations, setMemberDonations] = useState<{ npoName?: string; storeName?: string; amount: number; createdAt: string }[]>([]);
@@ -162,7 +163,7 @@ export default function OwnerDashboard() {
         .filter((c) => c.stamps > 0).sort((a, b) => b.stamps - a.stamps);
       // 회원 명부: 이 매장에 카드가 있는 모든 회원(스탬프 0 포함)
       const members: Member[] = cardsSnap.docs
-        .map((d) => { const c = custMap.get(d.id) || {}; return { deviceId: d.id, name: c.name || '', phone: c.phone, stamps: (d.data().currentStamps as number) || 0, balance: c.balance || 0, donated: c.donated || 0, suspended: !!d.data().suspended }; })
+        .map((d) => { const c = custMap.get(d.id) || {}; return { deviceId: d.id, name: c.name || '', phone: c.phone, stamps: (d.data().currentStamps as number) || 0, balance: c.balance || 0, donated: c.donated || 0, suspended: !!d.data().suspended, memo: (d.data().memo as string) || '', allergy: (d.data().allergy as string) || '' }; })
         .sort((a, b) => b.stamps - a.stamps || (b.balance - a.balance));
       const donations: Donation[] = (donSnap?.docs ?? [])
         .map((d) => d.data() as Donation & { storeId?: string })
@@ -258,6 +259,17 @@ export default function OwnerDashboard() {
       setSelMemberId(null);
       await load(data.slug);
     } catch { flash(t('삭제 실패', 'Delete failed.')); } finally { setBusy(false); }
+  };
+
+  // 회원 메모(특이사항)·알러지 저장 — 이 매장 카드 기준
+  const saveMemberNotes = async (deviceId: string) => {
+    if (!data) return;
+    setBusy(true);
+    try {
+      await setDoc(doc(getDb(), 'stores', data.storeId, 'stampCards', deviceId), { memo: memoDraft.trim(), allergy: allergyDraft.trim(), updatedAt: new Date().toISOString() }, { merge: true });
+      flash(t('저장됐어요 ✓', 'Saved ✓'));
+      await load(data.slug);
+    } catch { flash(t('저장 실패', 'Save failed.')); } finally { setBusy(false); }
   };
 
   // 사장 지정 기부단체 등록(본사 승인 대기)
@@ -447,8 +459,13 @@ export default function OwnerDashboard() {
                   </thead>
                   <tbody>
                     {filteredMembers.map((m) => (
-                      <tr key={m.deviceId} onClick={() => { setSelMemberId(m.deviceId); setConfirmDelete(false); }} className={`cursor-pointer border-b border-zinc-100 hover:bg-zinc-50 ${m.suspended ? 'opacity-50' : ''}`}>
-                        <td className="px-3 py-2.5 font-bold text-brand-700 hover:underline">{m.name || t('손님', 'Guest')}{m.suspended && <span className="ml-1.5 rounded bg-zinc-200 px-1.5 py-0.5 align-middle text-[10px] font-bold text-zinc-500">{t('정지', 'Suspended')}</span>}</td>
+                      <tr key={m.deviceId} onClick={() => { setSelMemberId(m.deviceId); setConfirmDelete(false); setMemoDraft(m.memo || ''); setAllergyDraft(m.allergy || ''); }} className={`cursor-pointer border-b border-zinc-100 hover:bg-zinc-50 ${m.suspended ? 'opacity-50' : ''}`}>
+                        <td className="px-3 py-2.5 font-bold text-brand-700 hover:underline">
+                          {m.name || t('손님', 'Guest')}
+                          {m.suspended && <span className="ml-1.5 rounded bg-zinc-200 px-1.5 py-0.5 align-middle text-[10px] font-bold text-zinc-500">{t('정지', 'Suspended')}</span>}
+                          {m.allergy && <span className="ml-1.5 align-middle" title={m.allergy}>⚠️</span>}
+                          {m.memo && <span className="ml-1 align-middle" title={m.memo}>📝</span>}
+                        </td>
                         <td className="px-3 py-2.5 text-zinc-500">{fmtPhone(m.phone)}</td>
                         <td className="px-3 py-2.5"><span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">⭐ {Math.min(m.stamps, 7)}/7</span></td>
                         <td className="px-3 py-2.5 font-semibold text-zinc-700">${m.balance.toFixed(2)}</td>
@@ -490,6 +507,20 @@ export default function OwnerDashboard() {
                 <div className="flex items-center justify-between px-4 py-3 text-sm"><span className="text-zinc-500">{t('스탬프 가치', 'Stamp value')}</span><span className="font-bold text-zinc-800">${(Math.min(selMember.stamps, 7) * (data.reward / 7)).toFixed(2)}</span></div>
                 <div className="flex items-center justify-between px-4 py-3 text-sm"><span className="text-zinc-500">{t('캐시 잔액', 'Cash balance')}</span><span className="font-bold text-zinc-800">${selMember.balance.toFixed(2)}</span></div>
                 <div className="flex items-center justify-between px-4 py-3 text-sm"><span className="text-zinc-500">{t('누적 기부', 'Total donated')}</span><span className="font-bold text-amber-600">${selMember.donated.toFixed(2)}</span></div>
+
+                {/* 알러지 · 메모(특이사항) */}
+                <div className="px-4 py-4">
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t('알러지 · 메모', 'Allergy · Notes')}</div>
+                  <div className="mt-2">
+                    <label className="ss-label">⚠️ {t('알러지', 'Allergy')}</label>
+                    <input value={allergyDraft} onChange={(e) => setAllergyDraft(e.target.value)} className="ss-input" placeholder={t('예: 땅콩, 갑각류', 'e.g. Peanuts, Shellfish')} />
+                  </div>
+                  <div className="mt-2">
+                    <label className="ss-label">📝 {t('메모 (특이사항)', 'Notes')}</label>
+                    <textarea value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} className="ss-input min-h-20" placeholder={t('예: 진상 고객, 항상 늦게 취소함 / VIP, 매주 방문', 'e.g. difficult customer, cancels late / VIP, weekly regular')} />
+                  </div>
+                  <button onClick={() => saveMemberNotes(selMember.deviceId)} disabled={busy} className="ss-btn-primary mt-2 px-5 py-2 text-sm disabled:opacity-50">{t('메모 저장', 'Save Notes')}</button>
+                </div>
 
                 {/* 기부 내역 */}
                 <div className="px-4 py-4">
