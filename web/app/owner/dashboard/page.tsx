@@ -56,6 +56,7 @@ export default function OwnerDashboard() {
   const [cbMenu, setCbMenu] = useState(''); const [cbReview, setCbReview] = useState('');
   const [faqs, setFaqs] = useState<{ q: string; a: string }[]>([]);
   const [custQ, setCustQ] = useState('');
+  const [selMemberId, setSelMemberId] = useState<string | null>(null);
   const maskPhone = (p?: string) => { if (!p) return '—'; const d = p.replace(/\D/g, ''); return d.length >= 4 ? `···${d.slice(-4)}` : d; };
   const [ownerCh, setOwnerCh] = useState<{ name: string; linkUrl: string }[]>([{ name: '', linkUrl: '' }, { name: '', linkUrl: '' }]);
   const [lang, setLang] = useState<'ko' | 'en'>('ko');
@@ -220,6 +221,7 @@ export default function OwnerDashboard() {
   const donatedTotal = data ? data.donations.reduce((s, d) => s + (d.amount || 0), 0) : 0;
   const chStatus = (s?: string) => s === 'approved' ? t('승인됨', 'Approved') : s === 'rejected' ? t('반려됨', 'Rejected') : t('승인 대기', 'Pending');
   const filteredMembers = data ? data.members.filter((m) => { const q = custQ.trim().toLowerCase(); if (!q) return true; return (m.name || '').toLowerCase().includes(q) || (m.phone || '').replace(/\D/g, '').includes(q.replace(/\D/g, '')); }) : [];
+  const selMember = data && selMemberId ? data.members.find((m) => m.deviceId === selMemberId) || null : null;
 
   return (
     <main className="mx-auto max-w-5xl px-6 pb-16">
@@ -345,7 +347,7 @@ export default function OwnerDashboard() {
           )}
 
           {/* 🔍 고객 — 회원 명부 */}
-          {tab === 'customers' && (
+          {tab === 'customers' && !selMember && (
             <div className="mt-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3 text-sm">
@@ -375,30 +377,59 @@ export default function OwnerDashboard() {
                       <th className="px-3 py-3">{t('스탬프', 'Stamps')}</th>
                       <th className="px-3 py-3">{t('캐시', 'Cash')}</th>
                       <th className="px-3 py-3">{t('기부', 'Donated')}</th>
-                      <th className="px-3 py-3 text-right">{t('스탬프 조정', 'Adjust')}</th>
+                      <th className="px-3 py-3"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredMembers.map((m) => (
-                      <tr key={m.deviceId} className="border-b border-zinc-100 hover:bg-zinc-50">
-                        <td className="px-3 py-2.5 font-bold">{m.name || t('손님', 'Guest')}</td>
+                      <tr key={m.deviceId} onClick={() => setSelMemberId(m.deviceId)} className="cursor-pointer border-b border-zinc-100 hover:bg-zinc-50">
+                        <td className="px-3 py-2.5 font-bold text-brand-700 hover:underline">{m.name || t('손님', 'Guest')}</td>
                         <td className="px-3 py-2.5 text-zinc-500">{maskPhone(m.phone)}</td>
                         <td className="px-3 py-2.5"><span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">⭐ {Math.min(m.stamps, 7)}/7</span></td>
                         <td className="px-3 py-2.5 font-semibold text-zinc-700">${m.balance.toFixed(2)}</td>
                         <td className="px-3 py-2.5 text-amber-600">${m.donated.toFixed(2)}</td>
-                        <td className="px-3 py-2.5">
-                          <div className="flex justify-end gap-1.5">
-                            <button onClick={() => adjustMemberStamp(m.deviceId, m.name, -1)} disabled={busy} className="h-7 w-7 rounded-full border border-rose-200 bg-white text-sm font-bold text-rose-600 disabled:opacity-50">−</button>
-                            <button onClick={() => adjustMemberStamp(m.deviceId, m.name, 1)} disabled={busy} className="h-7 w-7 rounded-full bg-brand-600 text-sm font-bold text-white disabled:opacity-50">＋</button>
-                          </div>
-                        </td>
+                        <td className="px-3 py-2.5 text-right text-zinc-300">›</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
                 {filteredMembers.length === 0 && <p className="py-5 text-center text-sm text-zinc-400">{data.members.length === 0 ? t('아직 회원이 없어요.', 'No members yet.') : t('검색 결과가 없어요.', 'No matches.')}</p>}
               </div>
-              <p className="mt-2 text-[11px] text-zinc-400">{t('* 전화는 뒤 4자리만 표시. +/− 로 스탬프 즉시 조정돼요.', '* Only last 4 phone digits shown. +/− adjusts stamps instantly.')}</p>
+              <p className="mt-2 text-[11px] text-zinc-400">{t('* 회원 이름을 클릭하면 상세에서 스탬프 지급/차감할 수 있어요.', '* Click a member name to give/deduct stamps in the detail page.')}</p>
+            </div>
+          )}
+
+          {/* 🔍 고객 — 회원 상세 */}
+          {tab === 'customers' && selMember && (
+            <div className="mt-5">
+              <button onClick={() => setSelMemberId(null)} className="text-sm font-bold text-zinc-500 hover:text-zinc-700">{t('← 회원 명부', '← Members')}</button>
+              <div className="mt-3 grid gap-4 md:grid-cols-2 md:items-start">
+                <section className="ss-card p-6 text-center">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-brand-100 text-2xl font-black text-brand-700">{(selMember.name || '?').slice(0, 1)}</div>
+                  <h2 className="mt-3 text-xl font-black">{selMember.name || t('손님', 'Guest')}</h2>
+                  <p className="text-sm text-zinc-500">{maskPhone(selMember.phone)}</p>
+                  <div className="mt-5 flex items-center justify-center gap-1.5">
+                    {Array.from({ length: 7 }).map((_, i) => (
+                      <span key={i} className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${i < Math.min(selMember.stamps, 7) ? 'bg-brand-600 text-white' : 'bg-zinc-200 text-zinc-400'}`}>{i < Math.min(selMember.stamps, 7) ? '★' : ''}</span>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-sm font-bold text-zinc-700">{Math.min(selMember.stamps, 7)}/7</div>
+                  <div className="mt-5 flex items-center justify-center gap-3">
+                    <button onClick={() => adjustMemberStamp(selMember.deviceId, selMember.name, -1)} disabled={busy} className="rounded-xl border border-rose-200 bg-white px-5 py-2.5 text-sm font-bold text-rose-600 disabled:opacity-50">{t('－1 차감', '－1 Deduct')}</button>
+                    <button onClick={() => adjustMemberStamp(selMember.deviceId, selMember.name, 1)} disabled={busy} className="ss-btn-primary px-6 py-2.5">{t('＋1 지급', '＋1 Give')}</button>
+                  </div>
+                </section>
+                <section className="ss-card p-6">
+                  <h3 className="text-base font-extrabold">{t('회원 요약', 'Member Summary')}</h3>
+                  <div className="mt-3 space-y-2.5 text-sm">
+                    <div className="flex justify-between border-b border-zinc-50 pb-2"><span className="text-zinc-500">{t('보유 스탬프', 'Stamps')}</span><span className="font-bold">{Math.min(selMember.stamps, 7)}/7</span></div>
+                    <div className="flex justify-between border-b border-zinc-50 pb-2"><span className="text-zinc-500">{t('스탬프 가치', 'Stamp value')}</span><span className="font-bold">${(Math.min(selMember.stamps, 7) * (data.reward / 7)).toFixed(2)}</span></div>
+                    <div className="flex justify-between border-b border-zinc-50 pb-2"><span className="text-zinc-500">{t('캐시 잔액', 'Cash balance')}</span><span className="font-bold text-zinc-700">${selMember.balance.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span className="text-zinc-500">{t('누적 기부', 'Total donated')}</span><span className="font-bold text-amber-600">${selMember.donated.toFixed(2)}</span></div>
+                  </div>
+                  <p className="mt-4 text-[11px] text-zinc-400">{t('* ＋/− 는 즉시 반영돼요. 7개를 다 채우면 손님이 적립금으로 전환합니다.', '* +/- applies instantly. At 7 stamps the customer redeems the reward.')}</p>
+                </section>
+              </div>
             </div>
           )}
 
