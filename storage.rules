@@ -15,6 +15,15 @@ service firebase.storage {
       allow write: if request.resource.size < 15 * 1024 * 1024
                    && request.resource.contentType.matches('(image|video)/.*');
     }
+    // 기부 단체 501(c)(3) 등 증빙 서류 — 점주가 등록 요청 시 첨부. PDF 또는 이미지, 15MB 미만.
+    // 삭제(request.resource == null)는 서류 교체/삭제용으로 허용.
+    match /charity-docs/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.resource == null
+                   || (request.resource.size < 15 * 1024 * 1024
+                       && (request.resource.contentType.matches('image/.*')
+                           || request.resource.contentType == 'application/pdf'));
+    }
     match /{allPaths=**} {
       allow read: if true;
       allow write: if false;

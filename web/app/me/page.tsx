@@ -4,17 +4,13 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import AdBannerSlot from './AdBanner';
 import { getDb } from '@/lib/firebase';
+import { NPOS } from '@/lib/npos';
 import { collection, getDocs, doc, getDoc, setDoc, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 // 옛 CustomerPWA 대시보드 구성 그대로: 상단바(닉네임·QR스캔) · 매장 선택 드롭다운 ·
-// 매장 헤더(7-stamp Cash·누적가치·인터벌) · 허니컴(번호/하트+칸별가치) · My Stamp Cash Balance(+Request) ·
+// 매장 헤더(9-stamp Cash·누적가치·인터벌) · 허니컴(번호/하트+칸별가치) · My Stamp Cash Balance(+Request) ·
 // Stamp Timeline · Donate to Charity · 하단탭(스탬프 / 나눔 임팩트).
 
-const NPOS = [
-  { id: 'npo_save', name: '세이브더칠드런', sub: '어린이 급식 지원' },
-  { id: 'npo_green', name: '그린피스', sub: '기후 위기 대응' },
-  { id: 'npo_kara', name: 'KARA', sub: '동물권 행동' },
-];
 
 function getDeviceId(): string {
   try {
@@ -25,12 +21,14 @@ function getDeviceId(): string {
 }
 const normPhone = (p: string) => p.replace(/[^0-9]/g, '');
 
-// stampValues: 칸별 가치(획득 시점의 보상÷7) · stampDates: 칸별 획득일 — 가치·날짜를 카드에 함께 고정한다.
+// 스탬프 목표: 방문·리뷰·SNS연결 3가지 획득이라 9개로. 벌집 = 큰 금액 허니컴 + 4 + 5.
+const STAMP_GOAL = 9;
+// stampValues: 칸별 가치(획득 시점의 보상÷9) · stampDates: 칸별 획득일 — 가치·날짜를 카드에 함께 고정한다.
 type Card = { storeId: string; storeName: string; slug: string; currentStamps: number; reward: number; currency: string; interval?: number; stampValues?: number[]; stampDates?: string[] };
-// 칸별 가치: 기록 있으면 그 값, 없으면(옛 데이터) 현재 보상÷7 폴백
-const cellValue = (c: Card, i: number) => c.stampValues?.[i] ?? c.reward / 7;
+// 칸별 가치: 기록 있으면 그 값, 없으면(옛 데이터) 현재 보상÷9 폴백
+const cellValue = (c: Card, i: number) => c.stampValues?.[i] ?? c.reward / STAMP_GOAL;
 const cellDate = (c: Card, i: number) => c.stampDates?.[i];
-const cardValue = (c: Card) => Array.from({ length: Math.min(c.currentStamps, 7) }).reduce<number>((s, _, i) => s + cellValue(c, i), 0);
+const cardValue = (c: Card) => Array.from({ length: Math.min(c.currentStamps, STAMP_GOAL) }).reduce<number>((s, _, i) => s + cellValue(c, i), 0);
 type Donation = { storeName?: string; npoName?: string; amount: number; currency: string; createdAt: string };
 
 // 스탬프 카드가 없을 때도 허니컴 구조를 보여주는 미리보기(예시) 카드 — 옛 'Unassigned' 빈 카드처럼.
@@ -54,9 +52,11 @@ export default function MePage() {
   const [panel, setPanel] = useState<'redeem' | 'gift' | 'donate' | null>(null); // 버튼 바로 아래 인라인 패널
   const [useSheet, setUseSheet] = useState(false);
   const [npo, setNpo] = useState(NPOS[0].id);
-  const [storeCharities, setStoreCharities] = useState<{ id: string; name: string; source: string }[]>([]);
+  const [storeCharities, setStoreCharities] = useState<{ id: string; name: string; source: string; desc?: string }[]>([]);
   const [tapIdx, setTapIdx] = useState<number | null>(null);
+  const [bigTap, setBigTap] = useState(false);
   const tapTimerRef = useRef<number | null>(null);
+  const bigTimerRef = useRef<number | null>(null);
   const [friendPhone, setFriendPhone] = useState(''); const [giftCount, setGiftCount] = useState(1);
   const [lang, setLang] = useState<'ko' | 'en'>('ko');
 
@@ -178,9 +178,9 @@ export default function MePage() {
         const snap = await getDocs(collection(getDb(), 'stores', sid, 'charities'));
         if (cancelled) return;
         setStoreCharities(snap.docs
-          .map((d) => ({ id: d.id, ...(d.data() as { name?: string; source?: string; status?: string }) }))
+          .map((d) => ({ id: d.id, ...(d.data() as { name?: string; source?: string; status?: string; desc?: string }) }))
           .filter((c) => c.name && (c.source === 'hq' || c.status === 'approved'))
-          .map((c) => ({ id: c.id, name: c.name as string, source: c.source || 'hq' })));
+          .map((c) => ({ id: c.id, name: c.name as string, source: c.source || 'hq', desc: c.desc })));
       } catch { if (!cancelled) setStoreCharities([]); }
     })();
     return () => { cancelled = true; };
@@ -190,9 +190,14 @@ export default function MePage() {
     if (tapTimerRef.current) window.clearTimeout(tapTimerRef.current);
     tapTimerRef.current = window.setTimeout(() => setTapIdx(null), 1600);
   };
+  const showBigTap = () => {
+    setBigTap(true);
+    if (bigTimerRef.current) window.clearTimeout(bigTimerRef.current);
+    bigTimerRef.current = window.setTimeout(() => setBigTap(false), 1600);
+  };
 
   const charityList = storeCharities.length
-    ? storeCharities.map((c) => ({ id: c.id, name: c.name, sub: c.source === 'owner' ? t('사장 지정 단체', 'Owner-picked') : t('본사 지정 단체', 'HQ-picked') }))
+    ? storeCharities.map((c) => ({ id: c.id, name: c.name, sub: c.desc?.trim() || (c.source === 'owner' ? t('사장 지정 단체', 'Owner-picked') : t('본사 지정 단체', 'HQ-picked')) }))
     : NPOS;
   useEffect(() => { const l = storeCharities.length ? storeCharities : NPOS; if (!l.some((n) => n.id === npo)) setNpo(l[0].id); }, [storeCharities]); // eslint-disable-line
 
@@ -230,17 +235,17 @@ export default function MePage() {
       const fId = idx.data().deviceId as string; const fName = (idx.data().name as string) || '친구';
       const fRef = doc(db, 'stores', c.storeId, 'stampCards', fId); const fSnap = await getDoc(fRef);
       const fCur = fSnap.exists() ? ((fSnap.data().currentStamps as number) || 0) : 0;
-      const accept = Math.min(want, 7 - fCur); const returned = want - accept;
-      if (accept <= 0) { flash(`${fName}님 카드가 가득 찼어요 (7/7).`); setBusy(false); return; }
+      const accept = Math.min(want, STAMP_GOAL - fCur); const returned = want - accept;
+      if (accept <= 0) { flash(`${fName}님 카드가 가득 찼어요 (${STAMP_GOAL}/${STAMP_GOAL}).`); setBusy(false); return; }
       const fNext = fCur + accept;
       // 가치·날짜 배열도 함께 이동 — 내 마지막 accept개를 친구 카드 뒤에 붙인다
-      const myVals = Array.from({ length: Math.min(c.currentStamps, 7) }).map((_, i) => cellValue(c, i));
-      const myDates = Array.from({ length: Math.min(c.currentStamps, 7) }).map((_, i) => cellDate(c, i) || now);
+      const myVals = Array.from({ length: Math.min(c.currentStamps, STAMP_GOAL) }).map((_, i) => cellValue(c, i));
+      const myDates = Array.from({ length: Math.min(c.currentStamps, STAMP_GOAL) }).map((_, i) => cellDate(c, i) || now);
       const movedVals = myVals.splice(myVals.length - accept, accept);
       const movedDates = myDates.splice(myDates.length - accept, accept);
       const fCardSnap = await getDoc(doc(db, 'customers', fId, 'cards', c.storeId));
       const fData = fCardSnap.exists() ? fCardSnap.data() : {};
-      const fVals = ((fData.stampValues as number[] | undefined) ?? Array.from({ length: fCur }).map(() => c.reward / 7)).slice(0, fCur);
+      const fVals = ((fData.stampValues as number[] | undefined) ?? Array.from({ length: fCur }).map(() => c.reward / STAMP_GOAL)).slice(0, fCur);
       const fDates = ((fData.stampDates as string[] | undefined) ?? Array.from({ length: fCur }).map(() => now)).slice(0, fCur);
       await setDoc(fRef, { deviceId: fId, currentStamps: fNext, updatedAt: now }, { merge: true });
       await setDoc(doc(db, 'customers', fId, 'cards', c.storeId), { storeId: c.storeId, storeName: c.storeName, slug: c.slug, currentStamps: fNext, reward: c.reward, currency: c.currency, stampValues: [...fVals, ...movedVals], stampDates: [...fDates, ...movedDates], updatedAt: now }, { merge: true });
@@ -339,7 +344,7 @@ export default function MePage() {
           {(
             <>
               {/* 스탬프 카드 — 화면의 주인공(헤더+허니컴 한 덩어리, 링으로 강조) */}
-              <section className="ss-card mt-3 overflow-hidden p-0 ring-2 ring-brand-200">
+              <section className="ss-card mt-3 p-0 ring-2 ring-brand-200">
                 <div className="p-5 pb-3 text-center">
                   <Link href={`/store/${disp.slug}`} className="group inline-flex items-center gap-1.5 text-2xl font-black transition hover:text-brand-700" title={t('미니홈피 보기', 'View mini-home')}>
                     {disp.storeName}
@@ -347,41 +352,60 @@ export default function MePage() {
                       <path d="M5 19 19 5M9 5h10v10" />
                     </svg>
                   </Link>
-                  <div className="mt-1.5 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-[13px] text-zinc-600">
-                    <span>{t('7개 모으면', 'Collect 7 →')} <strong className="text-rose-500">${disp.reward.toFixed(2)}</strong> · {t('누적', 'now')} <strong className="text-brand-700">${value(disp).toFixed(2)}</strong></span>
-                    <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-500">{disp.interval ?? '—'}m</span>
-                  </div>
                 </div>
-                <div className="border-t border-zinc-100 bg-brand-50/50 p-5">
+                <div className="relative rounded-b-2xl border-t border-zinc-100 bg-gradient-to-b from-brand-50/70 to-white px-5 pb-5 pt-3">
+                  {/* 적립 간격 — 경계선 아래 좌상단에 옅게. 60분 단위는 h, 그 외는 min */}
+                  <span className="absolute left-4 top-2.5 z-10 text-[11px] font-medium text-zinc-400">{t('적립간격', 'Interval')} {disp.interval == null ? '—' : disp.interval % 60 === 0 ? `${disp.interval / 60}h` : `${disp.interval}min`}</span>
+                  {/* 축하하는 샤비 — 카드 경계를 넘어 떠 있는 느낌 (흰 배경은 multiply로 녹임) */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/sharbee/gole.png" alt="" aria-hidden className="ss-float pointer-events-none absolute -right-8 -top-10 z-20 w-44 select-none mix-blend-multiply" style={{ filter: 'drop-shadow(0 10px 12px rgba(0,0,0,.18))' }} />
                   {(() => {
-                    const filledCount = Math.min(disp.currentStamps, 7);
+                    const filledCount = Math.min(disp.currentStamps, STAMP_GOAL);
+                    const CELL = 51; const GAP = 6; const H = CELL * 1.1547; const OVERLAP = H * 0.20;
+                    const BIG = CELL * 1.62; const Hs = BIG * 1.1547;
                     const fmtTap = (iso?: string) => {
-                      if (!iso) return t('받은 날짜 기록 없음', 'No date on record');
-                      const d = new Date(iso);
-                      return t(`${d.getMonth() + 1}월 ${d.getDate()}일 적립`, `Earned ${d.getMonth() + 1}/${d.getDate()}`);
+                      if (!iso) return '—';
+                      const d = new Date(iso); const p = (n: number) => String(n).padStart(2, '0');
+                      return `${p(d.getMonth() + 1)}.${p(d.getDate())}.${String(d.getFullYear()).slice(-2)}`;
+                    };
+                    const Hex = ({ i }: { i: number }) => {
+                      const on = i < filledCount;
+                      return (
+                        <div className="relative flex flex-col items-center" style={{ width: CELL }}>
+                          {tapIdx === i && (
+                            <span className="ss-tapfade pointer-events-none absolute -top-11 z-30 flex flex-col items-center whitespace-nowrap rounded-lg bg-zinc-900 px-2 py-1 text-center text-white shadow-lg">
+                              <span className="text-[10px] font-bold">{fmtTap(cellDate(disp, i))}</span>
+                              <span className="text-[10px] font-black text-emerald-300">+${cellValue(disp, i).toFixed(2)}</span>
+                            </span>
+                          )}
+                          <div onClick={() => on && showTapDate(i)} style={{ width: CELL, aspectRatio: '0.866', clipPath: clip, background: on ? 'linear-gradient(150deg,#a855f7,#6d28d9)' : '#e3daf9', cursor: on ? 'pointer' : 'default', padding: 2 }}>
+                            <div className="grid h-full w-full place-items-center text-[16px] font-black" style={{ clipPath: clip, background: on ? 'linear-gradient(160deg,#8b5cf6,#5b21b6)' : '#ffffff', color: on ? '#fff' : '#b8a6e8' }}>{on ? '❤️' : i + 1}</div>
+                          </div>
+                        </div>
+                      );
                     };
                     return (
-                      <div className="grid grid-cols-7 gap-1">
-                        {Array.from({ length: 7 }).map((_, i) => {
-                          const on = i < filledCount;
-                          return (
-                            <div key={i} className="relative flex flex-col items-center gap-1">
-                              {tapIdx === i && (
-                                <span className="ss-tapfade pointer-events-none absolute -top-7 z-20 whitespace-nowrap rounded-full bg-zinc-900 px-2 py-1 text-[10px] font-bold text-white shadow-lg">
-                                  {fmtTap(cellDate(disp, i))}
-                                </span>
-                              )}
-                              <div
-                                onClick={() => on && showTapDate(i)}
-                                className="grid aspect-square w-full place-items-center p-[2px]"
-                                style={{ clipPath: clip, background: on ? '#7c3aed' : '#ddd6fe', cursor: on ? 'pointer' : 'default' }}
-                              >
-                                <div className="grid h-full w-full place-items-center text-[15px] font-black" style={{ clipPath: clip, background: on ? '#7c3aed' : '#ffffff', color: on ? '#fff' : '#a78bfa' }}>{on ? '❤️' : i + 1}</div>
-                              </div>
-                              <span className={`text-[8px] font-bold ${on ? 'text-emerald-500' : 'text-emerald-400/60'}`}>+${(on ? cellValue(disp, i) : disp.reward / 7).toFixed(2)}</span>
+                      <div className="flex flex-col items-center">
+                        {/* 맨 위 금빛 허니컴 — 금액만. 클릭하면 오늘 날짜·누적 툴팁 */}
+                        <div className="relative" style={{ filter: 'drop-shadow(0 6px 14px rgba(217,119,6,.5))', marginBottom: 6, zIndex: 10 }}>
+                          {bigTap && (
+                            <span className="ss-tapfade pointer-events-none absolute -top-10 left-1/2 z-30 flex -translate-x-1/2 flex-col items-center whitespace-nowrap rounded-lg bg-zinc-900 px-2.5 py-1 text-center text-white shadow-lg">
+                              <span className="text-[10px] font-bold">{fmtTap(new Date().toISOString())}</span>
+                              <span className="text-[11px] font-black text-emerald-300">{t('누적', 'Saved')} ${value(disp).toFixed(2)}</span>
+                            </span>
+                          )}
+                          <div onClick={showBigTap} className="ss-bighex cursor-pointer" style={{ width: BIG, aspectRatio: '0.866', clipPath: clip, background: 'linear-gradient(160deg,#fcd34d 0%,#b45309 100%)', padding: 3 }}>
+                            <div className="relative flex h-full w-full flex-col items-center justify-center overflow-hidden px-1" style={{ clipPath: clip, background: 'radial-gradient(120% 92% at 50% 20%, #fffbe6 0%, #fde047 34%, #f59e0b 74%, #d97706 100%)' }}>
+                              {/* 상단 광택 하이라이트 */}
+                              <div className="pointer-events-none absolute inset-x-0 top-0" style={{ height: '48%', background: 'linear-gradient(180deg, rgba(255,255,255,.6) 0%, rgba(255,255,255,0) 100%)' }} />
+                              <span className="ss-goldtext relative text-[21px] font-black leading-none" style={{ textShadow: '0 1px 2px rgba(120,53,15,.55)' }}>${disp.reward.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                             </div>
-                          );
-                        })}
+                          </div>
+                        </div>
+                        {/* 위 4개 (번호 6~9) */}
+                        <div className="flex justify-center" style={{ gap: GAP }}>{[5, 6, 7, 8].map((i) => <Hex key={i} i={i} />)}</div>
+                        {/* 아래 5개 (번호 1~5) — 벌집 사이 쌓기. 채움은 아래에서부터 */}
+                        <div className="flex justify-center" style={{ gap: GAP, marginTop: -OVERLAP }}>{[0, 1, 2, 3, 4].map((i) => <Hex key={i} i={i} />)}</div>
                       </div>
                     );
                   })()}
@@ -396,10 +420,10 @@ export default function MePage() {
                   {panel && (
                     <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
                       <div className="-mt-1 mb-1 flex justify-end"><button onClick={() => setPanel(null)} className="text-xs font-bold text-zinc-400">✕</button></div>
-                      {panel === 'redeem' && (disp.currentStamps < 7 ? (
+                      {panel === 'redeem' && (disp.currentStamps < STAMP_GOAL ? (
                         <div className="text-center">
-                          <p className="text-sm font-bold text-zinc-700">{t('적립은 스탬프 7개가 모아져야 합니다.', 'You need all 7 stamps to redeem.')}</p>
-                          <p className="mt-1 text-xs text-zinc-500">{t('현재', 'Now')} {disp.currentStamps}/7</p>
+                          <p className="text-sm font-bold text-zinc-700">{t(`적립은 스탬프 ${STAMP_GOAL}개가 모아져야 합니다.`, `You need all ${STAMP_GOAL} stamps to redeem.`)}</p>
+                          <p className="mt-1 text-xs text-zinc-500">{t('현재', 'Now')} {disp.currentStamps}/{STAMP_GOAL}</p>
                         </div>
                       ) : (
                         <div className="text-center">

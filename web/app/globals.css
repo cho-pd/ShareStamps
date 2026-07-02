@@ -64,6 +64,37 @@ body {
   .ss-tapfade {
     animation: ss-tapfade 1.6s ease forwards;
   }
+  /* 맨 위 큰 금액 허니컴 — 게임처럼 은은한 숨쉬기 */
+  .ss-bighex {
+    animation: ss-bigpulse 2.8s ease-in-out infinite;
+  }
+  /* 목표 금액 글자 — 아주 천천히 색이 바뀜 */
+  .ss-goldtext {
+    animation: ss-goldtext 12s linear infinite;
+  }
+}
+
+/* 캐릭터가 카드 밖으로 떠 있는 느낌 — 위아래 둥실 */
+.ss-float {
+  animation: ss-float 3.4s ease-in-out infinite;
+}
+@keyframes ss-float {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50%      { transform: translateY(-7px) rotate(2deg); }
+}
+
+@keyframes ss-goldtext {
+  0%   { color: #ffffff; }
+  20%  { color: #fef08a; }
+  40%  { color: #fbcfe8; }
+  60%  { color: #bae6fd; }
+  80%  { color: #d9f99d; }
+  100% { color: #ffffff; }
+}
+
+@keyframes ss-bigpulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.035); }
 }
 
 @keyframes ss-tapfade {

@@ -85,11 +85,11 @@ export default function SharbeeReview({ storeId, storeName, menu, guidance }: { 
       const cardSnap = await getDoc(cardRef);
       const cur = cardSnap.exists() ? ((cardSnap.data().currentStamps as number) || 0) : 0;
       const next = cur + 1;
-      // 칸별 가치·날짜 기록 — 획득 시점의 보상÷7로 고정
+      // 칸별 가치·날짜 기록 — 획득 시점의 보상÷9로 고정
       const reward = st.pointRewardPer7Stamps ?? 5;
-      const prevVals = (cardSnap.exists() ? (cardSnap.data().stampValues as number[] | undefined) : undefined) ?? Array.from({ length: cur }).map(() => reward / 7);
+      const prevVals = (cardSnap.exists() ? (cardSnap.data().stampValues as number[] | undefined) : undefined) ?? Array.from({ length: cur }).map(() => reward / 9);
       const prevDates = (cardSnap.exists() ? (cardSnap.data().stampDates as string[] | undefined) : undefined) ?? Array.from({ length: cur }).map(() => now);
-      const stampValues = [...prevVals.slice(0, cur), reward / 7];
+      const stampValues = [...prevVals.slice(0, cur), reward / 9];
       const stampDates = [...prevDates.slice(0, cur), now];
       await setDoc(cardRef, { storeId, storeName: st.name || storeName, slug: st.slug || '', currentStamps: next, reward, currency: st.currency || 'USD', interval: st.earningIntervalMinutes ?? 60, stampValues, stampDates, updatedAt: now }, { merge: true });
       await setDoc(mirrorRef, { deviceId: idv, currentStamps: next, updatedAt: now }, { merge: true });

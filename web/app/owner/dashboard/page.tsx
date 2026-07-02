@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { getDb } from '@/lib/firebase';
-import { SITE_URL } from '@/lib/stores';
+import { getDb, getStorageBucket } from '@/lib/firebase';
 import { collection, getDocs, getDoc, collectionGroup, doc, setDoc, deleteDoc, query, where, limit } from 'firebase/firestore';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 
 // 옛 OwnerDashboard 4탭 구성 차용(기프트카드 제외) · 태블릿/PC 레이아웃: 📊오버뷰 · 🔍고객 · 📈정산 · 🏠미니홈피.
@@ -14,7 +14,7 @@ type MenuItem = { id: string; name: string; price: number; signature?: boolean; 
 type Cardholder = { name: string; phone?: string; stamps: number };
 type Member = { deviceId: string; name: string; phone?: string; stamps: number; balance: number; donated: number; suspended?: boolean; memo?: string; allergy?: string };
 type Donation = { npoName?: string; amount: number; createdAt: string };
-type Charity = { id: string; name: string; linkUrl?: string; source: 'owner' | 'hq'; status: 'pending' | 'approved' | 'rejected' };
+type Charity = { id: string; name: string; desc?: string; linkUrl?: string; source: 'owner' | 'hq'; status: 'pending' | 'approved' | 'rejected'; docUrl?: string; docName?: string };
 type StampLog = { name: string; amount: number | null; source: 'receipt' | 'review' | string; createdAt: string };
 type Loaded = {
   storeId: string; storeName: string; slug: string;
@@ -70,7 +70,8 @@ export default function OwnerDashboard() {
     if (d.length === 10) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
     return p;
   };
-  const [ownerCh, setOwnerCh] = useState<{ name: string; linkUrl: string }[]>([{ name: '', linkUrl: '' }, { name: '', linkUrl: '' }]);
+  const [ownerCh, setOwnerCh] = useState<{ name: string; desc: string; linkUrl: string; docUrl: string; docName: string }[]>([{ name: '', desc: '', linkUrl: '', docUrl: '', docName: '' }, { name: '', desc: '', linkUrl: '', docUrl: '', docName: '' }]);
+  const [uploadingSlot, setUploadingSlot] = useState<number | null>(null);
   const [lang, setLang] = useState<'ko' | 'en'>('ko');
 
   useEffect(() => { try { const l = localStorage.getItem('ss_lang'); if (l === 'en' || l === 'ko') setLang(l); } catch {} }, []);
@@ -153,7 +154,7 @@ export default function OwnerDashboard() {
       ]);
       const charities: Charity[] = (chSnap?.docs ?? []).map((d) => ({ id: d.id, ...(d.data() as object) } as Charity));
       const o1 = charities.find((c) => c.id === 'owner_1'); const o2 = charities.find((c) => c.id === 'owner_2');
-      setOwnerCh([{ name: o1?.name || '', linkUrl: o1?.linkUrl || '' }, { name: o2?.name || '', linkUrl: o2?.linkUrl || '' }]);
+      setOwnerCh([{ name: o1?.name || '', desc: o1?.desc || '', linkUrl: o1?.linkUrl || '', docUrl: o1?.docUrl || '', docName: o1?.docName || '' }, { name: o2?.name || '', desc: o2?.desc || '', linkUrl: o2?.linkUrl || '', docUrl: o2?.docUrl || '', docName: o2?.docName || '' }]);
       const rwd = st.pointRewardPer7Stamps ?? 5, itv = st.earningIntervalMinutes ?? 60;
       const activeStamps = cardsSnap.docs.reduce((s2, d) => s2 + ((d.data().currentStamps as number) || 0), 0);
       const reviews = reviewsSnap.docs.map((d) => d.data() as Review).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -177,7 +178,7 @@ export default function OwnerDashboard() {
       setData({
         storeId: sd.id, storeName: st.name, slug: st.slug, reward: rwd, interval: itv,
         banner: st.bannerUrl || '', description: st.description || '', sns: st.snsChannels || [],
-        customers: cardsSnap.size, activeStamps, issuedValue: activeStamps * (rwd / 7),
+        customers: cardsSnap.size, activeStamps, issuedValue: activeStamps * (rwd / 9),
         reviews: reviews.slice(0, 8), menu, cardholders, members, donations, charities, stampLogs,
       });
       setReward(String(rwd)); setIntervalV(String(itv)); setBanner(st.bannerUrl || ''); setDesc(st.description || ''); setSns(st.snsChannels || []);
@@ -234,18 +235,18 @@ export default function OwnerDashboard() {
       const custCardRef = doc(db, 'customers', deviceId, 'cards', data.storeId);
       const snap = await getDoc(cardRef);
       const cur = snap.exists() ? ((snap.data().currentStamps as number) || 0) : 0;
-      const next = Math.max(0, Math.min(7, cur + delta));
+      const next = Math.max(0, Math.min(9, cur + delta));
       const now = new Date().toISOString();
-      // 칸별 가치·날짜: 지급은 "지금 보상÷7"·오늘 날짜를 뒤에 추가, 차감은 마지막 것 제거
+      // 칸별 가치·날짜: 지급은 "지금 보상÷9"·오늘 날짜를 뒤에 추가, 차감은 마지막 것 제거
       const custSnap = await getDoc(custCardRef);
-      const prevVals = (custSnap.exists() ? (custSnap.data().stampValues as number[] | undefined) : undefined) ?? Array.from({ length: cur }).map(() => data.reward / 7);
+      const prevVals = (custSnap.exists() ? (custSnap.data().stampValues as number[] | undefined) : undefined) ?? Array.from({ length: cur }).map(() => data.reward / 9);
       const prevDates = (custSnap.exists() ? (custSnap.data().stampDates as string[] | undefined) : undefined) ?? Array.from({ length: cur }).map(() => now);
-      const stampValues = next > cur ? [...prevVals.slice(0, cur), data.reward / 7] : prevVals.slice(0, next);
+      const stampValues = next > cur ? [...prevVals.slice(0, cur), data.reward / 9] : prevVals.slice(0, next);
       const stampDates = next > cur ? [...prevDates.slice(0, cur), now] : prevDates.slice(0, next);
       await setDoc(cardRef, { deviceId, currentStamps: next, updatedAt: now }, { merge: true });
       await setDoc(custCardRef, { storeId: data.storeId, storeName: data.storeName, slug: data.slug, currentStamps: next, reward: data.reward, currency: 'USD', interval: data.interval, stampValues, stampDates, updatedAt: now }, { merge: true });
       if (next > cur) await setDoc(doc(collection(db, 'stores', data.storeId, 'stampLog')), { deviceId, amount: null, source: 'owner', createdAt: now });
-      flash(`${name || t('회원', 'Member')}: ${delta > 0 ? '+' : ''}${delta} → ${next}/7`);
+      flash(`${name || t('회원', 'Member')}: ${delta > 0 ? '+' : ''}${delta} → ${next}/9`);
       await load(data.slug);
     } catch { flash(t('처리 실패', 'Failed.')); } finally { setBusy(false); }
   };
@@ -285,17 +286,34 @@ export default function OwnerDashboard() {
     } catch { flash(t('저장 실패', 'Save failed.')); } finally { setBusy(false); }
   };
 
+  // 501(c)(3) 등 증빙 서류 첨부 — Firebase Storage(charity-docs/)에 업로드하고 URL을 슬롯 상태에 보관
+  const uploadCharityDoc = async (slot: number, file: File) => {
+    if (!data) return;
+    if (file.size > 15 * 1024 * 1024) { flash(t('파일은 15MB 미만이어야 해요.', 'File must be under 15MB.')); return; }
+    const okType = file.type.startsWith('image/') || file.type === 'application/pdf';
+    if (!okType) { flash(t('PDF 또는 이미지 파일만 첨부할 수 있어요.', 'Only PDF or image files are allowed.')); return; }
+    setUploadingSlot(slot);
+    try {
+      const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `charity-docs/${data.storeId}/owner_${slot + 1}_${Date.now()}_${safe}`;
+      const r = storageRef(getStorageBucket(), path);
+      await uploadBytes(r, file, { contentType: file.type });
+      const url = await getDownloadURL(r);
+      setOwnerCh((p) => p.map((x, j) => j === slot ? { ...x, docUrl: url, docName: file.name } : x));
+      flash(t('서류 첨부됨 — 등록 요청을 눌러 저장하세요.', 'Attached — click Request to save.'));
+    } catch { flash(t('첨부 실패 — 다시 시도해 주세요.', 'Upload failed — try again.')); }
+    finally { setUploadingSlot(null); }
+  };
+
   // 사장 지정 기부단체 등록(본사 승인 대기)
   const saveOwnerCharity = async (slot: number) => {
     if (!data) return;
     const c = ownerCh[slot];
     if (!c.name.trim()) { flash(t('단체명을 입력해 주세요.', 'Enter the charity name.')); return; }
-    await setDoc(doc(getDb(), 'stores', data.storeId, 'charities', `owner_${slot + 1}`), { name: c.name.trim(), linkUrl: c.linkUrl.trim(), source: 'owner', status: 'pending', updatedAt: new Date().toISOString() }, { merge: true });
+    await setDoc(doc(getDb(), 'stores', data.storeId, 'charities', `owner_${slot + 1}`), { name: c.name.trim(), desc: c.desc.trim(), linkUrl: c.linkUrl.trim(), docUrl: c.docUrl || '', docName: c.docName || '', source: 'owner', status: 'pending', updatedAt: new Date().toISOString() }, { merge: true });
     flash(t('등록 요청됨 — 본사 승인 대기 ✓', 'Requested — awaiting HQ approval ✓')); await load(data.slug);
   };
 
-  const storeUrl = data ? `${SITE_URL}/store/${data.slug}` : '';
-  const qr = data ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=8&data=${encodeURIComponent(storeUrl)}` : '';
   const donatedTotal = data ? data.donations.reduce((s, d) => s + (d.amount || 0), 0) : 0;
   const receiptTotal = data ? data.stampLogs.reduce((s, l) => s + (l.amount || 0), 0) : 0;
   const chStatus = (s?: string) => s === 'approved' ? t('승인됨', 'Approved') : s === 'rejected' ? t('반려됨', 'Rejected') : t('승인 대기', 'Pending');
@@ -364,23 +382,30 @@ export default function OwnerDashboard() {
                 <Stat label={t('리뷰', 'Reviews')} value={data.reviews.length} accent="amber" />
               </div>
 
-              <div className="mt-4 grid gap-4 md:grid-cols-2 md:items-start">
-                <section className="ss-card p-5 text-center">
-                  <h3 className="text-base font-extrabold">{t('착한 매장 · 테이블 QR', 'Good Store · Table QR')}</h3>
-                  <p className="mt-1 text-xs text-zinc-500">{t('손님이 찍으면 매장 페이지로 들어와 스탬프·메뉴·샤비를 써요.', 'Customers scan to open your store page for stamps, menu, and Sharbee.')}</p>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={qr} alt="store QR" className="mx-auto mt-3 h-44 w-44 rounded-xl border border-zinc-100" />
-                  <Link href={`/store/${data.slug}`} className="ss-btn-soft mt-3">{t('매장 페이지 보기', 'View Store Page')}</Link>
-                  <p className="mt-2 break-all text-[11px] text-zinc-400">{storeUrl}</p>
-                </section>
-
+              <div className="mt-4">
                 <section className="ss-card p-5">
                   <h3 className="text-base font-extrabold">{t('적립 설정', 'Earning Settings')}</h3>
-                  <label className="ss-label">{t('7개당 보상', 'Reward per 7')}</label>
-                  <input value={reward} onChange={(e) => setReward(e.target.value)} className="ss-input" placeholder="5.00" />
-                  <label className="ss-label">{t('재적립 인터벌 (분)', 'Re-earn interval (min)')}</label>
-                  <input value={interval} onChange={(e) => setIntervalV(e.target.value)} className="ss-input" placeholder="60" />
-                  <p className="mt-1 text-[11px] text-zinc-400">{t('예: 240(4시간)이면 점심·저녁 재방문 손님이 각각 적립돼요. 0이면 제한 없음.', 'e.g. 240 (4h) lets lunch & dinner revisits each earn. 0 = no limit.')}</p>
+                  <label className="ss-label">{t('9개당 보상', 'Reward per 9')}</label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 font-bold text-zinc-500">$</span>
+                    <input value={reward} onChange={(e) => setReward(e.target.value)} className="ss-input pl-7" inputMode="decimal" placeholder="5.00" />
+                  </div>
+                  <label className="ss-label">{t('재적립 인터벌', 'Re-earn interval')}</label>
+                  <select value={interval} onChange={(e) => setIntervalV(e.target.value)} className="ss-input">
+                    {[
+                      { v: '0', ko: '제한 없음', en: 'No limit' },
+                      { v: '1', ko: '1분 (테스트)', en: '1 min (test)' },
+                      { v: '30', ko: '30분', en: '30 min' },
+                      { v: '60', ko: '1시간', en: '1 hour' },
+                      { v: '120', ko: '2시간', en: '2 hours' },
+                      { v: '180', ko: '3시간', en: '3 hours' },
+                      { v: '240', ko: '4시간 (점심·저녁)', en: '4 hours (lunch·dinner)' },
+                      { v: '360', ko: '6시간', en: '6 hours' },
+                      { v: '720', ko: '12시간', en: '12 hours' },
+                      { v: '1440', ko: '24시간 (하루 1회)', en: '24 hours (once a day)' },
+                    ].map((o) => <option key={o.v} value={o.v}>{t(o.ko, o.en)}</option>)}
+                  </select>
+                  <p className="mt-1 text-[11px] text-zinc-400">{t('같은 손님이 다시 적립하려면 이 시간이 지나야 해요. "제한 없음"이면 매번 적립돼요.', 'A customer must wait this long to earn again. "No limit" earns every time.')}</p>
                   <button onClick={() => saveStore({ pointRewardPer7Stamps: parseFloat(reward) || 0, earningIntervalMinutes: parseInt(interval, 10) || 0 })} className="ss-btn-primary mt-3 w-full">{t('설정 저장', 'Save Settings')}</button>
                 </section>
               </div>
@@ -393,7 +418,8 @@ export default function OwnerDashboard() {
 
               <section className="ss-card mt-4 p-5">
                 <h3 className="text-base font-extrabold">{t('기부 단체', 'Charities')} <span className="text-xs font-medium text-zinc-400">{t('(사장 2 · 본사 3 · 모두 본사 관리)', '(Owner 2 · HQ 3 · all HQ-managed)')}</span></h3>
-                <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                {/* 사장 지정 2개 — 위 (점주가 신청) */}
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   {[0, 1].map((i) => {
                     const ex = data.charities.find((c) => c.id === `owner_${i + 1}`);
                     const st = ex?.status;
@@ -404,17 +430,30 @@ export default function OwnerDashboard() {
                           {st && <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${st === 'approved' ? 'bg-emerald-100 text-emerald-700' : st === 'rejected' ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-700'}`}>{chStatus(st)}</span>}
                         </div>
                         <input value={ownerCh[i].name} onChange={(e) => setOwnerCh((p) => p.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} placeholder={t('단체명', 'Charity name')} className="ss-input mt-2" />
+                        <input value={ownerCh[i].desc} onChange={(e) => setOwnerCh((p) => p.map((x, j) => j === i ? { ...x, desc: e.target.value } : x))} maxLength={40} placeholder={t('한줄 설명 (예: 어린이 급식 지원)', 'One-line description')} className="ss-input mt-2" />
                         <input value={ownerCh[i].linkUrl} onChange={(e) => setOwnerCh((p) => p.map((x, j) => j === i ? { ...x, linkUrl: e.target.value } : x))} placeholder={t('단체 링크 https://...', 'Charity link https://...')} className="ss-input mt-2" />
+                        {/* 501(c)(3) 등 비영리 증빙 서류 첨부 (PDF/이미지) */}
+                        <label className="mt-2 flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-dashed border-brand-300 bg-brand-50/50 px-3 py-2.5 text-xs font-bold text-brand-700 transition hover:bg-brand-50">
+                          <input type="file" accept="application/pdf,image/*" className="hidden" disabled={uploadingSlot === i} onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadCharityDoc(i, f); e.target.value = ''; }} />
+                          {uploadingSlot === i ? t('업로드 중…', 'Uploading…') : ownerCh[i].docUrl ? t('📎 501(c)(3) 재첨부', '📎 Replace 501(c)(3)') : t('📎 501(c)(3) 서류 첨부', '📎 Attach 501(c)(3)')}
+                        </label>
+                        {ownerCh[i].docUrl && (
+                          <a href={ownerCh[i].docUrl} target="_blank" rel="noopener noreferrer" className="mt-1 block truncate text-[11px] font-medium text-emerald-600" title={ownerCh[i].docName}>✓ {ownerCh[i].docName || t('첨부된 서류 보기', 'View attached doc')}</a>
+                        )}
                         <button onClick={() => saveOwnerCharity(i)} className="ss-btn-soft mt-2 w-full">{t('등록 요청 (본사 승인)', 'Request (HQ approval)')}</button>
                       </div>
                     );
                   })}
+                </div>
+                {/* 본사 지정 3개 — 아래 (본사 관리, 보기 전용) */}
+                <div className="mt-3 grid gap-3 sm:grid-cols-3">
                   {[0, 1, 2].map((i) => {
                     const hq = data.charities.filter((c) => c.source === 'hq')[i];
                     return (
                       <div key={`h${i}`} className="rounded-xl border border-zinc-100 bg-zinc-50 p-3">
                         <span className="text-xs font-bold text-zinc-500">{t('본사 지정', 'HQ pick')} #{i + 1}</span>
                         <div className="mt-2 text-sm font-semibold">{hq ? hq.name : <span className="text-zinc-400">{t('본사 지정 대기', 'Awaiting HQ pick')}</span>}</div>
+                        {hq?.desc && <div className="text-[11px] text-zinc-500">{hq.desc}</div>}
                         {hq?.linkUrl && <a href={hq.linkUrl} target="_blank" rel="noopener noreferrer" className="break-all text-[11px] text-brand-600">{hq.linkUrl}</a>}
                       </div>
                     );
@@ -434,7 +473,7 @@ export default function OwnerDashboard() {
                   <span className="text-zinc-300">·</span>
                   <span className="text-zinc-500">{t('활성 단골', 'Active')} {data.members.filter((m) => m.stamps > 0).length}</span>
                   <span className="text-zinc-300">·</span>
-                  <span className="text-zinc-500">7/7 {data.members.filter((m) => m.stamps >= 7).length}</span>
+                  <span className="text-zinc-500">9/9 {data.members.filter((m) => m.stamps >= 9).length}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <input value={custQ} onChange={(e) => setCustQ(e.target.value)} placeholder={t('이름·전화 검색', 'Search name/phone')} className="ss-input w-full max-w-xs" />
@@ -481,7 +520,7 @@ export default function OwnerDashboard() {
                           {m.memo && <span className="ml-1 align-middle" title={m.memo}>📝</span>}
                         </td>
                         <td className="px-3 py-2.5 text-zinc-500">{fmtPhone(m.phone)}</td>
-                        <td className="px-3 py-2.5"><span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">⭐ {Math.min(m.stamps, 7)}/7</span></td>
+                        <td className="px-3 py-2.5"><span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">⭐ {Math.min(m.stamps, 9)}/9</span></td>
                         <td className="px-3 py-2.5 font-semibold text-zinc-700">${m.balance.toFixed(2)}</td>
                         <td className="px-3 py-2.5 text-amber-600">${m.donated.toFixed(2)}</td>
                         <td className="px-3 py-2.5 text-right text-zinc-300">›</td>
@@ -510,15 +549,15 @@ export default function OwnerDashboard() {
                   <div className="flex items-center gap-2">
                     <button onClick={() => adjustMemberStamp(selMember.deviceId, selMember.name, -1)} disabled={busy || selMember.suspended} className="h-8 w-8 rounded-lg border border-zinc-200 text-lg font-bold text-zinc-500 hover:bg-zinc-50 disabled:opacity-40">−</button>
                     <div className="flex items-center gap-1">
-                      {Array.from({ length: 7 }).map((_, i) => (<span key={i} className={`h-2.5 w-2.5 rounded-full ${i < Math.min(selMember.stamps, 7) ? 'bg-brand-600' : 'bg-zinc-200'}`} />))}
-                      <span className="ml-1.5 text-sm font-bold text-zinc-700">{Math.min(selMember.stamps, 7)}/7</span>
+                      {Array.from({ length: 9 }).map((_, i) => (<span key={i} className={`h-2.5 w-2.5 rounded-full ${i < Math.min(selMember.stamps, 9) ? 'bg-brand-600' : 'bg-zinc-200'}`} />))}
+                      <span className="ml-1.5 text-sm font-bold text-zinc-700">{Math.min(selMember.stamps, 9)}/9</span>
                     </div>
                     <button onClick={() => adjustMemberStamp(selMember.deviceId, selMember.name, 1)} disabled={busy || selMember.suspended} className="h-8 w-8 rounded-lg bg-brand-600 text-lg font-bold text-white hover:bg-brand-700 disabled:opacity-40">＋</button>
                   </div>
                 </div>
 
                 {/* 요약: 라벨 / 값 리스트 */}
-                <div className="flex items-center justify-between px-4 py-3 text-sm"><span className="text-zinc-500">{t('스탬프 가치', 'Stamp value')}</span><span className="font-bold text-zinc-800">${(Math.min(selMember.stamps, 7) * (data.reward / 7)).toFixed(2)}</span></div>
+                <div className="flex items-center justify-between px-4 py-3 text-sm"><span className="text-zinc-500">{t('스탬프 가치', 'Stamp value')}</span><span className="font-bold text-zinc-800">${(Math.min(selMember.stamps, 9) * (data.reward / 9)).toFixed(2)}</span></div>
                 <div className="flex items-center justify-between px-4 py-3 text-sm"><span className="text-zinc-500">{t('캐시 잔액', 'Cash balance')}</span><span className="font-bold text-zinc-800">${selMember.balance.toFixed(2)}</span></div>
                 <div className="flex items-center justify-between px-4 py-3 text-sm"><span className="text-zinc-500">{t('누적 기부', 'Total donated')}</span><span className="font-bold text-amber-600">${selMember.donated.toFixed(2)}</span></div>
 

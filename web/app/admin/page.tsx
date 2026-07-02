@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getDb } from '@/lib/firebase';
+import { getDb, getStorageBucket } from '@/lib/firebase';
 import { collection, getDocs, collectionGroup, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { DEFAULT_ADS, type AdBanner } from '@/lib/ads';
 import { SITE_URL } from '@/lib/stores';
 import { storeSlug } from '@/lib/slug';
+import { NPOS, type Npo } from '@/lib/npos';
 
 // 옛 SuperAdmin(본사 관리자) 데스크톱 보드 구성 차용 · 태블릿/PC 레이아웃.
 // 통합 대시보드 · 매장 · 기부 단체 승인 · NPO · 정산 · 회원 · 광고.
@@ -24,12 +26,13 @@ const TIER_CLS: Record<Tier, string> = { free: 'bg-zinc-100 text-zinc-500', offi
 const PAY_CLS: Record<Pay, string> = { paid: 'bg-emerald-100 text-emerald-700', overdue: 'bg-rose-100 text-rose-600', unpaid: 'bg-zinc-100 text-zinc-400' };
 type Customer = { id: string; name?: string; phone?: string; balance?: number; donated?: number };
 type Donation = { storeName?: string; npoName?: string; amount?: number; createdAt?: string };
-type Charity = { id: string; storeId: string; name: string; linkUrl?: string; source: 'owner' | 'hq'; status: 'pending' | 'approved' | 'rejected' };
+type Charity = { id: string; storeId: string; name: string; desc?: string; linkUrl?: string; source: 'owner' | 'hq'; status: 'pending' | 'approved' | 'rejected'; docUrl?: string; docName?: string; npoId?: string };
 
 const TABS = [
   { id: 'kpi', ko: '📊 통합 대시보드', en: '📊 Dashboard' },
   { id: 'stores', ko: '🏪 매장', en: '🏪 Stores' },
   { id: 'charities', ko: '💛 기부 단체 승인', en: '💛 Charity Approval' },
+  { id: 'npos', ko: '🎗️ 비영리단체', en: '🎗️ Nonprofits' },
   { id: 'settlement', ko: '📈 정산', en: '📈 Settlement' },
   { id: 'users', ko: '👥 회원', en: '👥 Members' },
   { id: 'message', ko: '📣 문자 발송', en: '📣 SMS Blast' },
@@ -49,7 +52,6 @@ export default function AdminPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [adImg, setAdImg] = useState(''); const [adLink, setAdLink] = useState('');
   const [hqStore, setHqStore] = useState('');
-  const [hqForm, setHqForm] = useState<{ name: string; link: string }[]>([{ name: '', link: '' }, { name: '', link: '' }, { name: '', link: '' }]);
   const [toast, setToast] = useState<string | null>(null);
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
   const [lang, setLang] = useState<'ko' | 'en'>('ko');
@@ -60,6 +62,7 @@ export default function AdminPage() {
   const payLabel = (p: Pay) => tr({ paid: '입금', overdue: '연체', unpaid: '미납' }[p], { paid: 'Paid', overdue: 'Overdue', unpaid: 'Unpaid' }[p]);
   const [showNew, setShowNew] = useState(false);
   const [ownerPopupSeen, setOwnerPopupSeen] = useState(false);
+  const [charityPopupSeen, setCharityPopupSeen] = useState(false);
   const [msgStoreId, setMsgStoreId] = useState('');
   const [msgMembers, setMsgMembers] = useState<{ name: string; phone: string }[]>([]);
   const [msgText, setMsgText] = useState('');
@@ -67,6 +70,15 @@ export default function AdminPage() {
   const [ns, setNs] = useState(NS0);
   const [manageId, setManageId] = useState<string | null>(null);
   const [mf, setMf] = useState<MForm | null>(null);
+  // 비영리단체 마스터(Firestore `npos`) — 목록/등록/상세
+  const [npos, setNpos] = useState<Npo[]>([]);
+  const [npoManageId, setNpoManageId] = useState<string | null>(null); // null=목록, 'new'=등록, id=상세/편집
+  const [nf, setNf] = useState<Npo | null>(null);
+  const [npoUploading, setNpoUploading] = useState(false);
+  // 매장 추천(점주 제출) 단체 편집 — 본사 관리자는 전권 편집 가능
+  const [chEdit, setChEdit] = useState<Charity | null>(null);
+  const [chUploading, setChUploading] = useState(false);
+  const npoOptions = npos.length ? npos : NPOS; // 드롭다운/조회용 — 비었으면 코드 기본값 폴백
 
   const reloadStores = async () => {
     const s = await getDocs(collection(getDb(), 'stores'));
@@ -119,16 +131,18 @@ export default function AdminPage() {
         const [sSnap, cSnap] = await Promise.all([getDocs(collection(db, 'stores')), getDocs(collection(db, 'customers'))]);
         setStores(sSnap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as Store)));
         setCustomers(cSnap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as Customer)));
-        const [dSnap, adSnap, hidSnap, chSnap] = await Promise.all([
+        const [dSnap, adSnap, hidSnap, chSnap, npoSnap] = await Promise.all([
           getDocs(collectionGroup(db, 'donations')).catch(() => null),
           getDocs(collection(db, 'adBanners')).catch(() => null),
           getDocs(collection(db, 'adHidden')).catch(() => null),
           getDocs(collectionGroup(db, 'charities')).catch(() => null),
+          getDocs(collection(db, 'npos')).catch(() => null),
         ]);
         if (dSnap) setDonations(dSnap.docs.map((d) => d.data() as Donation));
         if (adSnap) setAdCustoms(adSnap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as AdBanner)));
         if (hidSnap) setAdHidden(new Set(hidSnap.docs.map((d) => d.id)));
         if (chSnap) setCharities(chSnap.docs.map((d) => ({ id: d.id, storeId: d.ref.parent.parent!.id, ...(d.data() as object) } as Charity)));
+        if (npoSnap) setNpos(npoSnap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as Npo)));
         try { setIsAdmin(localStorage.getItem('ss_device_id') === 'admin_jopd'); } catch {}
       } catch { /* noop */ }
       finally { setLoading(false); }
@@ -143,14 +157,82 @@ export default function AdminPage() {
   const setCharityStatus = async (c: Charity, status: 'approved' | 'rejected') => {
     await setDoc(doc(getDb(), 'stores', c.storeId, 'charities', c.id), { status }, { merge: true }); await reloadCharities();
   };
-  const onPickHqStore = (sid: string) => {
-    setHqStore(sid);
-    setHqForm([0, 1, 2].map((i) => { const hq = charities.filter((c) => c.storeId === sid && c.source === 'hq')[i]; return { name: hq?.name || '', link: hq?.linkUrl || '' }; }));
+  // 매장 추천 단체 편집(본사 전권) — 단체명·설명·링크·서류·상태 수정, 삭제
+  const setChField = (k: keyof Charity, v: string) => setChEdit((p) => p ? { ...p, [k]: v } as Charity : p);
+  const uploadChEditDoc = async (file: File) => {
+    if (!chEdit) return;
+    if (file.size > 15 * 1024 * 1024) { flash(tr('파일은 15MB 미만이어야 해요.', 'File must be under 15MB.')); return; }
+    if (!(file.type.startsWith('image/') || file.type === 'application/pdf')) { flash(tr('PDF 또는 이미지만 첨부돼요.', 'PDF or image only.')); return; }
+    setChUploading(true);
+    try {
+      const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const r = storageRef(getStorageBucket(), `charity-docs/${chEdit.storeId}/${chEdit.id}_${Date.now()}_${safe}`);
+      await uploadBytes(r, file, { contentType: file.type });
+      const url = await getDownloadURL(r);
+      setChEdit((p) => p ? { ...p, docUrl: url, docName: file.name } : p);
+      flash(tr('서류 첨부됨 — 저장을 눌러 반영하세요.', 'Attached — click Save.'));
+    } catch { flash(tr('첨부 실패 — 다시 시도해 주세요.', 'Upload failed.')); }
+    finally { setChUploading(false); }
   };
-  const saveHq = async (slot: number) => {
-    if (!hqStore) return; const f = hqForm[slot]; if (!f.name.trim()) return;
-    await setDoc(doc(getDb(), 'stores', hqStore, 'charities', `hq_${slot + 1}`), { name: f.name.trim(), linkUrl: f.link.trim(), source: 'hq', status: 'approved', updatedAt: new Date().toISOString() }, { merge: true });
+  const saveChEdit = async () => {
+    if (!chEdit || !chEdit.name.trim()) { flash(tr('단체명을 입력해 주세요.', 'Enter a name.')); return; }
+    const c = chEdit;
+    await setDoc(doc(getDb(), 'stores', c.storeId, 'charities', c.id), { name: c.name.trim(), desc: c.desc || '', linkUrl: c.linkUrl || '', docUrl: c.docUrl || '', docName: c.docName || '', status: c.status, updatedAt: new Date().toISOString() }, { merge: true });
+    flash(tr('저장됐어요 ✓', 'Saved ✓')); setChEdit(null); await reloadCharities();
+  };
+  const deleteCharity = async (c: Charity) => {
+    await deleteDoc(doc(getDb(), 'stores', c.storeId, 'charities', c.id)).catch(() => {});
+    flash(tr('삭제됐어요', 'Deleted')); setChEdit(null); await reloadCharities();
+  };
+  const onPickHqStore = (sid: string) => setHqStore(sid);
+  // 매장 관리 페이지 — 본사 지정 3개 슬롯을 NPO 마스터 목록에서 드롭다운 선택. 빈 값이면 슬롯 비움.
+  const setHqCharitySlot = async (storeId: string, slot: number, npoId: string) => {
+    const ref = doc(getDb(), 'stores', storeId, 'charities', `hq_${slot + 1}`);
+    if (!npoId) { await deleteDoc(ref).catch(() => {}); await reloadCharities(); return; }
+    const n = npoOptions.find((x) => x.id === npoId); if (!n) return;
+    await setDoc(ref, { name: n.name, desc: n.sub || '', linkUrl: n.linkUrl || '', npoId: n.id, source: 'hq', status: 'approved', updatedAt: new Date().toISOString() });
     await reloadCharities();
+  };
+
+  // ── 비영리단체 마스터 CRUD (Firestore `npos`) ──
+  const reloadNpos = async () => {
+    const s = await getDocs(collection(getDb(), 'npos')).catch(() => null);
+    if (s) setNpos(s.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as Npo)));
+  };
+  const openNpo = (n?: Npo) => {
+    if (n) { setNpoManageId(n.id); setNf({ ...n }); }
+    else { setNpoManageId('new'); setNf({ id: '', name: '', sub: '', linkUrl: '', about: '', category: '', docUrl: '', docName: '' }); }
+  };
+  const setNfField = (k: keyof Npo, v: string) => setNf((p) => p ? { ...p, [k]: v } : p);
+  const uploadNpoDoc = async (file: File) => {
+    if (!nf) return;
+    if (file.size > 15 * 1024 * 1024) { flash(tr('파일은 15MB 미만이어야 해요.', 'File must be under 15MB.')); return; }
+    if (!(file.type.startsWith('image/') || file.type === 'application/pdf')) { flash(tr('PDF 또는 이미지만 첨부돼요.', 'PDF or image only.')); return; }
+    setNpoUploading(true);
+    try {
+      const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const r = storageRef(getStorageBucket(), `charity-docs/npos/${nf.id || 'new'}_${Date.now()}_${safe}`);
+      await uploadBytes(r, file, { contentType: file.type });
+      const url = await getDownloadURL(r);
+      setNf((p) => p ? { ...p, docUrl: url, docName: file.name } : p);
+      flash(tr('서류 첨부됨 — 저장을 눌러 반영하세요.', 'Attached — click Save.'));
+    } catch { flash(tr('첨부 실패 — 다시 시도해 주세요.', 'Upload failed.')); }
+    finally { setNpoUploading(false); }
+  };
+  const saveNpo = async () => {
+    if (!nf || !nf.name.trim()) { flash(tr('단체명을 입력해 주세요.', 'Enter a name.')); return; }
+    const id = nf.id || `npo_${storeSlug(nf.name) || Date.now().toString(36)}`;
+    const { id: _omit, ...body } = nf; void _omit;
+    await setDoc(doc(getDb(), 'npos', id), { ...body, updatedAt: new Date().toISOString() }, { merge: true });
+    flash(tr('저장됐어요 ✓', 'Saved ✓')); await reloadNpos(); setNpoManageId(null); setNf(null);
+  };
+  const deleteNpo = async (id: string) => {
+    await deleteDoc(doc(getDb(), 'npos', id)).catch(() => {});
+    flash(tr('삭제됐어요', 'Deleted')); await reloadNpos(); setNpoManageId(null); setNf(null);
+  };
+  const seedNpos = async () => {
+    await Promise.all(NPOS.map((n) => { const { id, ...b } = n; return setDoc(doc(getDb(), 'npos', id), { ...b, updatedAt: new Date().toISOString() }, { merge: true }); }));
+    flash(tr('기본 단체 불러왔어요 ✓', 'Defaults loaded ✓')); await reloadNpos();
   };
 
   const reloadAds = async () => {
@@ -196,6 +278,9 @@ export default function AdminPage() {
     byNpo.set(n, { amount: cur.amount + (d.amount || 0), count: cur.count + 1 });
   });
   const pendingCharities = charities.filter((c) => c.source === 'owner' && c.status === 'pending');
+  // 매장 추천 비영리단체(점주 제출) — 대기 → 승인 → 반려 순으로 정렬
+  const chOrder: Record<string, number> = { pending: 0, approved: 1, rejected: 2 };
+  const ownerRecs = charities.filter((c) => c.source === 'owner' && c.name).sort((a, b) => (chOrder[a.status] ?? 9) - (chOrder[b.status] ?? 9));
   const managed = manageId ? stores.find((s) => s.id === manageId) || null : null;
   const pendingOwners = stores.filter((s) => s.ownerStatus === 'pending');
   const curTab = TABS.find((tb) => tb.id === tab);
@@ -262,7 +347,7 @@ export default function AdminPage() {
                   <div key={`${c.storeId}_${c.id}`} onClick={() => setTab('charities')} className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-zinc-100 bg-zinc-50 p-3 hover:bg-brand-50">
                     <div className="min-w-0">
                       <div className="text-sm font-bold">{c.name}</div>
-                      <div className="text-xs text-zinc-500">{storeName(c.storeId)}</div>
+                      <div className="text-xs text-zinc-500">{storeName(c.storeId)} · {c.docUrl ? tr('📎 501(c)(3) 첨부됨', '📎 501(c)(3) attached') : tr('⚠ 서류 없음', '⚠ no doc')}</div>
                     </div>
                     <span className="shrink-0 rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-bold text-brand-700">{tr('기부 단체', 'Charity')}</span>
                   </div>
@@ -385,7 +470,7 @@ export default function AdminPage() {
             <section className="ss-card p-5">
               <h3 className="text-base font-extrabold">{tr('적립 · 가입 · 결제', 'Reward · Tier · Payment')}</h3>
               <div className="mt-1 grid grid-cols-2 gap-3">
-                <div><label className="ss-label">{tr('7개당 보상', 'Reward / 7')}</label><input value={mf.reward} onChange={(e) => set('reward', e.target.value)} className="ss-input" /></div>
+                <div><label className="ss-label">{tr('9개당 보상 ($)', 'Reward / 9 ($)')}</label><input value={mf.reward} onChange={(e) => set('reward', e.target.value)} className="ss-input" /></div>
                 <div><label className="ss-label">{tr('재적립 인터벌(분)', 'Re-earn interval (min)')}</label><input value={mf.interval} onChange={(e) => set('interval', e.target.value)} className="ss-input" /></div>
                 <div><label className="ss-label">{tr('가입상태', 'Tier')}</label><select value={mf.tier} onChange={(e) => set('tier', e.target.value)} className="ss-input"><option value="free">{tr('프리', 'Free')}</option><option value="official">{tr('정식', 'Official')}</option><option value="premium">{tr('프리미엄', 'Premium')}</option></select></div>
                 <div><label className="ss-label">{tr('가입일자', 'Signup date')}</label><input type="date" value={mf.signupDate} onChange={(e) => set('signupDate', e.target.value)} className="ss-input" /></div>
@@ -429,6 +514,50 @@ export default function AdminPage() {
                 </div>
               </div>
             </section>
+
+            {/* 비영리단체 5슬롯 — 사장 2(점주 신청·본사 승인) + 본사 3(드롭다운 선택) */}
+            <section className="ss-card p-5 md:col-span-2 xl:col-span-3">
+              <h3 className="text-base font-extrabold">{tr('비영리단체', 'Charities')} <span className="text-xs font-medium text-zinc-400">{tr('(5개 = 사장 2 · 본사 3)', '(5 = Owner 2 · HQ 3)')}</span></h3>
+              <p className="mt-0.5 text-[11px] text-zinc-400">{tr('사장 2개는 점주가 신청하고 본사가 승인해요. 본사 3개는 드롭다운에서 골라요.', 'Owner 2 are owner-requested & HQ-approved; HQ picks the 3 below.')}</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                {[0, 1].map((i) => {
+                  const c = charities.find((x) => x.storeId === manageId && x.id === `owner_${i + 1}`);
+                  return (
+                    <div key={`mo${i}`} className="rounded-xl border border-brand-200 bg-brand-50/30 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-brand-700">{tr('사장 지정', 'Owner')} #{i + 1}</span>
+                        {c?.status && <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${c.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : c.status === 'rejected' ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-700'}`}>{c.status === 'approved' ? tr('승인', 'OK') : c.status === 'rejected' ? tr('반려', 'No') : tr('대기', 'Pending')}</span>}
+                      </div>
+                      <div className="mt-1.5 truncate text-sm font-bold">{c?.name || <span className="text-zinc-300">{tr('미신청', '—')}</span>}</div>
+                      {c?.desc && <div className="truncate text-[11px] text-zinc-500">{c.desc}</div>}
+                      {c && (c.docUrl
+                        ? <a href={c.docUrl} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-[11px] font-bold text-emerald-600">📎 501(c)(3)</a>
+                        : <div className="mt-1 text-[11px] font-medium text-rose-400">⚠ {tr('서류 없음', 'no doc')}</div>)}
+                      {c?.status === 'pending' && (
+                        <div className="mt-2 flex gap-1.5">
+                          <button onClick={() => setCharityStatus(c, 'approved')} className="flex-1 rounded-lg bg-brand-600 py-1.5 text-[11px] font-bold text-white">{tr('승인', 'Approve')}</button>
+                          <button onClick={() => setCharityStatus(c, 'rejected')} className="flex-1 rounded-lg border border-rose-200 py-1.5 text-[11px] font-bold text-rose-600">{tr('반려', 'Reject')}</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {[0, 1, 2].map((i) => {
+                  const c = charities.find((x) => x.storeId === manageId && x.id === `hq_${i + 1}`);
+                  return (
+                    <div key={`mh${i}`} className="rounded-xl border border-zinc-200 p-3">
+                      <span className="text-[11px] font-bold text-zinc-500">{tr('본사 지정', 'HQ')} #{i + 1}</span>
+                      <select value={c?.npoId || ''} onChange={(e) => manageId && setHqCharitySlot(manageId, i, e.target.value)} className="ss-input mt-1.5 text-sm">
+                        <option value="">{tr('선택 안 함', 'None')}</option>
+                        {npoOptions.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
+                      </select>
+                      {c?.desc && <div className="mt-1 truncate text-[11px] text-zinc-500">{c.desc}</div>}
+                      {c?.name && !c.npoId && <div className="mt-1 text-[11px] text-amber-500">{tr('수기: ', 'manual: ')}{c.name}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
           </div>
 
           <button onClick={saveManage} className="ss-btn-primary mt-4 px-8">{tr('저장', 'Save')}</button>
@@ -446,7 +575,10 @@ export default function AdminPage() {
                   <div key={`${c.storeId}_${c.id}`} className="rounded-xl border border-amber-200 bg-amber-50/40 p-3">
                     <div className="text-[11px] font-bold text-zinc-500">{storeName(c.storeId)}</div>
                     <div className="text-sm font-bold">{c.name}</div>
-                    {c.linkUrl && <a href={c.linkUrl} target="_blank" rel="noopener noreferrer" className="break-all text-[11px] text-brand-600">{c.linkUrl}</a>}
+                    {c.linkUrl && <a href={c.linkUrl} target="_blank" rel="noopener noreferrer" className="block break-all text-[11px] text-brand-600">{c.linkUrl}</a>}
+                    {c.docUrl
+                      ? <a href={c.docUrl} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 rounded-md bg-emerald-100 px-2 py-1 text-[11px] font-bold text-emerald-700">📎 {tr('501(c)(3) 서류 보기', 'View 501(c)(3)')}</a>
+                      : <div className="mt-1 text-[11px] font-medium text-rose-400">⚠ {tr('501(c)(3) 서류 미첨부', 'No 501(c)(3) attached')}</div>}
                     <div className="mt-2 flex gap-2">
                       <button onClick={() => setCharityStatus(c, 'approved')} className="ss-btn-primary flex-1 py-2 text-sm">{tr('승인', 'Approve')}</button>
                       <button onClick={() => setCharityStatus(c, 'rejected')} className="flex-1 rounded-xl border border-rose-200 bg-white py-2 text-sm font-bold text-rose-600">{tr('반려', 'Reject')}</button>
@@ -466,17 +598,173 @@ export default function AdminPage() {
             </select>
             {hqStore && (
               <div className="mt-3 space-y-3">
-                {[0, 1, 2].map((i) => (
-                  <div key={i} className="rounded-xl border border-zinc-200 p-3">
-                    <span className="text-xs font-bold text-zinc-500">{tr('본사 지정', 'HQ pick')} #{i + 1}</span>
-                    <input value={hqForm[i].name} onChange={(e) => setHqForm((p) => p.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} placeholder={tr('단체명', 'Charity name')} className="ss-input mt-1" />
-                    <input value={hqForm[i].link} onChange={(e) => setHqForm((p) => p.map((x, j) => j === i ? { ...x, link: e.target.value } : x))} placeholder={tr('링크 https://...', 'Link https://...')} className="ss-input mt-1.5" />
-                    <button onClick={() => saveHq(i)} className="ss-btn-soft mt-1.5 w-full">{tr('저장', 'Save')}</button>
-                  </div>
-                ))}
+                {[0, 1, 2].map((i) => {
+                  const c = charities.find((x) => x.storeId === hqStore && x.id === `hq_${i + 1}`);
+                  return (
+                    <div key={i} className="rounded-xl border border-zinc-200 p-3">
+                      <span className="text-xs font-bold text-zinc-500">{tr('본사 지정', 'HQ pick')} #{i + 1}</span>
+                      <select value={c?.npoId || ''} onChange={(e) => setHqCharitySlot(hqStore, i, e.target.value)} className="ss-input mt-1">
+                        <option value="">{tr('선택 안 함', 'None')}</option>
+                        {npoOptions.map((n) => <option key={n.id} value={n.id}>{n.name}{n.sub ? ` · ${n.sub}` : ''}</option>)}
+                      </select>
+                      {c?.name && !c.npoId && <div className="mt-1 text-[11px] text-amber-500">{tr('수기 등록: ', 'manual: ')}{c.name}</div>}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </section>
+        </div>
+      )}
+
+      {/* 🎗️ 비영리단체 — 목록 (매장 추천 / 본사 등록 두 그룹) */}
+      {!loading && tab === 'npos' && !npoManageId && (
+        <div className="mt-5 space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-black tracking-tight">🎗️ {tr('비영리단체', 'Nonprofits')}</h2>
+              <p className="mt-0.5 text-[11px] text-zinc-400">{tr('매장 추천(점주 제출)과 본사 등록(심사 완료) 두 가지로 나뉘어요.', 'Two kinds: store-recommended (owner-submitted) and HQ-registered (vetted).')}</p>
+            </div>
+            <button onClick={() => openNpo()} className="ss-btn-primary px-4 py-2 text-sm">＋ {tr('신규 비영리단체 등록', 'New nonprofit')}</button>
+          </div>
+
+          {/* ① 매장 추천 */}
+          <section className="ss-card p-5">
+            <h3 className="text-base font-extrabold">🏪 {tr('매장 추천', 'Store-recommended')} <span className="text-amber-600">{ownerRecs.length}</span></h3>
+            <p className="mt-0.5 text-[11px] text-zinc-400">{tr('점주가 추천해 등록 요청한 단체예요. 승인하면 해당 매장 기부 목록에 노출돼요.', 'Owner-submitted. Approve to show in that store’s donation list.')}</p>
+            {ownerRecs.length === 0 ? (
+              <p className="mt-3 text-sm text-zinc-400">{tr('매장이 추천한 단체가 없어요.', 'No store recommendations.')}</p>
+            ) : (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-zinc-200 text-left text-[11px] font-bold uppercase tracking-wide text-zinc-400">
+                      <th className="px-3 py-2.5">{tr('단체명', 'Name')}</th>
+                      <th className="px-3 py-2.5">{tr('한줄 설명', 'Description')}</th>
+                      <th className="px-3 py-2.5">{tr('추천 매장', 'Store')}</th>
+                      <th className="px-3 py-2.5">501(c)(3)</th>
+                      <th className="px-3 py-2.5">{tr('상태', 'Status')}</th>
+                      <th className="px-3 py-2.5 text-right"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ownerRecs.map((c) => (
+                      <tr key={`${c.storeId}_${c.id}`} className="border-b border-zinc-100">
+                        <td className="px-3 py-2.5"><span className="font-bold">{c.name}</span> <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">🏪 {tr('매장 추천', 'Rec')}</span></td>
+                        <td className="max-w-[220px] truncate px-3 py-2.5 text-zinc-600">{c.desc || '—'}</td>
+                        <td className="px-3 py-2.5 text-zinc-600">{storeName(c.storeId)}</td>
+                        <td className="px-3 py-2.5">{c.docUrl ? <a href={c.docUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-emerald-600">📎 {tr('보기', 'View')}</a> : <span className="text-rose-400">⚠ {tr('없음', 'none')}</span>}</td>
+                        <td className="px-3 py-2.5"><span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${c.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : c.status === 'rejected' ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-700'}`}>{c.status === 'approved' ? tr('승인', 'Approved') : c.status === 'rejected' ? tr('반려', 'Rejected') : tr('대기', 'Pending')}</span></td>
+                        <td className="px-3 py-2.5 text-right">
+                          <span className="inline-flex gap-1.5">
+                            {c.status === 'pending' && <>
+                              <button onClick={() => setCharityStatus(c, 'approved')} className="rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-bold text-white">{tr('승인', 'Approve')}</button>
+                              <button onClick={() => setCharityStatus(c, 'rejected')} className="rounded-lg border border-rose-200 px-2.5 py-1 text-xs font-bold text-rose-600">{tr('반려', 'Reject')}</button>
+                            </>}
+                            <button onClick={() => setChEdit({ ...c })} className="ss-chip">{tr('편집', 'Edit')}</button>
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {/* ② 본사 등록 */}
+          <section className="ss-card p-5">
+            <h3 className="text-base font-extrabold">🏛 {tr('본사 등록', 'HQ-registered')} <span className="text-brand-700">{npos.length}</span></h3>
+            <p className="mt-0.5 text-[11px] text-zinc-400">{tr('본사가 심사·등록한 마스터 목록. 매장 "본사 지정 3개"와 고객 기부 목록이 이 목록을 써요. 행을 눌러 편집.', 'HQ-vetted master list used by store HQ picks & customer donations. Click a row to edit.')}</p>
+            {npos.length === 0 ? (
+              <div className="mt-3 text-center">
+                <p className="text-sm text-zinc-400">{tr('아직 등록된 단체가 없어요.', 'No nonprofits yet.')}</p>
+                <button onClick={seedNpos} className="ss-btn-soft mt-3">{tr('기본 목록 불러오기 (8개)', 'Load defaults (8)')}</button>
+              </div>
+            ) : (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-zinc-200 text-left text-[11px] font-bold uppercase tracking-wide text-zinc-400">
+                      <th className="px-3 py-2.5">{tr('단체명', 'Name')}</th>
+                      <th className="px-3 py-2.5">{tr('분야', 'Category')}</th>
+                      <th className="px-3 py-2.5">{tr('한줄 설명', 'Description')}</th>
+                      <th className="px-3 py-2.5">{tr('홈페이지', 'Website')}</th>
+                      <th className="px-3 py-2.5">501(c)(3)</th>
+                      <th className="px-3 py-2.5 text-right"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {npos.map((n) => (
+                      <tr key={n.id} onClick={() => openNpo(n)} className="cursor-pointer border-b border-zinc-100 hover:bg-brand-50">
+                        <td className="px-3 py-2.5 font-bold">{n.name}</td>
+                        <td className="px-3 py-2.5 text-zinc-600">{n.category || '—'}</td>
+                        <td className="max-w-[220px] truncate px-3 py-2.5 text-zinc-600">{n.sub || '—'}</td>
+                        <td className="max-w-[160px] truncate px-3 py-2.5 text-brand-500">{(n.linkUrl || '').replace(/^https?:\/\//, '') || '—'}</td>
+                        <td className="px-3 py-2.5">{n.docUrl ? <span className="font-bold text-emerald-600">📎 {tr('있음', 'yes')}</span> : <span className="text-rose-400">⚠ {tr('없음', 'none')}</span>}</td>
+                        <td className="px-3 py-2.5 text-right"><span className="ss-chip">{tr('편집 →', 'Edit →')}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* 🎗️ 비영리단체 — 등록 / 상세·편집 */}
+      {!loading && tab === 'npos' && npoManageId && nf && (
+        <div className="mt-5">
+          <button onClick={() => { setNpoManageId(null); setNf(null); }} className="text-sm font-bold text-zinc-500 hover:text-zinc-700">{tr('← 목록', '← List')}</button>
+          <h2 className="mt-2 text-xl font-black tracking-tight">{npoManageId === 'new' ? tr('신규 비영리단체 등록', 'New nonprofit') : nf.name}</h2>
+          <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,42rem)_20rem] lg:items-start">
+          <div className="ss-card p-5">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div><label className="ss-label">{tr('단체명', 'Name')}</label><input value={nf.name} onChange={(e) => setNfField('name', e.target.value)} className="ss-input" placeholder={tr('예: 세이브더칠드런', 'e.g. Save the Children')} /></div>
+              <div><label className="ss-label">{tr('분야', 'Category')}</label><input value={nf.category || ''} onChange={(e) => setNfField('category', e.target.value)} className="ss-input" placeholder={tr('아동·환경·동물 등', 'Children, Environment…')} /></div>
+            </div>
+            <label className="ss-label">{tr('한줄 설명 (고객 노출)', 'One-line description (shown to customers)')}</label>
+            <input value={nf.sub || ''} onChange={(e) => setNfField('sub', e.target.value)} maxLength={40} className="ss-input" placeholder={tr('예: 어린이 급식 지원', 'e.g. Feeding children')} />
+            <label className="ss-label">{tr('홈페이지 링크', 'Website')}</label>
+            <input value={nf.linkUrl || ''} onChange={(e) => setNfField('linkUrl', e.target.value)} className="ss-input" placeholder="https://..." />
+            <label className="ss-label">{tr('상세 설명', 'About')}</label>
+            <textarea value={nf.about || ''} onChange={(e) => setNfField('about', e.target.value)} className="ss-input min-h-24" placeholder={tr('단체 소개·활동 내용…', 'Mission and activities…')} />
+            <label className="ss-label">{tr('501(c)(3) 증빙 서류', '501(c)(3) document')}</label>
+            <label className="flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-dashed border-brand-300 bg-brand-50/50 px-3 py-2.5 text-xs font-bold text-brand-700 transition hover:bg-brand-50">
+              <input type="file" accept="application/pdf,image/*" className="hidden" disabled={npoUploading} onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadNpoDoc(f); e.target.value = ''; }} />
+              {npoUploading ? tr('업로드 중…', 'Uploading…') : nf.docUrl ? tr('📎 서류 재첨부', '📎 Replace doc') : tr('📎 501(c)(3) 서류 첨부', '📎 Attach 501(c)(3)')}
+            </label>
+            {nf.docUrl && <a href={nf.docUrl} target="_blank" rel="noopener noreferrer" className="mt-1 block truncate text-[11px] font-bold text-emerald-600" title={nf.docName}>✓ {nf.docName || tr('첨부된 서류 보기', 'View attached doc')}</a>}
+            <div className="mt-4 flex gap-2">
+              <button onClick={saveNpo} className="ss-btn-primary flex-1">{tr('저장', 'Save')}</button>
+              {npoManageId !== 'new' && <button onClick={() => deleteNpo(nf.id)} className="rounded-xl border border-rose-200 bg-white px-4 py-3 text-sm font-bold text-rose-600">{tr('삭제', 'Delete')}</button>}
+            </div>
+          </div>
+
+          {/* 이 단체를 지정한 매장 — 본사 지정 slot에서 이 NPO를 고른 매장 목록 */}
+          {npoManageId !== 'new' && (() => {
+            const users = charities.filter((c) => c.source === 'hq' && c.npoId === nf.id);
+            return (
+              <div className="ss-card p-5">
+                <h3 className="text-base font-extrabold">🏪 {tr('이 단체를 지정한 매장', 'Stores using this')} <span className="text-brand-700">{users.length}</span></h3>
+                <p className="mt-0.5 text-[11px] text-zinc-400">{tr('본사 지정 슬롯에서 이 단체를 고른 매장이에요.', 'Stores that picked this in an HQ slot.')}</p>
+                {users.length === 0 ? (
+                  <p className="mt-3 text-sm text-zinc-400">{tr('아직 이 단체를 지정한 매장이 없어요.', 'No stores use this yet.')}</p>
+                ) : (
+                  <div className="mt-3 divide-y divide-zinc-100 overflow-hidden rounded-xl border border-zinc-100">
+                    {users.map((c) => (
+                      <div key={`${c.storeId}_${c.id}`} className="flex items-center justify-between gap-2 px-3 py-2.5 text-sm">
+                        <span className="truncate font-bold">{storeName(c.storeId)}</span>
+                        <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-bold text-zinc-500">{c.id.toUpperCase().replace('_', ' #')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+          </div>
         </div>
       )}
 
@@ -650,6 +938,75 @@ export default function AdminPage() {
               ))}
             </div>
             <button onClick={() => setOwnerPopupSeen(true)} className="mt-4 block w-full rounded-xl border border-zinc-200 py-2.5 text-sm font-bold text-zinc-500">{tr('나중에', 'Later')}</button>
+          </div>
+        </div>
+      )}
+
+      {/* 기부 단체 승인 — 본사 승인 팝업 (점주 인증 팝업 다음 순서로 노출) */}
+      {ownerPopupSeen && pendingCharities.length > 0 && !charityPopupSeen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-6">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">💛</span>
+              <h3 className="text-lg font-black">{tr('기부 단체 승인 요청', 'Charity approval requests')} {pendingCharities.length}{tr('건', '')}</h3>
+            </div>
+            <p className="mt-1 text-sm text-zinc-500">{tr('점주가 등록 요청한 단체예요. 501(c)(3) 서류를 확인하고 승인해 주세요.', 'Owners requested these charities. Check the 501(c)(3) doc before approving.')}</p>
+            <div className="mt-4 max-h-[50vh] space-y-2 overflow-y-auto">
+              {pendingCharities.map((c) => (
+                <div key={`${c.storeId}_${c.id}`} className="rounded-xl border border-zinc-200 px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate font-bold">{c.name}</div>
+                      {c.desc && <div className="truncate text-xs text-zinc-600">{c.desc}</div>}
+                      <div className="text-xs text-zinc-500">{storeName(c.storeId)}</div>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <button onClick={() => setCharityStatus(c, 'rejected')} className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-bold text-zinc-500">{tr('반려', 'Reject')}</button>
+                      <button onClick={() => setCharityStatus(c, 'approved')} className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white">{tr('승인', 'Approve')}</button>
+                    </div>
+                  </div>
+                  {c.docUrl
+                    ? <a href={c.docUrl} target="_blank" rel="noopener noreferrer" className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-emerald-100 px-2 py-1 text-[11px] font-bold text-emerald-700">📎 {tr('501(c)(3) 서류 보기', 'View 501(c)(3)')}</a>
+                    : <div className="mt-1.5 text-[11px] font-medium text-rose-400">⚠ {tr('501(c)(3) 서류 미첨부', 'No 501(c)(3) attached')}</div>}
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setCharityPopupSeen(true)} className="mt-4 block w-full rounded-xl border border-zinc-200 py-2.5 text-sm font-bold text-zinc-500">{tr('나중에', 'Later')}</button>
+          </div>
+        </div>
+      )}
+
+      {/* 매장 추천 단체 편집 모달 — 본사 전권 */}
+      {chEdit && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-6" onClick={() => setChEdit(null)}>
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-black">🏪 {tr('매장 추천 단체 편집', 'Edit store-recommended')}</h3>
+              <button onClick={() => setChEdit(null)} className="text-xl font-bold text-zinc-400">✕</button>
+            </div>
+            <p className="mt-0.5 text-xs text-zinc-500">{storeName(chEdit.storeId)} · {chEdit.id}</p>
+            <label className="ss-label">{tr('단체명', 'Name')}</label>
+            <input value={chEdit.name} onChange={(e) => setChField('name', e.target.value)} className="ss-input" />
+            <label className="ss-label">{tr('한줄 설명 (고객 노출)', 'One-line description')}</label>
+            <input value={chEdit.desc || ''} onChange={(e) => setChField('desc', e.target.value)} maxLength={40} className="ss-input" placeholder={tr('예: 어린이 급식 지원', 'e.g. Feeding children')} />
+            <label className="ss-label">{tr('홈페이지 링크', 'Website')}</label>
+            <input value={chEdit.linkUrl || ''} onChange={(e) => setChField('linkUrl', e.target.value)} className="ss-input" placeholder="https://..." />
+            <label className="ss-label">{tr('상태', 'Status')}</label>
+            <select value={chEdit.status} onChange={(e) => setChField('status', e.target.value)} className="ss-input">
+              <option value="pending">{tr('승인 대기', 'Pending')}</option>
+              <option value="approved">{tr('승인', 'Approved')}</option>
+              <option value="rejected">{tr('반려', 'Rejected')}</option>
+            </select>
+            <label className="ss-label">{tr('501(c)(3) 증빙 서류', '501(c)(3) document')}</label>
+            <label className="flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-dashed border-brand-300 bg-brand-50/50 px-3 py-2.5 text-xs font-bold text-brand-700 transition hover:bg-brand-50">
+              <input type="file" accept="application/pdf,image/*" className="hidden" disabled={chUploading} onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadChEditDoc(f); e.target.value = ''; }} />
+              {chUploading ? tr('업로드 중…', 'Uploading…') : chEdit.docUrl ? tr('📎 서류 재첨부', '📎 Replace doc') : tr('📎 501(c)(3) 서류 첨부', '📎 Attach 501(c)(3)')}
+            </label>
+            {chEdit.docUrl && <a href={chEdit.docUrl} target="_blank" rel="noopener noreferrer" className="mt-1 block truncate text-[11px] font-bold text-emerald-600" title={chEdit.docName}>✓ {chEdit.docName || tr('첨부된 서류 보기', 'View attached doc')}</a>}
+            <div className="mt-4 flex gap-2">
+              <button onClick={saveChEdit} className="ss-btn-primary flex-1">{tr('저장', 'Save')}</button>
+              <button onClick={() => deleteCharity(chEdit)} className="rounded-xl border border-rose-200 bg-white px-4 py-3 text-sm font-bold text-rose-600">{tr('삭제', 'Delete')}</button>
+            </div>
           </div>
         </div>
       )}

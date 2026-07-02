@@ -66,11 +66,11 @@ export default function ClaimPage() {
           const cardSnap = await tx.get(cardRef);
           const cur = cardSnap.exists() ? ((cardSnap.data().currentStamps as number) || 0) : 0;
           const next = cur + stamps;
-          // 칸별 가치·날짜 기록 — 이 스탬프는 "지금 보상÷7"의 가치로 고정 (이후 보상이 인상돼도 유지)
+          // 칸별 가치·날짜 기록 — 이 스탬프는 "지금 보상÷9"의 가치로 고정 (이후 보상이 인상돼도 유지)
           const reward = st.pointRewardPer7Stamps ?? 5;
-          const prevVals = (cardSnap.exists() ? (cardSnap.data().stampValues as number[] | undefined) : undefined) ?? Array.from({ length: cur }).map(() => reward / 7);
+          const prevVals = (cardSnap.exists() ? (cardSnap.data().stampValues as number[] | undefined) : undefined) ?? Array.from({ length: cur }).map(() => reward / 9);
           const prevDates = (cardSnap.exists() ? (cardSnap.data().stampDates as string[] | undefined) : undefined) ?? Array.from({ length: cur }).map(() => now);
-          const stampValues = [...prevVals.slice(0, cur), ...Array.from({ length: stamps }).map(() => reward / 7)];
+          const stampValues = [...prevVals.slice(0, cur), ...Array.from({ length: stamps }).map(() => reward / 9)];
           const stampDates = [...prevDates.slice(0, cur), ...Array.from({ length: stamps }).map(() => now)];
           tx.set(cardRef, { storeId, storeName: st.name || slug, slug, currentStamps: next, reward, currency: st.currency || 'USD', interval: st.earningIntervalMinutes ?? 60, stampValues, stampDates, updatedAt: now }, { merge: true });
           tx.set(mirrorRef, { deviceId: id, currentStamps: next, updatedAt: now }, { merge: true });
@@ -116,7 +116,7 @@ export default function ClaimPage() {
   );
 
   if (state === 'done' && info) {
-    const filled = Math.min(info.total, 7);
+    const filled = Math.min(info.total, 9);
     return (
       <Wrap>
         <div className="ss-card w-full max-w-sm p-7">
@@ -124,7 +124,7 @@ export default function ClaimPage() {
           <h1 className="mt-4 text-2xl font-black text-emerald-600">스탬프 +{info.stamps} 적립!</h1>
           <p className="mt-1 text-sm text-zinc-500">{info.storeName}</p>
           <div className="mt-5 flex items-center justify-center gap-1.5">
-            {Array.from({ length: 7 }).map((_, i) => (
+            {Array.from({ length: 9 }).map((_, i) => (
               <span key={i} className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${i < filled ? 'bg-brand-600 text-white' : 'bg-zinc-200 text-zinc-400'}`}>{i < filled ? '★' : ''}</span>
             ))}
           </div>

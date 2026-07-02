@@ -22,7 +22,7 @@ function buildFaq(store: Store): FaqItem[] {
     { q: `What is ${store.name} known for?`, a: `${store.name} is a ${store.category.toLowerCase()}${cityLine}. ${store.description}` },
     { q: `What are the signature dishes at ${store.name}?`, a: signatures.length ? `Signature items include ${signatures.join(', ')}.` : `Ask staff for today's recommendations.` },
     { q: `What are the hours of ${store.name}?`, a: `${store.name} is open ${store.hours}.` },
-    { q: `Does ${store.name} offer a loyalty reward?`, a: `Yes. Collect 7 stamps to receive a ${store.currency} ${store.pointRewardPer7Stamps.toFixed(2)} reward.` },
+    { q: `Does ${store.name} offer a loyalty reward?`, a: `Yes. Collect 9 stamps to receive a ${store.currency} ${store.pointRewardPer7Stamps.toFixed(2)} reward.` },
   ];
 }
 

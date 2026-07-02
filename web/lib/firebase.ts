@@ -3,6 +3,7 @@
 // (P5+ 환경변수화 권장. 지금은 호스트 중립 + 즉시 동작 우선.)
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 import { getFirestore, type Firestore } from 'firebase/firestore';
+import { getStorage, type FirebaseStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyAbC52KmAifq5GjifF59QF0XqUBgZvziVo',
@@ -19,4 +20,8 @@ export function getFirebaseApp(): FirebaseApp {
 
 export function getDb(): Firestore {
   return getFirestore(getFirebaseApp());
+}
+
+export function getStorageBucket(): FirebaseStorage {
+  return getStorage(getFirebaseApp());
 }
