@@ -42,7 +42,8 @@ export default function MePage() {
   const [profile, setProfile] = useState<{ name: string; phone: string } | null | undefined>(undefined);
   const [nameIn, setNameIn] = useState(''); const [phoneIn, setPhoneIn] = useState('');
   const [loginStep, setLoginStep] = useState<'phone' | 'welcome' | 'newuser'>('phone');
-  const [foundAccount, setFoundAccount] = useState<{ deviceId: string; name: string } | null>(null);
+  const [foundAccount, setFoundAccount] = useState<{ deviceId: string; name: string; password?: string } | null>(null);
+  const [loginPw, setLoginPw] = useState('');
   const [cards, setCards] = useState<Card[]>([]);
   const [selId, setSelId] = useState<string>('');
   const [balance, setBalance] = useState(0); const [donated, setDonated] = useState(0);
@@ -57,7 +58,13 @@ export default function MePage() {
   const [bigTap, setBigTap] = useState(false);
   const tapTimerRef = useRef<number | null>(null);
   const bigTimerRef = useRef<number | null>(null);
-  const [friendPhone, setFriendPhone] = useState(''); const [giftCount, setGiftCount] = useState(1);
+  const [giftCount, setGiftCount] = useState(1);
+  // 친구 선물 — 전화 뒷 4자리로 검색 → 후보 목록에서 선택
+  const [friendQuery, setFriendQuery] = useState('');
+  const [friendMatches, setFriendMatches] = useState<{ phone: string; name: string; deviceId: string }[]>([]);
+  const [friendPick, setFriendPick] = useState<{ phone: string; name: string; deviceId: string } | null>(null);
+  const [friendSearching, setFriendSearching] = useState(false);
+  const [donateCount, setDonateCount] = useState(1); // 기부할 스탬프 수량
   const [lang, setLang] = useState<'ko' | 'en'>('ko');
 
   useEffect(() => { try { const l = localStorage.getItem('ss_lang'); if (l === 'en' || l === 'ko') setLang(l); } catch {} }, []);
@@ -66,21 +73,28 @@ export default function MePage() {
 
   const flash = (m: string, ms = 3000) => { setToast(m); setTimeout(() => setToast(null), ms); };
 
+  // 점주 미리보기: /me?as=<deviceId> → 그 회원의 카드/프로필을 읽기 전용으로 표시(적립/선물/기부 액션 숨김)
+  const previewId = useMemo(() => { try { return new URLSearchParams(window.location.search).get('as') || ''; } catch { return ''; } }, []);
+  const preview = !!previewId;
+  const myId = () => previewId || getDeviceId();
+
   const load = async () => {
     try {
-      const db = getDb(); const id = getDeviceId();
+      const db = getDb(); const id = myId();
       const [cardSnap, custSnap, donSnap] = await Promise.all([
         getDocs(collection(db, 'customers', id, 'cards')),
         getDoc(doc(db, 'customers', id)),
         getDocs(query(collection(db, 'customers', id, 'donations'), orderBy('createdAt', 'desc'), limit(8))).catch(() => null),
       ]);
       let cs = cardSnap.docs.map((d) => d.data() as Card);
-      // ShareStamps 기본 카드(무조건 3개) 보장 — 그 매장만
+      // ShareStamps 기본 카드(무조건 3개) 보장 — 그 매장만. (점주 미리보기에선 대신 쓰지 않음)
       if (!cs.some((c) => c.storeId === SS_CARD.storeId)) {
         cs = [{ ...SS_CARD }, ...cs];
-        const now = new Date().toISOString();
-        setDoc(doc(db, 'customers', id, 'cards', SS_CARD.storeId), { ...SS_CARD, updatedAt: now }, { merge: true }).catch(() => {});
-        setDoc(doc(db, 'stores', SS_CARD.storeId, 'stampCards', id), { deviceId: id, currentStamps: SS_CARD.currentStamps, updatedAt: now }, { merge: true }).catch(() => {});
+        if (!preview) {
+          const now = new Date().toISOString();
+          setDoc(doc(db, 'customers', id, 'cards', SS_CARD.storeId), { ...SS_CARD, updatedAt: now }, { merge: true }).catch(() => {});
+          setDoc(doc(db, 'stores', SS_CARD.storeId, 'stampCards', id), { deviceId: id, currentStamps: SS_CARD.currentStamps, updatedAt: now }, { merge: true }).catch(() => {});
+        }
       }
       cs.sort((a, b) => b.currentStamps - a.currentStamps);
       setCards(cs);
@@ -89,7 +103,7 @@ export default function MePage() {
       setBalance((c.balance as number) || 0); setDonated((c.donated as number) || 0);
       setProfile(c.name ? { name: c.name as string, phone: (c.phone as string) || '' } : null);
       setDonations(donSnap ? donSnap.docs.map((d) => d.data() as Donation) : []);
-      ensureDefaults(db); // 조PD 종합관리자 기본 회원 보장(브라우저당 1회)
+      if (!preview) ensureDefaults(db); // 조PD 종합관리자 기본 회원 보장(브라우저당 1회)
     } catch { setProfile(null); }
   };
 
@@ -107,7 +121,7 @@ export default function MePage() {
   // 카드 실시간 구독 — 점주가 스탬프를 지급/차감하면 열려있는 화면에도 바로 반영
   useEffect(() => {
     if (!profile) return; // 로그인 후에만
-    const id = getDeviceId();
+    const id = myId();
     const unsub = onSnapshot(collection(getDb(), 'customers', id, 'cards'), (snap) => {
       const cs = snap.docs.map((d) => d.data() as Card);
       if (!cs.length) return;
@@ -135,9 +149,15 @@ export default function MePage() {
     setBusy(true);
     try {
       const db = getDb();
-      if (phone === ADMIN_PHONE) { setFoundAccount({ deviceId: 'admin_jopd', name: '조PD' }); setLoginStep('welcome'); return; }
+      setLoginPw('');
+      const resolve = async (deviceId: string, name: string) => {
+        let password = '';
+        try { const cd = await getDoc(doc(db, 'customers', deviceId)); if (cd.exists()) password = (cd.data().password as string) || ''; } catch {}
+        setFoundAccount({ deviceId, name, password }); setLoginStep('welcome');
+      };
+      if (phone === ADMIN_PHONE) { await resolve('admin_jopd', '조PD'); return; }
       const idx = await getDoc(doc(db, 'phoneIndex', phone));
-      if (idx.exists()) { setFoundAccount({ deviceId: idx.data().deviceId as string, name: (idx.data().name as string) || '' }); setLoginStep('welcome'); }
+      if (idx.exists()) { await resolve(idx.data().deviceId as string, (idx.data().name as string) || ''); }
       else { setLoginStep('newuser'); }
     } catch { flash(t('확인에 실패했어요.', 'Lookup failed.')); }
     finally { setBusy(false); }
@@ -145,6 +165,7 @@ export default function MePage() {
   // 기존 회원 입장: 그 계정(deviceId)으로 세션 전환 후 로드
   const enterExisting = async () => {
     if (!foundAccount) return;
+    if (foundAccount.password && loginPw.trim() !== foundAccount.password) { flash(t('비밀번호가 틀려요.', 'Wrong password.')); return; }
     setBusy(true);
     try { try { localStorage.setItem('ss_device_id', foundAccount.deviceId); } catch {} await load(); }
     finally { setBusy(false); }
@@ -214,25 +235,55 @@ export default function MePage() {
       flash(`${c.currency} ${v.toFixed(2)} 적립 전환! 🎉`); await load();
     } catch { flash('처리 실패'); } finally { setBusy(false); }
   };
+  // 뒤에서부터 n개 스탬프의 가치 합(획득 시점 가치 기준) — 기부/부분 처리에 사용
+  const lastNValue = (c: Card, n: number) => {
+    const vals = Array.from({ length: Math.min(c.currentStamps, STAMP_GOAL) }).map((_, i) => cellValue(c, i));
+    const k = Math.max(0, Math.min(n, vals.length));
+    return vals.slice(vals.length - k).reduce((s, v) => s + v, 0);
+  };
+  // 전화 뒷 4자리로 친구 검색 → 후보(전화·닉네임) 목록
+  const searchFriends = async () => {
+    const q = friendQuery.replace(/[^0-9]/g, '');
+    if (q.length < 4) { flash(t('전화번호 뒷 4자리를 입력해 주세요.', 'Enter the last 4 digits.')); return; }
+    setFriendSearching(true); setFriendMatches([]); setFriendPick(null);
+    try {
+      const db = getDb();
+      const mine = profile?.phone ? normPhone(profile.phone) : '';
+      const snap = await getDocs(collection(db, 'phoneIndex'));
+      const res = snap.docs
+        .map((d) => ({ phone: d.id, name: (d.data().name as string) || '', deviceId: (d.data().deviceId as string) || '' }))
+        .filter((r) => r.deviceId && r.phone.endsWith(q) && r.phone !== mine);
+      setFriendMatches(res);
+      if (res.length === 0) flash(t('일치하는 친구가 없어요.', 'No matching friend.'));
+    } catch { flash(t('검색 실패', 'Search failed')); }
+    finally { setFriendSearching(false); }
+  };
   const confirmDonate = async () => {
-    const c = disp; if (c.currentStamps < 1) return; setBusy(true);
-    try { const db = getDb(); const id = getDeviceId(); const now = new Date().toISOString(); const v = value(c);
+    const c = disp; if (c.currentStamps < 1) return;
+    const qty = Math.max(1, Math.min(donateCount, c.currentStamps)); setBusy(true);
+    try { const db = getDb(); const id = getDeviceId(); const now = new Date().toISOString();
       const n = charityList.find((x) => x.id === npo)?.name;
-      await reset(db, id, c, now); await setDoc(doc(db, 'customers', id), { donated: donated + v }, { merge: true });
-      await setDoc(doc(collection(db, 'customers', id, 'donations'), `d_${Date.now()}`), { storeId: c.storeId, storeName: c.storeName, npoName: n, amount: v, currency: c.currency, createdAt: now });
-      setPanel(null); flash(`${c.currency} ${v.toFixed(2)} 기부 완료! 💛 ${n}`, 3500); await load();
+      const allVals = Array.from({ length: Math.min(c.currentStamps, STAMP_GOAL) }).map((_, i) => cellValue(c, i));
+      const allDates = Array.from({ length: Math.min(c.currentStamps, STAMP_GOAL) }).map((_, i) => cellDate(c, i) || now);
+      const amount = allVals.slice(allVals.length - qty).reduce((s, v) => s + v, 0);
+      const keptVals = allVals.slice(0, allVals.length - qty);
+      const keptDates = allDates.slice(0, allDates.length - qty);
+      const myNext = c.currentStamps - qty;
+      await setDoc(doc(db, 'stores', c.storeId, 'stampCards', id), { currentStamps: myNext, updatedAt: now }, { merge: true });
+      await setDoc(doc(db, 'customers', id, 'cards', c.storeId), { currentStamps: myNext, stampValues: keptVals, stampDates: keptDates, updatedAt: now }, { merge: true });
+      await setDoc(doc(db, 'customers', id), { donated: donated + amount }, { merge: true });
+      await setDoc(doc(collection(db, 'customers', id, 'donations'), `d_${Date.now()}`), { storeId: c.storeId, storeName: c.storeName, npoName: n, amount, currency: c.currency, createdAt: now });
+      setPanel(null); setDonateCount(1); flash(`${c.currency} ${amount.toFixed(2)} 기부 완료! 💛 ${n}`, 3500); await load();
     } catch { flash('기부 실패'); } finally { setBusy(false); }
   };
   const confirmGift = async () => {
-    const c = disp; const phone = normPhone(friendPhone);
-    if (phone.length < 8) { flash('친구 전화번호를 입력해 주세요.'); return; }
-    if (phone === profile?.phone) { flash('본인에게는 선물할 수 없어요.'); return; }
+    const c = disp;
+    if (!friendPick) { flash(t('선물할 친구를 선택해 주세요.', 'Pick a friend first.')); return; }
+    if (friendPick.phone === (profile?.phone ? normPhone(profile.phone) : '')) { flash('본인에게는 선물할 수 없어요.'); return; }
     const want = Math.max(1, Math.min(giftCount, c.currentStamps)); setBusy(true);
     try {
       const db = getDb(); const id = getDeviceId(); const now = new Date().toISOString();
-      const idx = await getDoc(doc(db, 'phoneIndex', phone));
-      if (!idx.exists()) { flash('친구를 찾지 못했어요. (친구도 가입 필요)'); setBusy(false); return; }
-      const fId = idx.data().deviceId as string; const fName = (idx.data().name as string) || '친구';
+      const fId = friendPick.deviceId; const fName = friendPick.name || '친구';
       const fRef = doc(db, 'stores', c.storeId, 'stampCards', fId); const fSnap = await getDoc(fRef);
       const fCur = fSnap.exists() ? ((fSnap.data().currentStamps as number) || 0) : 0;
       const accept = Math.min(want, STAMP_GOAL - fCur); const returned = want - accept;
@@ -252,7 +303,7 @@ export default function MePage() {
       const myNext = c.currentStamps - accept;
       await setDoc(doc(db, 'stores', c.storeId, 'stampCards', id), { currentStamps: myNext, updatedAt: now }, { merge: true });
       await setDoc(doc(db, 'customers', id, 'cards', c.storeId), { currentStamps: myNext, stampValues: myVals, stampDates: myDates, updatedAt: now }, { merge: true });
-      setPanel(null); setFriendPhone(''); setGiftCount(1);
+      setPanel(null); setFriendQuery(''); setFriendMatches([]); setFriendPick(null); setGiftCount(1);
       flash(`${fName}님께 ${accept}개 선물! 🎁${returned ? ` (초과 ${returned}개 회수)` : ''}`, 4000); await load();
     } catch { flash('선물 실패'); } finally { setBusy(false); }
   };
@@ -285,6 +336,12 @@ export default function MePage() {
               <div className="text-3xl">🐝</div>
               <p className="mt-1 text-lg font-black text-brand-700">{t('또 오셨군요', 'Welcome back')}{foundAccount.name ? `, ${foundAccount.name}님!` : '!'}</p>
               <p className="mt-0.5 text-sm text-zinc-500">{phoneIn}</p>
+              {foundAccount.password && (
+                <div className="mt-3 text-left">
+                  <label className="ss-label">🔒 {t('비밀번호', 'Password')}</label>
+                  <input value={loginPw} onChange={(e) => setLoginPw(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') enterExisting(); }} type="password" className="ss-input" placeholder={t('비밀번호 입력', 'Enter password')} autoFocus />
+                </div>
+              )}
               <button onClick={enterExisting} disabled={busy} className="ss-btn-primary mt-4 w-full">{busy ? '…' : t('들어가기', 'Enter')}</button>
               <button onClick={() => { setLoginStep('phone'); setFoundAccount(null); }} className="mt-2 text-xs font-bold text-zinc-400">{t('다른 번호로', 'Use a different number')}</button>
             </div>
@@ -308,6 +365,12 @@ export default function MePage() {
 
   return (
     <main className="mx-auto max-w-md px-4 pb-24">
+      {/* 점주 미리보기 배너 — 팝업(iframe)의 X로 닫으므로 여기엔 안내만 */}
+      {preview && (
+        <div className="-mx-4 mb-1 bg-brand-600 px-4 py-2 text-center text-white">
+          <span className="text-xs font-bold">👀 {t('점주 화면에서 보는 고객 화면', "Owner's view of the customer screen")}</span>
+        </div>
+      )}
       {/* 상단바 */}
       <div className="flex items-center justify-between pt-3 pb-2">
         <span className="flex items-center gap-1.5 text-sm font-bold text-brand-700">👤 {profile.name}</span>
@@ -437,16 +500,43 @@ export default function MePage() {
                       ) : (
                         <div>
                           <p className="text-sm font-bold">{t('친구에게 스탬프 선물 🎁', 'Gift stamps 🎁')} <span className="text-zinc-400">({t('보유', 'have')} {disp.currentStamps})</span></p>
-                          <input value={friendPhone} onChange={(e) => setFriendPhone(e.target.value)} className="ss-input mt-2" placeholder="000-000-0000" inputMode="tel" />
-                          <input type="number" min={1} max={disp.currentStamps} value={giftCount} onChange={(e) => setGiftCount(parseInt(e.target.value, 10) || 1)} className="ss-input mt-2" />
-                          <button onClick={confirmGift} disabled={busy} className="ss-btn-primary mt-2 w-full">{busy ? '…' : t('선물 보내기', 'Send gift')}</button>
+                          {/* 1) 전화 뒷 4자리로 친구 검색 */}
+                          <div className="mt-2 flex gap-2">
+                            <input value={friendQuery} onChange={(e) => { setFriendQuery(e.target.value.replace(/[^0-9]/g, '').slice(0, 4)); setFriendPick(null); }} onKeyDown={(e) => { if (e.key === 'Enter') searchFriends(); }} className="ss-input" placeholder={t('전화 뒷 4자리', 'Last 4 digits')} inputMode="numeric" maxLength={4} />
+                            <button onClick={searchFriends} disabled={friendSearching} className="ss-btn-soft shrink-0 px-4">{friendSearching ? '…' : t('검색', 'Search')}</button>
+                          </div>
+                          {/* 2) 후보 목록에서 선택 (전화·닉네임 표시) */}
+                          {friendMatches.length > 0 && (
+                            <div className="mt-2 space-y-1.5">
+                              {friendMatches.map((f) => {
+                                const p = f.phone; const disp2 = p.length === 11 ? `${p.slice(0, 3)}-${p.slice(3, 7)}-${p.slice(7)}` : p.length === 10 ? `${p.slice(0, 3)}-${p.slice(3, 6)}-${p.slice(6)}` : p;
+                                const on = friendPick?.deviceId === f.deviceId;
+                                return (
+                                  <button key={f.deviceId} onClick={() => setFriendPick(f)} className={`flex w-full items-center justify-between gap-2 rounded-xl border p-2.5 text-left ${on ? 'border-brand-500 bg-brand-50' : 'border-zinc-200'}`}>
+                                    <span className="min-w-0"><span className="font-bold">{f.name || t('이름 없음', 'No name')}</span> <span className="text-xs text-zinc-500">{disp2}</span></span>
+                                    {on && <span className="shrink-0 text-brand-600">✓</span>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {/* 3) 수량 + 보내기 (친구 선택 후) */}
+                          {friendPick && (
+                            <>
+                              <div className="mt-2 flex items-center gap-2">
+                                <span className="text-sm font-bold text-zinc-600">{t('보낼 수량', 'Qty')}</span>
+                                <input type="number" min={1} max={disp.currentStamps} value={giftCount} onChange={(e) => setGiftCount(Math.max(1, Math.min(disp.currentStamps, parseInt(e.target.value, 10) || 1)))} className="ss-input" />
+                              </div>
+                              <button onClick={confirmGift} disabled={busy} className="ss-btn-primary mt-2 w-full">{busy ? '…' : t(`${friendPick.name || '친구'}님께 ${giftCount}개 선물`, `Gift ${giftCount} to ${friendPick.name || 'friend'}`)}</button>
+                            </>
+                          )}
                         </div>
                       ))}
                       {panel === 'donate' && (disp.currentStamps < 1 ? (
                         <p className="text-center text-sm text-zinc-500">{t('스탬프 1개 이상부터 기부할 수 있어요.', 'Need at least 1 stamp to donate.')}</p>
                       ) : (
                         <div>
-                          <p className="text-sm font-bold">{t('어디에 기부할까요? 💛', 'Donate to? 💛')} <span className="text-zinc-400">(${value(disp).toFixed(2)})</span></p>
+                          <p className="text-sm font-bold">{t('어디에 기부할까요? 💛', 'Donate to? 💛')}</p>
                           <div className="mt-2 space-y-1.5">
                             {charityList.map((n) => (
                               <label key={n.id} className={`flex cursor-pointer items-center gap-2.5 rounded-xl border p-2.5 ${npo === n.id ? 'border-brand-500 bg-brand-50' : 'border-zinc-200'}`}>
@@ -455,7 +545,13 @@ export default function MePage() {
                               </label>
                             ))}
                           </div>
-                          <button onClick={confirmDonate} disabled={busy} className="ss-btn-primary mt-2 w-full">{busy ? '…' : t('기부 확정하기', 'Confirm donation')}</button>
+                          {/* 기부할 수량 선택 (전부가 아니라 원하는 만큼) */}
+                          <div className="mt-3 flex items-center justify-between gap-2">
+                            <span className="text-sm font-bold text-zinc-600">{t('기부할 스탬프', 'Stamps to donate')}</span>
+                            <input type="number" min={1} max={disp.currentStamps} value={donateCount} onChange={(e) => setDonateCount(Math.max(1, Math.min(disp.currentStamps, parseInt(e.target.value, 10) || 1)))} className="ss-input w-24 text-center" />
+                          </div>
+                          <div className="mt-1 text-right text-xs text-zinc-500">{t('기부 금액', 'Donation')} <span className="font-black text-amber-600">${lastNValue(disp, Math.max(1, Math.min(donateCount, disp.currentStamps))).toFixed(2)}</span> <span className="text-zinc-400">/ {t('보유', 'have')} {disp.currentStamps}</span></div>
+                          <button onClick={confirmDonate} disabled={busy} className="ss-btn-primary mt-2 w-full">{busy ? '…' : t(`${Math.max(1, Math.min(donateCount, disp.currentStamps))}개 기부하기`, `Donate ${Math.max(1, Math.min(donateCount, disp.currentStamps))}`)}</button>
                         </div>
                       ))}
                     </div>
@@ -502,7 +598,7 @@ export default function MePage() {
               {charityList.map((n) => (
                 <div key={n.id} className="flex items-center justify-between rounded-xl bg-zinc-50 p-3">
                   <div><div className="text-sm font-bold">{n.name}</div><div className="text-[11px] text-zinc-500">{n.sub}</div></div>
-                  <button onClick={() => { if (!sel || sel.currentStamps < 1) { flash(t('스탬프 1개 이상부터 기부 가능해요.', 'Need at least 1 stamp to donate.')); return; } setNpo(n.id); setPanel('donate'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="ss-chip">{t('기부', 'Donate')}</button>
+                  <button onClick={() => { if (!sel || sel.currentStamps < 1) { flash(t('스탬프 1개 이상부터 기부 가능해요.', 'Need at least 1 stamp to donate.')); return; } setNpo(n.id); setDonateCount(1); setPanel('donate'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="ss-chip">{t('기부', 'Donate')}</button>
                 </div>
               ))}
             </div>

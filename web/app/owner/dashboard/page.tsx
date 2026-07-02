@@ -12,7 +12,7 @@ import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage
 type Review = { author: string; rating: number; comment: string; createdAt: string };
 type MenuItem = { id: string; name: string; price: number; signature?: boolean; description?: string; category?: string };
 type Cardholder = { name: string; phone?: string; stamps: number };
-type Member = { deviceId: string; name: string; phone?: string; stamps: number; balance: number; donated: number; suspended?: boolean; memo?: string; allergy?: string };
+type Member = { deviceId: string; name: string; phone?: string; password?: string; stamps: number; balance: number; donated: number; suspended?: boolean; memo?: string; allergy?: string };
 type Donation = { npoName?: string; amount: number; createdAt: string };
 type Charity = { id: string; name: string; desc?: string; linkUrl?: string; source: 'owner' | 'hq'; status: 'pending' | 'approved' | 'rejected'; docUrl?: string; docName?: string };
 type StampLog = { name: string; amount: number | null; source: 'receipt' | 'review' | string; createdAt: string };
@@ -58,7 +58,14 @@ export default function OwnerDashboard() {
   const [selMemberId, setSelMemberId] = useState<string | null>(null);
   const [showAddMember, setShowAddMember] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // 스탬프 지급/차감 — 수량 입력 + 확인 다이얼로그(스탬프는 현금과 같으니 재확인)
+  const [stampQty, setStampQty] = useState(1);
+  const [stampConfirm, setStampConfirm] = useState<{ deviceId: string; name: string; delta: number } | null>(null);
+  // 고객 화면 보기 — 새 탭 이동 대신 팝업(iframe)으로, 그대로 다 되는 화면 + X로 닫기
+  const [customerPreview, setCustomerPreview] = useState<string | null>(null);
   const [memoDraft, setMemoDraft] = useState(''); const [allergyDraft, setAllergyDraft] = useState('');
+  // 회원 정보 수정 드래프트 (닉네임·전화·비밀번호)
+  const [editName, setEditName] = useState(''); const [editPhone, setEditPhone] = useState(''); const [editPassword, setEditPassword] = useState('');
   const [newMemberName, setNewMemberName] = useState(''); const [newMemberPhone, setNewMemberPhone] = useState('');
   const normPhone = (p: string) => p.replace(/\D/g, '');
   const [memberDonations, setMemberDonations] = useState<{ npoName?: string; storeName?: string; amount: number; createdAt: string }[]>([]);
@@ -159,14 +166,14 @@ export default function OwnerDashboard() {
       const activeStamps = cardsSnap.docs.reduce((s2, d) => s2 + ((d.data().currentStamps as number) || 0), 0);
       const reviews = reviewsSnap.docs.map((d) => d.data() as Review).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       const menu = menuSnap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as MenuItem));
-      const custMap = new Map<string, { name?: string; phone?: string; balance?: number; donated?: number }>();
-      (custSnap?.docs ?? []).forEach((d) => custMap.set(d.id, d.data() as { name?: string; phone?: string; balance?: number; donated?: number }));
+      const custMap = new Map<string, { name?: string; phone?: string; password?: string; balance?: number; donated?: number }>();
+      (custSnap?.docs ?? []).forEach((d) => custMap.set(d.id, d.data() as { name?: string; phone?: string; password?: string; balance?: number; donated?: number }));
       const cardholders: Cardholder[] = cardsSnap.docs
         .map((d) => ({ name: custMap.get(d.id)?.name || '', phone: custMap.get(d.id)?.phone, stamps: (d.data().currentStamps as number) || 0 }))
         .filter((c) => c.stamps > 0).sort((a, b) => b.stamps - a.stamps);
       // 회원 명부: 이 매장에 카드가 있는 모든 회원(스탬프 0 포함)
       const members: Member[] = cardsSnap.docs
-        .map((d) => { const c = custMap.get(d.id) || {}; return { deviceId: d.id, name: c.name || '', phone: c.phone, stamps: (d.data().currentStamps as number) || 0, balance: c.balance || 0, donated: c.donated || 0, suspended: !!d.data().suspended, memo: (d.data().memo as string) || '', allergy: (d.data().allergy as string) || '' }; })
+        .map((d) => { const c = custMap.get(d.id) || {}; return { deviceId: d.id, name: c.name || '', phone: c.phone, password: c.password || '', stamps: (d.data().currentStamps as number) || 0, balance: c.balance || 0, donated: c.donated || 0, suspended: !!d.data().suspended, memo: (d.data().memo as string) || '', allergy: (d.data().allergy as string) || '' }; })
         .sort((a, b) => b.stamps - a.stamps || (b.balance - a.balance));
       const donations: Donation[] = (donSnap?.docs ?? [])
         .map((d) => d.data() as Donation & { storeId?: string })
@@ -236,17 +243,18 @@ export default function OwnerDashboard() {
       const snap = await getDoc(cardRef);
       const cur = snap.exists() ? ((snap.data().currentStamps as number) || 0) : 0;
       const next = Math.max(0, Math.min(9, cur + delta));
+      const added = next - cur; // >0 지급, <0 차감 (상한 9 반영된 실제 변화량)
       const now = new Date().toISOString();
-      // 칸별 가치·날짜: 지급은 "지금 보상÷9"·오늘 날짜를 뒤에 추가, 차감은 마지막 것 제거
+      // 칸별 가치·날짜: 지급은 "지금 보상÷9"·오늘 날짜를 added 개수만큼 추가, 차감은 뒤에서 제거
       const custSnap = await getDoc(custCardRef);
       const prevVals = (custSnap.exists() ? (custSnap.data().stampValues as number[] | undefined) : undefined) ?? Array.from({ length: cur }).map(() => data.reward / 9);
       const prevDates = (custSnap.exists() ? (custSnap.data().stampDates as string[] | undefined) : undefined) ?? Array.from({ length: cur }).map(() => now);
-      const stampValues = next > cur ? [...prevVals.slice(0, cur), data.reward / 9] : prevVals.slice(0, next);
-      const stampDates = next > cur ? [...prevDates.slice(0, cur), now] : prevDates.slice(0, next);
+      const stampValues = added > 0 ? [...prevVals.slice(0, cur), ...Array.from({ length: added }).map(() => data.reward / 9)] : prevVals.slice(0, next);
+      const stampDates = added > 0 ? [...prevDates.slice(0, cur), ...Array.from({ length: added }).map(() => now)] : prevDates.slice(0, next);
       await setDoc(cardRef, { deviceId, currentStamps: next, updatedAt: now }, { merge: true });
       await setDoc(custCardRef, { storeId: data.storeId, storeName: data.storeName, slug: data.slug, currentStamps: next, reward: data.reward, currency: 'USD', interval: data.interval, stampValues, stampDates, updatedAt: now }, { merge: true });
-      if (next > cur) await setDoc(doc(collection(db, 'stores', data.storeId, 'stampLog')), { deviceId, amount: null, source: 'owner', createdAt: now });
-      flash(`${name || t('회원', 'Member')}: ${delta > 0 ? '+' : ''}${delta} → ${next}/9`);
+      if (added > 0) await Promise.all(Array.from({ length: added }).map(() => setDoc(doc(collection(db, 'stores', data.storeId, 'stampLog')), { deviceId, amount: null, source: 'owner', createdAt: now })));
+      flash(`${name || t('회원', 'Member')}: ${added > 0 ? '+' : ''}${added} → ${next}/9`);
       await load(data.slug);
     } catch { flash(t('처리 실패', 'Failed.')); } finally { setBusy(false); }
   };
@@ -273,6 +281,30 @@ export default function OwnerDashboard() {
       setSelMemberId(null);
       await load(data.slug);
     } catch { flash(t('삭제 실패', 'Delete failed.')); } finally { setBusy(false); }
+  };
+
+  // 회원 정보(닉네임·전화·비밀번호) 저장 — customers/{deviceId}. 전화 변경 시 phoneIndex 이전.
+  const saveMemberInfo = async (deviceId: string, oldPhone?: string) => {
+    if (!data) return;
+    const name = editName.trim();
+    const phone = editPhone.replace(/[^0-9]/g, '');
+    if (!name) { flash(t('닉네임을 입력해 주세요.', 'Enter a nickname.')); return; }
+    if (phone.length < 8) { flash(t('전화번호를 확인해 주세요.', 'Check the phone number.')); return; }
+    setBusy(true);
+    try {
+      const db = getDb();
+      // 다른 회원이 이미 쓰는 번호인지 확인
+      const oldP = (oldPhone || '').replace(/[^0-9]/g, '');
+      if (phone !== oldP) {
+        const dup = await getDoc(doc(db, 'phoneIndex', phone));
+        if (dup.exists() && dup.data().deviceId !== deviceId) { flash(t('이미 사용 중인 전화번호예요.', 'Phone already in use.')); setBusy(false); return; }
+      }
+      await setDoc(doc(db, 'customers', deviceId), { name, phone, password: editPassword.trim() }, { merge: true });
+      if (oldP && oldP !== phone) await deleteDoc(doc(db, 'phoneIndex', oldP)).catch(() => {});
+      await setDoc(doc(db, 'phoneIndex', phone), { deviceId, name }, { merge: true });
+      flash(t('회원 정보 저장됨 ✓', 'Member info saved ✓'));
+      await load(data.slug);
+    } catch { flash(t('저장 실패', 'Save failed.')); } finally { setBusy(false); }
   };
 
   // 회원 메모(특이사항)·알러지 저장 — 이 매장 카드 기준
@@ -512,7 +544,7 @@ export default function OwnerDashboard() {
                   </thead>
                   <tbody>
                     {filteredMembers.map((m) => (
-                      <tr key={m.deviceId} onClick={() => { setSelMemberId(m.deviceId); setConfirmDelete(false); setMemoDraft(m.memo || ''); setAllergyDraft(m.allergy || ''); }} className={`cursor-pointer border-b border-zinc-100 hover:bg-zinc-50 ${m.suspended ? 'opacity-50' : ''}`}>
+                      <tr key={m.deviceId} onClick={() => { setSelMemberId(m.deviceId); setConfirmDelete(false); setMemoDraft(m.memo || ''); setAllergyDraft(m.allergy || ''); setEditName(m.name || ''); setEditPhone(m.phone || ''); setEditPassword(m.password || ''); }} className={`cursor-pointer border-b border-zinc-100 hover:bg-zinc-50 ${m.suspended ? 'opacity-50' : ''}`}>
                         <td className="px-3 py-2.5 font-bold text-brand-700 hover:underline">
                           {m.name || t('손님', 'Guest')}
                           {m.suspended && <span className="ml-1.5 rounded bg-zinc-200 px-1.5 py-0.5 align-middle text-[10px] font-bold text-zinc-500">{t('정지', 'Suspended')}</span>}
@@ -539,81 +571,116 @@ export default function OwnerDashboard() {
             <div className="mx-auto mt-5 max-w-2xl">
               <button onClick={() => { setSelMemberId(null); setConfirmDelete(false); }} className="text-sm font-bold text-zinc-500 hover:text-zinc-700">{t('← 회원 명부', '← Members')}</button>
 
-              <div className="ss-card mt-3 divide-y divide-zinc-100 p-0">
-                {/* 이름·전화 + 스탬프 조정 */}
-                <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4">
-                  <div className="min-w-0">
-                    <div className="text-lg font-black leading-tight">{selMember.name || t('손님', 'Guest')}{selMember.suspended && <span className="ml-2 rounded bg-zinc-200 px-1.5 py-0.5 align-middle text-[11px] font-bold text-zinc-500">{t('활동정지됨', 'Suspended')}</span>}</div>
-                    <div className="text-sm text-zinc-500">{fmtPhone(selMember.phone)}</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => adjustMemberStamp(selMember.deviceId, selMember.name, -1)} disabled={busy || selMember.suspended} className="h-8 w-8 rounded-lg border border-zinc-200 text-lg font-bold text-zinc-500 hover:bg-zinc-50 disabled:opacity-40">−</button>
-                    <div className="flex items-center gap-1">
-                      {Array.from({ length: 9 }).map((_, i) => (<span key={i} className={`h-2.5 w-2.5 rounded-full ${i < Math.min(selMember.stamps, 9) ? 'bg-brand-600' : 'bg-zinc-200'}`} />))}
-                      <span className="ml-1.5 text-sm font-bold text-zinc-700">{Math.min(selMember.stamps, 9)}/9</span>
-                    </div>
-                    <button onClick={() => adjustMemberStamp(selMember.deviceId, selMember.name, 1)} disabled={busy || selMember.suspended} className="h-8 w-8 rounded-lg bg-brand-600 text-lg font-bold text-white hover:bg-brand-700 disabled:opacity-40">＋</button>
-                  </div>
+              {/* 카드 1 · 회원 정보 (이름=최상위 20px, 전화=보조 캡션) */}
+              <div className="ss-card mt-3 p-5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xl font-black leading-tight">{selMember.name || t('손님', 'Guest')}</span>
+                  {selMember.suspended && <span className="rounded bg-zinc-200 px-1.5 py-0.5 text-[11px] font-bold text-zinc-500">{t('활동정지됨', 'Suspended')}</span>}
+                  <button onClick={() => setCustomerPreview(selMember.deviceId)} className="rounded-full bg-brand-50 px-2.5 py-1 text-[11px] font-bold text-brand-700 transition hover:bg-brand-100">👀 {t('고객 화면 보기', 'View customer screen')}</button>
                 </div>
+                <div className="mt-1 text-xs text-zinc-500">{fmtPhone(selMember.phone)}</div>
+              </div>
 
-                {/* 요약: 라벨 / 값 리스트 */}
-                <div className="flex items-center justify-between px-4 py-3 text-sm"><span className="text-zinc-500">{t('스탬프 가치', 'Stamp value')}</span><span className="font-bold text-zinc-800">${(Math.min(selMember.stamps, 9) * (data.reward / 9)).toFixed(2)}</span></div>
-                <div className="flex items-center justify-between px-4 py-3 text-sm"><span className="text-zinc-500">{t('캐시 잔액', 'Cash balance')}</span><span className="font-bold text-zinc-800">${selMember.balance.toFixed(2)}</span></div>
-                <div className="flex items-center justify-between px-4 py-3 text-sm"><span className="text-zinc-500">{t('누적 기부', 'Total donated')}</span><span className="font-bold text-amber-600">${selMember.donated.toFixed(2)}</span></div>
-
-                {/* 알러지 · 메모(특이사항) */}
-                <div className="px-4 py-4">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t('알러지 · 메모', 'Allergy · Notes')}</div>
-                  <div className="mt-2">
-                    <label className="ss-label">⚠️ {t('알러지', 'Allergy')}</label>
-                    <input value={allergyDraft} onChange={(e) => setAllergyDraft(e.target.value)} className="ss-input" placeholder={t('예: 땅콩, 갑각류', 'e.g. Peanuts, Shellfish')} />
-                  </div>
-                  <div className="mt-2">
-                    <label className="ss-label">📝 {t('메모 (특이사항)', 'Notes')}</label>
-                    <textarea value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} className="ss-input min-h-20" placeholder={t('예: 진상 고객, 항상 늦게 취소함 / VIP, 매주 방문', 'e.g. difficult customer, cancels late / VIP, weekly regular')} />
-                  </div>
-                  <button onClick={() => saveMemberNotes(selMember.deviceId)} disabled={busy} className="ss-btn-primary mt-2 px-5 py-2 text-sm disabled:opacity-50">{t('메모 저장', 'Save Notes')}</button>
-                </div>
-
-                {/* 기부 내역 */}
-                <div className="px-4 py-4">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t('기부 내역', 'Donation history')} · {memberDonations.length}{t('건', '')}</div>
-                  {memberDonations.length === 0 ? (
-                    <p className="mt-2 text-sm text-zinc-400">{t('기부 내역이 없어요.', 'No donations.')}</p>
-                  ) : (
-                    <div className="mt-1.5 divide-y divide-zinc-50">
-                      {memberDonations.map((d, i) => (
-                        <div key={i} className="flex items-center justify-between gap-3 py-2 text-sm">
-                          <div className="min-w-0 truncate"><span className="font-semibold">💛 {d.npoName || t('기부', 'Donation')}</span><span className="ml-1.5 text-[11px] text-zinc-400">{d.storeName ? `${d.storeName} · ` : ''}{d.createdAt ? new Date(d.createdAt).toLocaleDateString() : ''}</span></div>
-                          <span className="shrink-0 font-bold text-amber-600">${(d.amount || 0).toFixed(2)}</span>
+              {/* 카드 2 · 스탬프 (허니컴 + 지급/수량/차감 + 값 요약) — 단일 박스 */}
+              <section className="ss-card mt-3 p-5">
+                <h3 className="text-base font-extrabold">🎯 {t('스탬프', 'Stamps')}</h3>
+                {/* 허니컴(왼쪽) + 지급/수량/차감(오른쪽) — 같은 줄에 정렬 */}
+                {(() => {
+                  const clip = 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)';
+                  const filled = Math.min(selMember.stamps, 9);
+                  return (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="flex" style={{ gap: 4 }}>
+                          {Array.from({ length: 9 }).map((_, i) => (
+                            <div key={i} style={{ width: 22, aspectRatio: '0.866', clipPath: clip, background: i < filled ? 'linear-gradient(160deg,#8b5cf6,#5b21b6)' : '#eee9fb' }} />
+                          ))}
                         </div>
-                      ))}
+                        <span className="text-base font-black text-brand-700">{filled}<span className="font-bold text-zinc-400">/9</span></span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => setStampConfirm({ deviceId: selMember.deviceId, name: selMember.name, delta: stampQty })} disabled={busy || selMember.suspended} className="h-11 rounded-xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-40">{t('지급', 'Give')}</button>
+                        <input type="number" min={1} max={9} value={stampQty} onChange={(e) => setStampQty(Math.max(1, Math.min(9, parseInt(e.target.value, 10) || 1)))} disabled={selMember.suspended} className="h-11 w-16 rounded-xl border border-zinc-200 px-2 text-center text-lg font-black text-zinc-800 outline-none focus:border-brand-500 disabled:opacity-40" />
+                        <button onClick={() => setStampConfirm({ deviceId: selMember.deviceId, name: selMember.name, delta: -stampQty })} disabled={busy || selMember.suspended || selMember.stamps < 1} className="h-11 rounded-xl bg-rose-600 px-5 text-sm font-bold text-white hover:bg-rose-700 disabled:opacity-40">{t('차감', 'Deduct')}</button>
+                      </div>
                     </div>
+                  );
+                })()}
+                {/* 값 요약 — 라벨/값 리스트 (14px 통일) */}
+                <div className="mt-3 divide-y divide-zinc-100 border-t border-zinc-100">
+                  <div className="flex items-center justify-between py-2.5 text-sm"><span className="text-zinc-500">{t('스탬프 가치', 'Stamp value')}</span><span className="font-bold text-zinc-800">${(Math.min(selMember.stamps, 9) * (data.reward / 9)).toFixed(2)}</span></div>
+                  <div className="flex items-center justify-between py-2.5 text-sm"><span className="text-zinc-500">{t('캐시 잔액', 'Cash balance')}</span><span className="font-bold text-zinc-800">${selMember.balance.toFixed(2)}</span></div>
+                  <div className="flex items-center justify-between py-2.5 text-sm"><span className="text-zinc-500">{t('누적 기부', 'Total donated')}</span><span className="font-bold text-amber-600">${selMember.donated.toFixed(2)}</span></div>
+                </div>
+              </section>
+
+              {/* 카드 3 · 알러지 · 메모 */}
+              <section className="ss-card mt-3 p-5">
+                <h3 className="text-base font-extrabold">📝 {t('알러지 · 메모', 'Allergy · Notes')}</h3>
+                <label className="ss-label">⚠️ {t('알러지', 'Allergy')}</label>
+                <input value={allergyDraft} onChange={(e) => setAllergyDraft(e.target.value)} className="ss-input" placeholder={t('예: 땅콩, 갑각류', 'e.g. Peanuts, Shellfish')} />
+                <label className="ss-label">🗒 {t('메모 (특이사항)', 'Notes')}</label>
+                <textarea value={memoDraft} onChange={(e) => setMemoDraft(e.target.value)} className="ss-input min-h-20" placeholder={t('예: 진상 고객, 항상 늦게 취소함 / VIP, 매주 방문', 'e.g. difficult customer, cancels late / VIP, weekly regular')} />
+                <button onClick={() => saveMemberNotes(selMember.deviceId)} disabled={busy} className="ss-btn-primary mt-3 px-5 py-2 text-sm disabled:opacity-50">{t('메모 저장', 'Save Notes')}</button>
+              </section>
+
+              {/* 카드 4 · 기부 내역 */}
+              {memberDonations.length > 0 && (
+                <section className="ss-card mt-3 p-5">
+                  <h3 className="text-base font-extrabold">💛 {t('기부 내역', 'Donation history')} <span className="text-xs font-medium text-zinc-400">· {memberDonations.length}{t('건', '')}</span></h3>
+                  <div className="mt-2 divide-y divide-zinc-100">
+                    {memberDonations.map((d, i) => (
+                      <div key={i} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                        <div className="min-w-0 truncate"><span className="font-semibold">{d.npoName || t('기부', 'Donation')}</span><span className="ml-1.5 text-[11px] text-zinc-400">{d.storeName ? `${d.storeName} · ` : ''}{d.createdAt ? new Date(d.createdAt).toLocaleDateString() : ''}</span></div>
+                        <span className="shrink-0 font-bold text-amber-600">${(d.amount || 0).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* 카드 5 · 회원 정보 수정 (닉네임·전화·비밀번호) */}
+              <section className="ss-card mt-3 p-5">
+                <h3 className="text-base font-extrabold">✏️ {t('회원 정보 수정', 'Edit Member Info')}</h3>
+                <div className="mt-2 grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <label className="ss-label">{t('닉네임', 'Nickname')}</label>
+                    <input value={editName} onChange={(e) => setEditName(e.target.value)} className="ss-input" placeholder={t('홍길동', 'Name')} />
+                  </div>
+                  <div>
+                    <label className="ss-label">{t('전화번호', 'Phone')}</label>
+                    <input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} className="ss-input" placeholder="000-000-0000" inputMode="tel" />
+                  </div>
+                  <div>
+                    <label className="ss-label">{t('비밀번호', 'Password')}</label>
+                    <input value={editPassword} onChange={(e) => setEditPassword(e.target.value)} className="ss-input" placeholder={t('없으면 비움', 'Blank = none')} />
+                  </div>
+                </div>
+                <button onClick={() => saveMemberInfo(selMember.deviceId, selMember.phone)} disabled={busy} className="ss-btn-primary mt-3 px-5 py-2 text-sm disabled:opacity-50">{t('정보 저장', 'Save Info')}</button>
+                <p className="mt-2 text-[11px] text-zinc-400">{t('* 비밀번호를 설정하면 그 회원은 로그인 시 전화번호와 함께 비밀번호를 입력해야 해요. 비우면 전화번호만으로 로그인.', '* If a password is set, the member must enter it with their phone to log in. Blank = phone-only login.')}</p>
+              </section>
+
+              {/* 카드 6 · 회원 관리 */}
+              <section className="ss-card mt-3 p-5">
+                <h3 className="text-base font-extrabold">⚙️ {t('회원 관리', 'Member Management')}</h3>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {selMember.suspended ? (
+                    <button onClick={() => toggleMemberSuspend(selMember.deviceId, selMember.name, false)} disabled={busy} className="rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-sm font-bold text-emerald-600 disabled:opacity-50">{t('정지 해제', 'Unsuspend')}</button>
+                  ) : (
+                    <button onClick={() => toggleMemberSuspend(selMember.deviceId, selMember.name, true)} disabled={busy} className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-bold text-zinc-600 disabled:opacity-50">{t('활동정지', 'Suspend')}</button>
+                  )}
+                  {!confirmDelete ? (
+                    <button onClick={() => setConfirmDelete(true)} className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-sm font-bold text-rose-600">{t('회원 삭제', 'Delete Member')}</button>
+                  ) : (
+                    <span className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-1.5 text-sm">
+                      <span className="font-semibold text-rose-600">{t('정말 삭제할까요?', 'Delete for real?')}</span>
+                      <button onClick={() => deleteMember(selMember.deviceId)} disabled={busy} className="font-bold text-rose-700 underline disabled:opacity-50">{t('삭제', 'Delete')}</button>
+                      <button onClick={() => setConfirmDelete(false)} className="font-bold text-zinc-500">{t('취소', 'Cancel')}</button>
+                    </span>
                   )}
                 </div>
-
-                {/* 회원 관리 — 활동정지/해제, 삭제 */}
-                <div className="px-4 py-4">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-zinc-400">{t('회원 관리', 'Member Management')}</div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    {selMember.suspended ? (
-                      <button onClick={() => toggleMemberSuspend(selMember.deviceId, selMember.name, false)} disabled={busy} className="rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-sm font-bold text-emerald-600 disabled:opacity-50">{t('정지 해제', 'Unsuspend')}</button>
-                    ) : (
-                      <button onClick={() => toggleMemberSuspend(selMember.deviceId, selMember.name, true)} disabled={busy} className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-bold text-zinc-600 disabled:opacity-50">{t('활동정지', 'Suspend')}</button>
-                    )}
-                    {!confirmDelete ? (
-                      <button onClick={() => setConfirmDelete(true)} className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-sm font-bold text-rose-600">{t('회원 삭제', 'Delete Member')}</button>
-                    ) : (
-                      <span className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-1.5 text-sm">
-                        <span className="font-semibold text-rose-600">{t('정말 삭제할까요?', 'Delete for real?')}</span>
-                        <button onClick={() => deleteMember(selMember.deviceId)} disabled={busy} className="font-bold text-rose-700 underline disabled:opacity-50">{t('삭제', 'Delete')}</button>
-                        <button onClick={() => setConfirmDelete(false)} className="font-bold text-zinc-500">{t('취소', 'Cancel')}</button>
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-2 text-[11px] text-zinc-400">{t('* 정지 시 이 매장에서 스탬프 지급/적립이 막혀요. 삭제는 이 매장 카드만 지워지고, 회원 계정과 다른 매장 기록은 남아요.', '* Suspending blocks giving/earning stamps at this store. Deleting removes only this store’s card — the account and other stores are unaffected.')}</p>
-                </div>
-              </div>
+                <p className="mt-2 text-[11px] text-zinc-400">{t('* 정지 시 이 매장에서 스탬프 지급/적립이 막혀요. 삭제는 이 매장 카드만 지워지고, 회원 계정과 다른 매장 기록은 남아요.', '* Suspending blocks giving/earning stamps at this store. Deleting removes only this store’s card — the account and other stores are unaffected.')}</p>
+              </section>
             </div>
           )}
 
@@ -776,6 +843,36 @@ export default function OwnerDashboard() {
             </div>
           )}
         </>
+      )}
+
+      {/* 스탬프 지급/차감 확인 — 스탬프는 현금과 같으니 한 번 더 확인 */}
+      {stampConfirm && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-6" onClick={() => setStampConfirm(null)}>
+          <div className="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className={`mx-auto flex h-14 w-14 items-center justify-center rounded-full text-3xl ${stampConfirm.delta > 0 ? 'bg-blue-100' : 'bg-rose-100'}`}>{stampConfirm.delta > 0 ? '🎁' : '↩️'}</div>
+            <h3 className={`mt-3 text-lg font-black ${stampConfirm.delta > 0 ? 'text-blue-700' : 'text-rose-700'}`}>{stampConfirm.delta > 0 ? t('스탬프 지급 확인', 'Confirm give') : t('스탬프 차감 확인', 'Confirm deduct')}</h3>
+            <p className="mt-2 text-sm text-zinc-600">
+              <b className="text-zinc-800">{stampConfirm.name || t('회원', 'Member')}</b>{t('님에게 스탬프 ', ' — ')}
+              <b className="text-zinc-800">{Math.abs(stampConfirm.delta)}{t('개', '')}</b>{t('를', ' stamp(s)')}
+            </p>
+            <p className={`mt-1 text-2xl font-black ${stampConfirm.delta > 0 ? 'text-blue-600' : 'text-rose-600'}`}>{stampConfirm.delta > 0 ? t('지급할까요?', 'Give?') : t('차감할까요?', 'Deduct?')}</p>
+            <p className="mt-2 text-[12px] font-bold text-rose-500">⚠ {t('스탬프는 현금과 같아요. 신중히 확인해 주세요.', 'Stamps are like cash — please confirm carefully.')}</p>
+            <div className="mt-4 flex gap-2">
+              <button onClick={() => setStampConfirm(null)} className="flex-1 rounded-xl border border-zinc-200 py-3 text-sm font-bold text-zinc-500">{t('취소', 'Cancel')}</button>
+              <button onClick={() => { const c = stampConfirm; setStampConfirm(null); adjustMemberStamp(c.deviceId, c.name, c.delta); }} disabled={busy} className={`flex-1 rounded-xl py-3 text-sm font-bold text-white disabled:opacity-50 ${stampConfirm.delta > 0 ? 'bg-blue-600 hover:bg-blue-700' : 'bg-rose-600 hover:bg-rose-700'}`}>{stampConfirm.delta > 0 ? t('지급 확인', 'Confirm give') : t('차감 확인', 'Confirm deduct')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 고객 화면 보기 — 새 탭 이동 대신 팝업(iframe)으로 그대로 띄우고 X로 닫기 */}
+      {customerPreview && data && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 p-4 sm:p-8" onClick={() => setCustomerPreview(null)}>
+          <div className="relative flex h-full max-h-[880px] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setCustomerPreview(null)} className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-zinc-900/80 text-lg font-bold text-white hover:bg-zinc-900">✕</button>
+            <iframe src={`/me?store=${data.slug}&as=${customerPreview}`} className="h-full w-full flex-1 border-0" title="customer preview" />
+          </div>
+        </div>
       )}
 
       {toast && <div className="fixed inset-x-0 bottom-5 z-[60] mx-auto w-fit rounded-full bg-zinc-900 px-5 py-3 text-sm font-semibold text-white shadow-lg">{toast}</div>}
