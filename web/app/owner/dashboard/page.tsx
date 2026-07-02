@@ -3,8 +3,10 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getDb, getStorageBucket } from '@/lib/firebase';
-import { collection, getDocs, getDoc, collectionGroup, doc, setDoc, deleteDoc, query, where, limit } from 'firebase/firestore';
+import { collection, getDocs, getDoc, collectionGroup, doc, setDoc, deleteDoc, onSnapshot, runTransaction, query, where, limit, type Firestore, type QuerySnapshot, type DocumentData } from 'firebase/firestore';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { buildSettlementReport, resolveExpiredNpo } from '@/lib/settlement';
+import { NPOS } from '@/lib/npos';
 
 
 // 옛 OwnerDashboard 4탭 구성 차용(기프트카드 제외) · 태블릿/PC 레이아웃: 📊오버뷰 · 🔍고객 · 📈정산 · 🏠미니홈피.
@@ -13,13 +15,15 @@ type Review = { author: string; rating: number; comment: string; createdAt: stri
 type MenuItem = { id: string; name: string; price: number; signature?: boolean; description?: string; category?: string };
 type Cardholder = { name: string; phone?: string; stamps: number };
 type Member = { deviceId: string; name: string; phone?: string; password?: string; stamps: number; balance: number; donated: number; suspended?: boolean; memo?: string; allergy?: string };
-type Donation = { npoName?: string; amount: number; createdAt: string };
+type Donation = { npoName?: string; amount: number; settled?: boolean; source?: string; createdAt: string; refPath?: string };
 type Charity = { id: string; name: string; desc?: string; linkUrl?: string; source: 'owner' | 'hq'; status: 'pending' | 'approved' | 'rejected'; docUrl?: string; docName?: string };
-type StampLog = { name: string; amount: number | null; source: 'receipt' | 'review' | string; createdAt: string };
+type StampLog = { name: string; amount: number | null; count?: number; value?: number; source: 'receipt' | 'review' | string; createdAt: string };
+type CashReq = { id: string; deviceId: string; name?: string; phone?: string; amount: number; usedAmount?: number; status: string; createdAt: string; resolvedAt?: string };
 type Loaded = {
   storeId: string; storeName: string; slug: string;
   reward: number; interval: number; banner: string; description: string; sns: string[];
   customers: number; activeStamps: number; issuedValue: number;
+  expiredNpo: { id: string; name: string } | null;   // 매장 기본 만료 스탬프 기부처
   reviews: Review[]; menu: MenuItem[]; cardholders: Cardholder[]; members: Member[]; donations: Donation[]; charities: Charity[]; stampLogs: StampLog[];
 };
 
@@ -38,6 +42,56 @@ const TABS = [
   { id: 'chatbot', ko: '🤖 챗봇', en: '🤖 Chatbot' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
+
+// 1년 만료 스탬프 자동 기부 처리 — 점주가 대시보드를 열 때 실행 (안티 설계 §3.2 흐름).
+// 기부처 우선순위: 손님 지정(defaultNpo) → 매장 지정(expiredStampsNpo) → 매장 승인 단체 1순위 → 기본 NPO.
+// 만료 가치는 칸별 획득시점 잠금값(stampValues) 합 — 보상 인상돼도 과거 가치 그대로.
+async function processExpiredStamps(
+  db: Firestore, storeId: string, storeName: string, slug: string,
+  storeNpo: { id: string; name: string } | null, charities: Charity[],
+  cardsSnap: QuerySnapshot<DocumentData>,
+): Promise<boolean> {
+  const cutoff = Date.now() - 365 * 24 * 3600 * 1000;
+  let changed = false;
+  for (const m of cardsSnap.docs) {
+    const cur = (m.data().currentStamps as number) || 0;
+    if (cur < 1) continue;
+    const deviceId = m.id;
+    const cardRef = doc(db, 'customers', deviceId, 'cards', storeId);
+    const cs = await getDoc(cardRef);
+    if (!cs.exists()) continue;
+    const cd = cs.data();
+    const dates = (cd.stampDates as string[] | undefined) ?? [];
+    const vals = (cd.stampValues as number[] | undefined) ?? [];
+    if (!dates.length) continue; // 날짜 기록이 없는 옛 카드는 만료 판정하지 않음
+    const keepIdx: number[] = []; const expIdx: number[] = [];
+    for (let i = 0; i < cur; i++) {
+      const ds = dates[i];
+      if (ds && new Date(ds).getTime() < cutoff) expIdx.push(i); else keepIdx.push(i);
+    }
+    if (!expIdx.length) continue;
+    const expCount = expIdx.length;
+    const expValue = expIdx.reduce((s, i) => s + (vals[i] ?? 0), 0);
+    const now = new Date().toISOString();
+    // 기부처 결정
+    let customerNpo: { id?: string; name?: string } | null = null;
+    let donated = 0;
+    try { const cu = await getDoc(doc(db, 'customers', deviceId)); if (cu.exists()) { customerNpo = { id: cu.data().defaultNpoId as string, name: cu.data().defaultNpoName as string }; donated = (cu.data().donated as number) || 0; } } catch {}
+    const firstCharity = charities.find((c) => c.name && (c.source === 'hq' || c.status === 'approved'));
+    const npo = resolveExpiredNpo({ customerNpo, storeNpo, fallback: firstCharity ? { id: firstCharity.id, name: firstCharity.name } : { id: NPOS[0].id, name: NPOS[0].name } });
+    // 카드에서 만료 칸 제거
+    await setDoc(cardRef, { currentStamps: keepIdx.length, stampValues: keepIdx.map((i) => vals[i] ?? 0), stampDates: keepIdx.map((i) => dates[i] ?? ''), updatedAt: now }, { merge: true });
+    await setDoc(doc(db, 'stores', storeId, 'stampCards', deviceId), { currentStamps: keepIdx.length, updatedAt: now }, { merge: true });
+    // 기부 기록 + 고객 누적 기부 갱신 + 정산 로그
+    if (npo && expValue > 0) {
+      await setDoc(doc(collection(db, 'customers', deviceId, 'donations')), { storeId, storeName, slug, npoId: npo.id, npoName: npo.name, amount: expValue, count: expCount, source: 'expired', settled: false, createdAt: now });
+      await setDoc(doc(db, 'customers', deviceId), { donated: donated + expValue }, { merge: true });
+    }
+    await setDoc(doc(collection(db, 'stores', storeId, 'stampLog')), { deviceId, amount: null, source: 'expired', count: expCount, value: expValue, npoName: npo?.name || '', createdAt: now });
+    changed = true;
+  }
+  return changed;
+}
 
 export default function OwnerDashboard() {
   const [slug, setSlug] = useState('');
@@ -63,6 +117,12 @@ export default function OwnerDashboard() {
   const [stampConfirm, setStampConfirm] = useState<{ deviceId: string; name: string; delta: number } | null>(null);
   // 고객 화면 보기 — 새 탭 이동 대신 팝업(iframe)으로, 그대로 다 되는 화면 + X로 닫기
   const [customerPreview, setCustomerPreview] = useState<string | null>(null);
+  // 정산 월 필터 (null = 전체 기간)
+  const [setlYear, setSetlYear] = useState<number | null>(new Date().getFullYear());
+  const [setlMonth, setSetlMonth] = useState<number | null>(new Date().getMonth() + 1);
+  // 캐시 사용 요청 — 손님이 송금 요청하면 팝업으로 승인/거절, 홈에 오늘 사용 목록
+  const [cashPending, setCashPending] = useState<CashReq[]>([]);
+  const [cashToday, setCashToday] = useState<CashReq[]>([]);
   const [memoDraft, setMemoDraft] = useState(''); const [allergyDraft, setAllergyDraft] = useState('');
   // 회원 정보 수정 드래프트 (닉네임·전화·비밀번호)
   const [editName, setEditName] = useState(''); const [editPhone, setEditPhone] = useState(''); const [editPassword, setEditPassword] = useState('');
@@ -125,6 +185,15 @@ export default function OwnerDashboard() {
     // eslint-disable-next-line
   }, []);
 
+  // 캐시 사용 요청 실시간 구독 — 손님이 요청하면 pending 목록 갱신 → 팝업
+  useEffect(() => {
+    const sid = data?.storeId; if (!sid) return;
+    const unsub = onSnapshot(query(collection(getDb(), 'stores', sid, 'cashRequests'), where('status', '==', 'pending')), (snap) => {
+      setCashPending(snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) } as CashReq)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
+    });
+    return () => unsub();
+  }, [data?.storeId]);
+
   // 회원 상세 열 때 그 회원의 기부 내역 로드 (customers/{deviceId}/donations)
   useEffect(() => {
     if (!selMemberId) { setMemberDonations([]); return; }
@@ -149,17 +218,30 @@ export default function OwnerDashboard() {
       const storeSnap = await getDocs(query(collection(db, 'stores'), where('slug', '==', target), limit(1)));
       if (storeSnap.empty) { setError(t('해당 slug의 매장을 찾지 못했어요.', 'No store found for that slug.')); setData(null); return; }
       const sd = storeSnap.docs[0];
-      const st = sd.data() as { name: string; slug: string; pointRewardPer7Stamps?: number; earningIntervalMinutes?: number; bannerUrl?: string; description?: string; snsChannels?: string[]; chatbotMenu?: string; chatbotReview?: string; faqs?: { q: string; a: string }[] };
-      const [cardsSnap, reviewsSnap, menuSnap, custSnap, donSnap, chSnap, logSnap] = await Promise.all([
-        getDocs(collection(db, 'stores', sd.id, 'stampCards')),
+      const st = sd.data() as { name: string; slug: string; pointRewardPer7Stamps?: number; earningIntervalMinutes?: number; bannerUrl?: string; description?: string; snsChannels?: string[]; chatbotMenu?: string; chatbotReview?: string; faqs?: { q: string; a: string }[]; expiredStampsNpoId?: string; expiredStampsNpoName?: string };
+      // 카드·기부단체 먼저 로드 → 1년 만료 스탬프 자동 기부 처리 → 나머지 로드 (처리 결과가 정산에 바로 반영되게)
+      let cardsSnap = await getDocs(collection(db, 'stores', sd.id, 'stampCards'));
+      const chSnap = await getDocs(collection(db, 'stores', sd.id, 'charities')).catch(() => null);
+      const charities: Charity[] = (chSnap?.docs ?? []).map((d) => ({ id: d.id, ...(d.data() as object) } as Charity));
+      const storeNpo = st.expiredStampsNpoName ? { id: st.expiredStampsNpoId || '', name: st.expiredStampsNpoName } : null;
+      try {
+        const changed = await processExpiredStamps(db, sd.id, st.name, st.slug || target, storeNpo, charities, cardsSnap);
+        if (changed) cardsSnap = await getDocs(collection(db, 'stores', sd.id, 'stampCards'));
+      } catch { /* 만료 처리 실패해도 대시보드는 뜬다 */ }
+      const [reviewsSnap, menuSnap, custSnap, donSnap, logSnap, cashSnap] = await Promise.all([
         getDocs(collection(db, 'stores', sd.id, 'reviews')),
         getDocs(collection(db, 'stores', sd.id, 'menuItems')),
         getDocs(collection(db, 'customers')).catch(() => null),
         getDocs(collectionGroup(db, 'donations')).catch(() => null),
-        getDocs(collection(db, 'stores', sd.id, 'charities')).catch(() => null),
         getDocs(collection(db, 'stores', sd.id, 'stampLog')).catch(() => null),
+        getDocs(collection(db, 'stores', sd.id, 'cashRequests')).catch(() => null),
       ]);
-      const charities: Charity[] = (chSnap?.docs ?? []).map((d) => ({ id: d.id, ...(d.data() as object) } as Charity));
+      // 오늘 승인된 캐시 사용 목록
+      const todayStr = new Date().toDateString();
+      setCashToday((cashSnap?.docs ?? [])
+        .map((d) => ({ id: d.id, ...(d.data() as object) } as CashReq))
+        .filter((r) => r.status === 'approved' && r.resolvedAt && new Date(r.resolvedAt).toDateString() === todayStr)
+        .sort((a, b) => (b.resolvedAt || '').localeCompare(a.resolvedAt || '')));
       const o1 = charities.find((c) => c.id === 'owner_1'); const o2 = charities.find((c) => c.id === 'owner_2');
       setOwnerCh([{ name: o1?.name || '', desc: o1?.desc || '', linkUrl: o1?.linkUrl || '', docUrl: o1?.docUrl || '', docName: o1?.docName || '' }, { name: o2?.name || '', desc: o2?.desc || '', linkUrl: o2?.linkUrl || '', docUrl: o2?.docUrl || '', docName: o2?.docName || '' }]);
       const rwd = st.pointRewardPer7Stamps ?? 5, itv = st.earningIntervalMinutes ?? 60;
@@ -176,16 +258,17 @@ export default function OwnerDashboard() {
         .map((d) => { const c = custMap.get(d.id) || {}; return { deviceId: d.id, name: c.name || '', phone: c.phone, password: c.password || '', stamps: (d.data().currentStamps as number) || 0, balance: c.balance || 0, donated: c.donated || 0, suspended: !!d.data().suspended, memo: (d.data().memo as string) || '', allergy: (d.data().allergy as string) || '' }; })
         .sort((a, b) => b.stamps - a.stamps || (b.balance - a.balance));
       const donations: Donation[] = (donSnap?.docs ?? [])
-        .map((d) => d.data() as Donation & { storeId?: string })
-        .filter((d) => (d as { storeId?: string }).storeId === sd.id)
+        .filter((d) => (d.data() as { storeId?: string }).storeId === sd.id)
+        .map((d) => ({ ...(d.data() as Donation), refPath: d.ref.path }))
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       const stampLogs: StampLog[] = (logSnap?.docs ?? [])
-        .map((d) => { const l = d.data() as { deviceId?: string; amount?: number | null; source?: string; createdAt: string }; return { name: custMap.get(l.deviceId || '')?.name || t('손님', 'Guest'), amount: l.amount ?? null, source: l.source || 'receipt', createdAt: l.createdAt }; })
+        .map((d) => { const l = d.data() as { deviceId?: string; amount?: number | null; count?: number; value?: number; source?: string; createdAt: string }; return { name: custMap.get(l.deviceId || '')?.name || t('손님', 'Guest'), amount: l.amount ?? null, count: l.count, value: l.value, source: l.source || 'receipt', createdAt: l.createdAt }; })
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setData({
         storeId: sd.id, storeName: st.name, slug: st.slug, reward: rwd, interval: itv,
         banner: st.bannerUrl || '', description: st.description || '', sns: st.snsChannels || [],
         customers: cardsSnap.size, activeStamps, issuedValue: activeStamps * (rwd / 9),
+        expiredNpo: storeNpo,
         reviews: reviews.slice(0, 8), menu, cardholders, members, donations, charities, stampLogs,
       });
       setReward(String(rwd)); setIntervalV(String(itv)); setBanner(st.bannerUrl || ''); setDesc(st.description || ''); setSns(st.snsChannels || []);
@@ -253,7 +336,7 @@ export default function OwnerDashboard() {
       const stampDates = added > 0 ? [...prevDates.slice(0, cur), ...Array.from({ length: added }).map(() => now)] : prevDates.slice(0, next);
       await setDoc(cardRef, { deviceId, currentStamps: next, updatedAt: now }, { merge: true });
       await setDoc(custCardRef, { storeId: data.storeId, storeName: data.storeName, slug: data.slug, currentStamps: next, reward: data.reward, currency: 'USD', interval: data.interval, stampValues, stampDates, updatedAt: now }, { merge: true });
-      if (added > 0) await Promise.all(Array.from({ length: added }).map(() => setDoc(doc(collection(db, 'stores', data.storeId, 'stampLog')), { deviceId, amount: null, source: 'owner', createdAt: now })));
+      if (added > 0) await setDoc(doc(collection(db, 'stores', data.storeId, 'stampLog')), { deviceId, amount: null, source: 'owner', count: added, value: added * (data.reward / 9), createdAt: now });
       flash(`${name || t('회원', 'Member')}: ${added > 0 ? '+' : ''}${added} → ${next}/9`);
       await load(data.slug);
     } catch { flash(t('처리 실패', 'Failed.')); } finally { setBusy(false); }
@@ -346,8 +429,53 @@ export default function OwnerDashboard() {
     flash(t('등록 요청됨 — 본사 승인 대기 ✓', 'Requested — awaiting HQ approval ✓')); await load(data.slug);
   };
 
-  const donatedTotal = data ? data.donations.reduce((s, d) => s + (d.amount || 0), 0) : 0;
-  const receiptTotal = data ? data.stampLogs.reduce((s, l) => s + (l.amount || 0), 0) : 0;
+  // 월간 정산 보고서 — 연산은 lib/settlement.ts 에 격리 (UI는 결과만 렌더)
+  const report = data ? buildSettlementReport({
+    year: setlYear, month: setlMonth,
+    logs: data.stampLogs, donations: data.donations,
+    outstandingCount: data.activeStamps, stampValue: data.reward / 9,
+  }) : null;
+  // NPO 미정산 → 정산 완료 마킹 (해당 기간 대기 기부 문서들의 settled=true)
+  const settleNpo = async (npoName: string, refPaths: string[]) => {
+    if (!refPaths.length) return;
+    setBusy(true);
+    try {
+      const db = getDb();
+      await Promise.all(refPaths.map((p) => setDoc(doc(db, p), { settled: true, settledAt: new Date().toISOString() }, { merge: true })));
+      flash(`${npoName} ${t('정산 완료 처리됨 ✓', 'marked settled ✓')}`);
+      if (data) await load(data.slug);
+    } catch { flash(t('처리 실패', 'Failed.')); } finally { setBusy(false); }
+  };
+  // 캐시 사용 승인 — 손님 잔액 차감(트랜잭션) + 요청 approved. 직원은 POS에서 그 금액만큼 DC.
+  const approveCashUse = async (req: CashReq) => {
+    if (!data) return;
+    setBusy(true);
+    try {
+      const db = getDb();
+      await runTransaction(db, async (tx) => {
+        const cRef = doc(db, 'customers', req.deviceId);
+        const cs = await tx.get(cRef);
+        const bal = cs.exists() ? ((cs.data().balance as number) || 0) : 0;
+        const used = Math.min(req.amount, bal); // 잔액 초과 방지
+        tx.set(cRef, { balance: Math.max(0, bal - used) }, { merge: true });
+        tx.set(doc(db, 'stores', data.storeId, 'cashRequests', req.id), { status: 'approved', usedAmount: used, resolvedAt: new Date().toISOString() }, { merge: true });
+      });
+      flash(`${req.name || t('손님', 'Guest')} $${req.amount.toFixed(2)} ${t('사용 승인됨 ✓', 'approved ✓')}`);
+      await load(data.slug);
+    } catch { flash(t('처리 실패', 'Failed.')); } finally { setBusy(false); }
+  };
+  const rejectCashUse = async (req: CashReq) => {
+    if (!data) return;
+    setBusy(true);
+    try { await setDoc(doc(getDb(), 'stores', data.storeId, 'cashRequests', req.id), { status: 'rejected', resolvedAt: new Date().toISOString() }, { merge: true }); }
+    finally { setBusy(false); }
+  };
+
+  // 매장 기본 만료 기부처 저장 — 선택지: 이 매장 활성 단체(사장 승인+본사) 우선, 없으면 기본 NPO
+  const expiredNpoOptions = data
+    ? [...data.charities.filter((c) => c.name && (c.source === 'hq' || c.status === 'approved')).map((c) => ({ id: c.id, name: c.name })),
+       ...NPOS.filter((n) => !data.charities.some((c) => c.name === n.name)).map((n) => ({ id: n.id, name: n.name }))]
+    : [];
   const chStatus = (s?: string) => s === 'approved' ? t('승인됨', 'Approved') : s === 'rejected' ? t('반려됨', 'Rejected') : t('승인 대기', 'Pending');
   const filteredMembers = data ? data.members.filter((m) => { const q = custQ.trim().toLowerCase(); if (!q) return true; return (m.name || '').toLowerCase().includes(q) || (m.phone || '').replace(/\D/g, '').includes(q.replace(/\D/g, '')); }) : [];
   const selMember = data && selMemberId ? data.members.find((m) => m.deviceId === selMemberId) || null : null;
@@ -443,9 +571,23 @@ export default function OwnerDashboard() {
               </div>
 
               <section className="ss-card mt-4 p-5">
-                <h3 className="text-base font-extrabold">{t('💰 실시간 캐시 승인 큐', '💰 Live Cash Approval Queue')}</h3>
-                <p className="mt-2 text-center text-sm text-zinc-400">{t('대기 중인 승인이 없어요.', 'No pending approvals.')}</p>
-                <p className="mt-1 text-center text-[11px] text-zinc-400">{t('* 회원 스탬프 지급/차감은 🔍 고객 탭(회원 명부)에서. 손님 결제 승인 연동은 다음 단계.', '* Give/deduct member stamps in the 🔍 Customers tab. Customer payment approval — coming next.')}</p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-base font-extrabold">{t('💳 오늘의 스탬프 캐시 사용', "💳 Today's Cash Use")}</h3>
+                  <span className="text-sm font-bold text-zinc-500">{t('합계', 'Total')} <b className="text-rose-600">${cashToday.reduce((s, r) => s + (r.usedAmount ?? r.amount), 0).toFixed(2)}</b> · {cashToday.length}{t('건', '')}</span>
+                </div>
+                {cashToday.length === 0 ? (
+                  <p className="mt-2 text-center text-sm text-zinc-400">{t('오늘 사용 내역이 없어요.', 'No cash used today.')}</p>
+                ) : (
+                  <div className="mt-2 divide-y divide-zinc-100">
+                    {cashToday.map((r) => (
+                      <div key={r.id} className="flex items-center justify-between py-2.5 text-sm">
+                        <div><span className="font-semibold">{r.name || t('손님', 'Guest')}</span> <span className="text-[11px] text-zinc-400">{r.phone ? fmtPhone(r.phone) : ''} · {r.resolvedAt ? new Date(r.resolvedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span></div>
+                        <span className="font-bold text-rose-600">−${(r.usedAmount ?? r.amount).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="mt-2 text-[11px] text-zinc-400">{t('* 손님이 캐시 사용을 요청하면 이 화면에 팝업이 떠요. POS에서 그 금액만큼 할인 후 승인하면 잔액이 차감됩니다.', '* When a customer requests cash use, a popup appears here. Apply the discount on your POS, then approve to deduct their balance.')}</p>
               </section>
 
               <section className="ss-card mt-4 p-5">
@@ -598,11 +740,18 @@ export default function OwnerDashboard() {
                         </div>
                         <span className="text-base font-black text-brand-700">{filled}<span className="font-bold text-zinc-400">/9</span></span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => setStampConfirm({ deviceId: selMember.deviceId, name: selMember.name, delta: stampQty })} disabled={busy || selMember.suspended} className="h-11 rounded-xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-40">{t('지급', 'Give')}</button>
-                        <input type="number" min={1} max={9} value={stampQty} onChange={(e) => setStampQty(Math.max(1, Math.min(9, parseInt(e.target.value, 10) || 1)))} disabled={selMember.suspended} className="h-11 w-16 rounded-xl border border-zinc-200 px-2 text-center text-lg font-black text-zinc-800 outline-none focus:border-brand-500 disabled:opacity-40" />
-                        <button onClick={() => setStampConfirm({ deviceId: selMember.deviceId, name: selMember.name, delta: -stampQty })} disabled={busy || selMember.suspended || selMember.stamps < 1} className="h-11 rounded-xl bg-rose-600 px-5 text-sm font-bold text-white hover:bg-rose-700 disabled:opacity-40">{t('차감', 'Deduct')}</button>
-                      </div>
+                      {/* 지급 상한 = 9 − 현재 보유(빈 칸 수) · 차감 상한 = 보유 수 */}
+                      {(() => {
+                        const giveMax = Math.max(0, 9 - filled);
+                        const qtyMax = Math.max(giveMax, filled, 1);
+                        return (
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => setStampConfirm({ deviceId: selMember.deviceId, name: selMember.name, delta: Math.min(stampQty, giveMax) })} disabled={busy || selMember.suspended || giveMax === 0} title={giveMax === 0 ? t('카드가 가득 찼어요 (9/9)', 'Card is full (9/9)') : t(`최대 ${giveMax}개 지급 가능`, `Up to ${giveMax}`)} className="h-11 rounded-xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-40">{t('지급', 'Give')}</button>
+                            <input type="number" min={1} max={qtyMax} value={stampQty} onChange={(e) => setStampQty(Math.max(1, Math.min(qtyMax, parseInt(e.target.value, 10) || 1)))} disabled={selMember.suspended} className="h-11 w-16 rounded-xl border border-zinc-200 px-2 text-center text-lg font-black text-zinc-800 outline-none focus:border-brand-500 disabled:opacity-40" />
+                            <button onClick={() => setStampConfirm({ deviceId: selMember.deviceId, name: selMember.name, delta: -Math.min(stampQty, filled) })} disabled={busy || selMember.suspended || filled < 1} className="h-11 rounded-xl bg-rose-600 px-5 text-sm font-bold text-white hover:bg-rose-700 disabled:opacity-40">{t('차감', 'Deduct')}</button>
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })()}
@@ -684,47 +833,136 @@ export default function OwnerDashboard() {
             </div>
           )}
 
-          {/* 📈 정산 */}
-          {tab === 'settlement' && (
+          {/* 📈 정산 — 월별 결산 보고서 (연산: lib/settlement.ts) */}
+          {tab === 'settlement' && report && (
             <div className="mt-5">
-              <div className="grid max-w-2xl grid-cols-3 gap-4">
-                <Stat label={t('발행 적립금', 'Issued Reward')} value={`$${data.issuedValue.toFixed(2)}`} accent="rose" />
-                <Stat label={t('기부 정산 💛', 'Donations 💛')} value={`$${donatedTotal.toFixed(2)}`} accent="amber" />
-                <Stat label={t('영수증 총액 🧾', 'Receipt Total 🧾')} value={`$${receiptTotal.toFixed(2)}`} accent="brand" />
+              {/* 기간 필터 — 연/월 셀렉터 + 퀵 버튼 */}
+              <div className="flex flex-wrap items-center gap-2">
+                <select value={setlYear ?? ''} onChange={(e) => { const v = e.target.value; setSetlYear(v ? parseInt(v, 10) : null); if (!v) setSetlMonth(null); }} className="ss-input w-28">
+                  <option value="">{t('전체', 'All')}</option>
+                  {[0, 1, 2].map((d) => { const y = new Date().getFullYear() - d; return <option key={y} value={y}>{y}{t('년', '')}</option>; })}
+                </select>
+                <select value={setlMonth ?? ''} onChange={(e) => { const v = e.target.value; setSetlMonth(v ? parseInt(v, 10) : null); if (!v) setSetlYear(null); }} className="ss-input w-24" disabled={setlYear == null}>
+                  <option value="">{t('전체', 'All')}</option>
+                  {Array.from({ length: 12 }).map((_, i) => <option key={i + 1} value={i + 1}>{i + 1}{t('월', '')}</option>)}
+                </select>
+                {([
+                  { k: 'this', ko: '이번 달', en: 'This month' },
+                  { k: 'last', ko: '지난달', en: 'Last month' },
+                  { k: 'all', ko: '전체 기간', en: 'All time' },
+                ] as const).map((b) => (
+                  <button key={b.k} onClick={() => {
+                    if (b.k === 'all') { setSetlYear(null); setSetlMonth(null); return; }
+                    const d = new Date(); if (b.k === 'last') d.setMonth(d.getMonth() - 1);
+                    setSetlYear(d.getFullYear()); setSetlMonth(d.getMonth() + 1);
+                  }} className="ss-chip">{t(b.ko, b.en)}</button>
+                ))}
+                <span className="ml-auto text-xs font-bold text-zinc-400">{report.periodLabel}</span>
               </div>
 
+              {/* 핵심 지표 6종 — 개수·금액 함께 */}
+              <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3">
+                {([
+                  { icon: '🐝', ko: '발행 스탬프', en: 'Stamps issued', count: report.issued.count, value: report.issued.value, cls: 'text-brand-700' },
+                  { icon: '🧾', ko: '영수증 결제 총액', en: 'Receipt total', count: null, value: report.receiptTotal, cls: 'text-zinc-800' },
+                  { icon: '🎁', ko: '친구 선물 이동', en: 'Gifted', count: report.gifted.count, value: report.gifted.value, cls: 'text-purple-600' },
+                  { icon: '💳', ko: '캐시 전환', en: 'Cash converted', count: report.redeemed.count, value: report.redeemed.value, cls: 'text-rose-600' },
+                  { icon: '⏳', ko: '만료 자동기부', en: 'Expired → donated', count: report.expired.count, value: report.expired.value, cls: 'text-amber-600' },
+                  { icon: '📦', ko: '미사용 잔액 (부채)', en: 'Outstanding (liability)', count: report.outstanding.count, value: report.outstanding.value, cls: 'text-sky-600' },
+                ]).map((c, i) => (
+                  <div key={i} className="ss-card p-4">
+                    <div className="text-[11px] font-bold text-zinc-500">{c.icon} {t(c.ko, c.en)}</div>
+                    <div className={`mt-1 text-xl font-black ${c.cls}`}>${c.value.toFixed(2)}</div>
+                    {c.count != null && <div className="text-[11px] font-semibold text-zinc-400">{c.count}{t('개', ' stamps')}</div>}
+                  </div>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[11px] text-zinc-400">{t('* 미사용 잔액은 기간과 무관한 현재 시점 부채예요. 캐시 할인 사용액은 결제 승인 연동 후 제공돼요.', '* Outstanding is a point-in-time liability. Cash-discount usage arrives with payment approval.')}</p>
+
+              {/* 🤝 NPO 단체별 기부금 결산 — 대기/완료 + 송금 후 정산완료 처리 */}
               <section className="ss-card mt-4 p-5">
-                <h3 className="text-base font-extrabold">{t('🧾 스탬프 적립 내역', 'Stamp Earning Log')}</h3>
-                <p className="mt-0.5 text-[11px] text-zinc-400">{t('영수증 스캔은 금액이 기록되고, 리뷰 적립은 금액 없이 기록돼요.', 'Receipt scans record an amount; review-earned stamps show no amount.')}</p>
-                {data.stampLogs.length === 0 ? <p className="mt-2 text-sm text-zinc-400">{t('적립 내역이 없어요.', 'No stamp log yet.')}</p> : (
-                  <div className="mt-2 max-h-80 divide-y divide-zinc-100 overflow-y-auto">
-                    {data.stampLogs.map((l, i) => (
-                      <div key={i} className="flex items-center justify-between py-2.5 text-sm">
-                        <div>
-                          <span className="font-semibold">{l.name}</span>
-                          <span className="ml-1.5 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-bold text-zinc-500">{l.source === 'review' ? t('리뷰', 'Review') : l.source === 'owner' ? t('점주 지급', 'Owner') : t('영수증', 'Receipt')}</span>
-                          <span className="ml-1.5 text-[11px] text-zinc-400">{new Date(l.createdAt).toLocaleDateString()}</span>
-                        </div>
-                        <span className="font-bold text-brand-700">{l.amount != null ? `$${l.amount.toFixed(2)}` : t('금액 없음', 'No amount')}</span>
-                      </div>
-                    ))}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-base font-extrabold">🤝 {t('NPO 단체별 기부금 결산', 'Donations by NPO')}</h3>
+                  <span className="text-xs font-bold text-zinc-500">{t('송금 대기', 'Pending')} <b className="text-rose-600">${report.donations.pending.toFixed(2)}</b> · {t('정산 완료', 'Settled')} <b className="text-emerald-600">${report.donations.settled.toFixed(2)}</b></span>
+                </div>
+                {report.donations.byNpo.length === 0 ? <p className="mt-2 text-sm text-zinc-400">{t('이 기간 기부 내역이 없어요.', 'No donations in this period.')}</p> : (
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-zinc-200 text-left text-[11px] font-bold uppercase tracking-wide text-zinc-400">
+                          <th className="px-3 py-2.5">{t('단체', 'NPO')}</th>
+                          <th className="px-3 py-2.5">{t('건수', 'Count')}</th>
+                          <th className="px-3 py-2.5">{t('총액', 'Total')}</th>
+                          <th className="px-3 py-2.5">{t('송금 대기', 'Pending')}</th>
+                          <th className="px-3 py-2.5">{t('정산 완료', 'Settled')}</th>
+                          <th className="px-3 py-2.5 text-right"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {report.donations.byNpo.map((r) => (
+                          <tr key={r.npoName} className="border-b border-zinc-100">
+                            <td className="px-3 py-2.5 font-bold">{r.npoName}</td>
+                            <td className="px-3 py-2.5 text-zinc-600">{r.count}</td>
+                            <td className="px-3 py-2.5 font-bold text-amber-600">${r.total.toFixed(2)}</td>
+                            <td className="px-3 py-2.5 font-bold text-rose-600">${r.pending.toFixed(2)}</td>
+                            <td className="px-3 py-2.5 font-bold text-emerald-600">${r.settled.toFixed(2)}</td>
+                            <td className="px-3 py-2.5 text-right">
+                              {r.pending > 0
+                                ? <button onClick={() => settleNpo(r.npoName, r.refPaths)} disabled={busy} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50">{t('송금함 → 정산 완료', 'Sent → settle')}</button>
+                                : <span className="text-xs font-bold text-emerald-600">✓ {t('완료', 'Done')}</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
+                <p className="mt-2 text-[11px] text-zinc-400">{t('* 단체에 실제 송금한 뒤 "정산 완료"를 눌러 대기 금액을 지워 주세요.', '* After wiring the money, click “settle” to clear the pending amount.')}</p>
               </section>
 
+              {/* ⏳ 매장 기본 만료 스탬프 기부처 — 손님 미지정 시 이 단체로 자동 기부 */}
               <section className="ss-card mt-4 p-5">
-                <h3 className="text-base font-extrabold">{t('📊 매장 기부 정산 대장', '📊 Donation Ledger')}</h3>
-                {data.donations.length === 0 ? <p className="mt-2 text-sm text-zinc-400">{t('정산할 기부 내역이 없어요.', 'No donations to settle.')}</p> : (
-                  <div className="mt-2 divide-y divide-zinc-100">
-                    {data.donations.map((d, i) => (
-                      <div key={i} className="flex items-center justify-between py-2.5 text-sm">
-                        <span className="text-zinc-600">{d.npoName ?? t('기부', 'Donation')} · {new Date(d.createdAt).toLocaleDateString()}</span>
-                        <span className="font-bold text-amber-600">${(d.amount || 0).toFixed(2)}</span>
-                      </div>
-                    ))}
+                <h3 className="text-base font-extrabold">⏳ {t('만료 스탬프 기본 기부처', 'Default NPO for expired stamps')}</h3>
+                <p className="mt-0.5 text-[11px] text-zinc-400">{t('스탬프는 적립 1년 후 만료되며 자동 기부돼요. 손님이 기부처를 지정하지 않았으면 여기 지정한 단체로 갑니다.', 'Stamps expire 1 year after earning and are auto-donated. Used when the customer has no preference.')}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <select value={data.expiredNpo?.name || ''} onChange={(e) => {
+                    const opt = expiredNpoOptions.find((o) => o.name === e.target.value);
+                    saveStore(opt ? { expiredStampsNpoId: opt.id, expiredStampsNpoName: opt.name } : { expiredStampsNpoId: '', expiredStampsNpoName: '' });
+                  }} className="ss-input max-w-xs">
+                    <option value="">{t('지정 안 함 (매장 승인 단체 1순위로)', 'None (falls back to first charity)')}</option>
+                    {expiredNpoOptions.map((o) => <option key={o.id} value={o.name}>{o.name}</option>)}
+                  </select>
+                  {data.expiredNpo?.name && <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-700">💛 {data.expiredNpo.name}</span>}
+                </div>
+              </section>
+
+              {/* 🧾 스탬프 이동 내역 — 적립·선물·전환·만료 전체 */}
+              <section className="ss-card mt-4 p-5">
+                <h3 className="text-base font-extrabold">{t('🧾 스탬프 이동 내역', 'Stamp Activity Log')}</h3>
+                <p className="mt-0.5 text-[11px] text-zinc-400">{t('영수증 스캔은 결제액이 함께 기록되고, 리뷰 적립은 금액 없이 기록돼요.', 'Receipt scans record the bill; review stamps have no amount.')}</p>
+                {data.stampLogs.length === 0 ? <p className="mt-2 text-sm text-zinc-400">{t('내역이 없어요.', 'No activity yet.')}</p> : (
+                  <div className="mt-2 max-h-80 divide-y divide-zinc-100 overflow-y-auto">
+                    {data.stampLogs.map((l, i) => {
+                      const tag = l.source === 'review' ? { ko: '리뷰', en: 'Review', cls: 'bg-honey/40 text-honey-ink' }
+                        : l.source === 'owner' ? { ko: '점주 지급', en: 'Owner', cls: 'bg-blue-100 text-blue-700' }
+                        : l.source === 'gift' ? { ko: '선물', en: 'Gift', cls: 'bg-purple-100 text-purple-700' }
+                        : l.source === 'redeem' ? { ko: '캐시 전환', en: 'Redeem', cls: 'bg-rose-100 text-rose-600' }
+                        : l.source === 'expired' ? { ko: '만료 기부', en: 'Expired', cls: 'bg-amber-100 text-amber-700' }
+                        : { ko: '영수증', en: 'Receipt', cls: 'bg-zinc-100 text-zinc-500' };
+                      return (
+                        <div key={i} className="flex items-center justify-between py-2.5 text-sm">
+                          <div>
+                            <span className="font-semibold">{l.name}</span>
+                            <span className={`ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-bold ${tag.cls}`}>{t(tag.ko, tag.en)}</span>
+                            {l.count != null && <span className="ml-1.5 text-[11px] font-bold text-zinc-500">{l.count}{t('개', '')}</span>}
+                            <span className="ml-1.5 text-[11px] text-zinc-400">{new Date(l.createdAt).toLocaleDateString()}</span>
+                          </div>
+                          <span className="font-bold text-brand-700">{l.amount != null ? `$${l.amount.toFixed(2)}` : l.value != null ? `$${l.value.toFixed(2)}` : t('금액 없음', 'No amount')}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
-                <p className="mt-2 text-[11px] text-zinc-400">{t('* 일/주/월 정산 시트·송금은 다음 단계.', '* Daily/weekly/monthly sheets & payout — coming next.')}</p>
               </section>
             </div>
           )}
@@ -871,6 +1109,33 @@ export default function OwnerDashboard() {
           <div className="relative flex h-full max-h-[880px] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <button onClick={() => setCustomerPreview(null)} className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-zinc-900/80 text-lg font-bold text-white hover:bg-zinc-900">✕</button>
             <iframe src={`/me?store=${data.slug}&as=${customerPreview}`} className="h-full w-full flex-1 border-0" title="customer preview" />
+          </div>
+        </div>
+      )}
+
+      {/* 💳 캐시 사용 요청 팝업 — 손님이 송금 요청하면 태블릿에 뜸. 직원이 POS DC 후 승인 */}
+      {cashPending.length > 0 && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-6">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">💳</span>
+              <h3 className="text-lg font-black">{t('캐시 사용 요청', 'Cash-use request')}{cashPending.length > 1 ? ` (${cashPending.length})` : ''}</h3>
+            </div>
+            {(() => {
+              const req = cashPending[0];
+              return (
+                <div className="mt-3 rounded-2xl bg-zinc-50 p-4 text-center">
+                  <div className="text-sm font-bold text-zinc-700">{req.name || t('손님', 'Guest')} <span className="text-zinc-400">{req.phone ? fmtPhone(req.phone) : ''}</span></div>
+                  <div className="mt-1 text-[12px] text-zinc-500">{t('아래 금액만큼 사용을 요청했어요.', 'requests to use the amount below.')}</div>
+                  <div className="mt-2 text-4xl font-black text-rose-500">${req.amount.toFixed(2)}</div>
+                  <p className="mt-2 text-[12px] font-bold text-brand-700">👉 {t('POS에서 이 금액만큼 할인(DC) 후 승인하세요.', 'Apply this discount on the POS, then approve.')}</p>
+                  <div className="mt-4 flex gap-2">
+                    <button onClick={() => rejectCashUse(req)} disabled={busy} className="flex-1 rounded-xl border border-zinc-200 py-3 text-sm font-bold text-zinc-500 disabled:opacity-50">{t('거절', 'Decline')}</button>
+                    <button onClick={() => approveCashUse(req)} disabled={busy} className="flex-1 rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50">{t('DC 완료 → 승인', 'Discounted → Approve')}</button>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}

@@ -75,7 +75,7 @@ export default function ClaimPage() {
           tx.set(cardRef, { storeId, storeName: st.name || slug, slug, currentStamps: next, reward, currency: st.currency || 'USD', interval: st.earningIntervalMinutes ?? 60, stampValues, stampDates, updatedAt: now }, { merge: true });
           tx.set(mirrorRef, { deviceId: id, currentStamps: next, updatedAt: now }, { merge: true });
           tx.set(tRef, { status: 'claimed', claimedBy: id, claimedAt: now }, { merge: true });
-          tx.set(doc(collection(db, 'stores', storeId, 'stampLog')), { deviceId: id, amount: receiptAmount, source: 'receipt', createdAt: now });
+          tx.set(doc(collection(db, 'stores', storeId, 'stampLog')), { deviceId: id, amount: receiptAmount, source: 'receipt', count: stamps, value: stamps * (reward / 9), createdAt: now });
           return next;
         });
       } catch (e) {

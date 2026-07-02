@@ -52,6 +52,10 @@ export default function MePage() {
   const [busy, setBusy] = useState(false); const [toast, setToast] = useState<string | null>(null);
   const [panel, setPanel] = useState<'redeem' | 'gift' | 'donate' | null>(null); // 버튼 바로 아래 인라인 패널
   const [useSheet, setUseSheet] = useState(false);
+  // 캐시 사용 요청 — 금액 조절 후 매장에 송금 요청 → 사장 승인 대기
+  const [useAmount, setUseAmount] = useState('');
+  const [useReq, setUseReq] = useState<{ id: string; storeId: string; status: 'pending' | 'approved' | 'rejected' } | null>(null);
+  const [useBusy, setUseBusy] = useState(false);
   const [npo, setNpo] = useState(NPOS[0].id);
   const [storeCharities, setStoreCharities] = useState<{ id: string; name: string; source: string; desc?: string }[]>([]);
   const [tapIdx, setTapIdx] = useState<number | null>(null);
@@ -65,6 +69,22 @@ export default function MePage() {
   const [friendPick, setFriendPick] = useState<{ phone: string; name: string; deviceId: string } | null>(null);
   const [friendSearching, setFriendSearching] = useState(false);
   const [donateCount, setDonateCount] = useState(1); // 기부할 스탬프 수량
+  // 만료 스탬프 자동 기부처 (내 설정) + 전체 NPO 목록 (본사 등록 npos 컬렉션, 없으면 기본)
+  const [myNpo, setMyNpo] = useState<{ id: string; name: string } | null>(null);
+  const [globalNpos, setGlobalNpos] = useState<{ id: string; name: string; sub?: string }[]>(NPOS);
+  useEffect(() => {
+    (async () => {
+      try {
+        const s = await getDocs(collection(getDb(), 'npos'));
+        if (s.size > 0) setGlobalNpos(s.docs.map((d) => ({ id: d.id, name: (d.data().name as string) || d.id, sub: d.data().sub as string })));
+      } catch { /* 기본 NPOS 유지 */ }
+    })();
+  }, []);
+  const saveMyNpo = async (id: string) => {
+    const n = globalNpos.find((x) => x.id === id) || null;
+    setMyNpo(n);
+    try { await setDoc(doc(getDb(), 'customers', myId()), { defaultNpoId: n?.id || '', defaultNpoName: n?.name || '' }, { merge: true }); flash(n ? t(`만료 스탬프는 ${n.name}에 자동 기부돼요 💛`, `Expired stamps will go to ${n.name} 💛`) : t('자동 기부처 지정을 해제했어요.', 'Preference cleared.')); } catch { flash(t('저장 실패', 'Save failed')); }
+  };
   const [lang, setLang] = useState<'ko' | 'en'>('ko');
 
   useEffect(() => { try { const l = localStorage.getItem('ss_lang'); if (l === 'en' || l === 'ko') setLang(l); } catch {} }, []);
@@ -101,6 +121,7 @@ export default function MePage() {
       setSelId((prev) => prev && cs.some((c) => c.storeId === prev) ? prev : (cs[0]?.storeId || ''));
       const c = custSnap.exists() ? custSnap.data() : {};
       setBalance((c.balance as number) || 0); setDonated((c.donated as number) || 0);
+      setMyNpo(c.defaultNpoName ? { id: (c.defaultNpoId as string) || '', name: c.defaultNpoName as string } : null);
       setProfile(c.name ? { name: c.name as string, phone: (c.phone as string) || '' } : null);
       setDonations(donSnap ? donSnap.docs.map((d) => d.data() as Donation) : []);
       if (!preview) ensureDefaults(db); // 조PD 종합관리자 기본 회원 보장(브라우저당 1회)
@@ -231,7 +252,10 @@ export default function MePage() {
   const redeem = async (c: Card) => {
     setBusy(true);
     try { const db = getDb(); const id = getDeviceId(); const now = new Date().toISOString(); const v = value(c);
+      const cnt = Math.min(c.currentStamps, STAMP_GOAL);
       await reset(db, id, c, now); await setDoc(doc(db, 'customers', id), { balance: balance + v }, { merge: true });
+      // 정산용 로그 — 캐시 전환 이벤트 (획득시점 잠금 가치 합)
+      await setDoc(doc(collection(db, 'stores', c.storeId, 'stampLog')), { deviceId: id, amount: null, source: 'redeem', count: cnt, value: v, createdAt: now }).catch(() => {});
       flash(`${c.currency} ${v.toFixed(2)} 적립 전환! 🎉`); await load();
     } catch { flash('처리 실패'); } finally { setBusy(false); }
   };
@@ -272,7 +296,7 @@ export default function MePage() {
       await setDoc(doc(db, 'stores', c.storeId, 'stampCards', id), { currentStamps: myNext, updatedAt: now }, { merge: true });
       await setDoc(doc(db, 'customers', id, 'cards', c.storeId), { currentStamps: myNext, stampValues: keptVals, stampDates: keptDates, updatedAt: now }, { merge: true });
       await setDoc(doc(db, 'customers', id), { donated: donated + amount }, { merge: true });
-      await setDoc(doc(collection(db, 'customers', id, 'donations'), `d_${Date.now()}`), { storeId: c.storeId, storeName: c.storeName, npoName: n, amount, currency: c.currency, createdAt: now });
+      await setDoc(doc(collection(db, 'customers', id, 'donations'), `d_${Date.now()}`), { storeId: c.storeId, storeName: c.storeName, npoName: n, amount, currency: c.currency, settled: false, createdAt: now });
       setPanel(null); setDonateCount(1); flash(`${c.currency} ${amount.toFixed(2)} 기부 완료! 💛 ${n}`, 3500); await load();
     } catch { flash('기부 실패'); } finally { setBusy(false); }
   };
@@ -303,12 +327,38 @@ export default function MePage() {
       const myNext = c.currentStamps - accept;
       await setDoc(doc(db, 'stores', c.storeId, 'stampCards', id), { currentStamps: myNext, updatedAt: now }, { merge: true });
       await setDoc(doc(db, 'customers', id, 'cards', c.storeId), { currentStamps: myNext, stampValues: myVals, stampDates: myDates, updatedAt: now }, { merge: true });
+      // 정산용 로그 — 선물 이동 이벤트 (이동한 칸들의 잠금 가치 합)
+      await setDoc(doc(collection(db, 'stores', c.storeId, 'stampLog')), { deviceId: id, toDeviceId: fId, amount: null, source: 'gift', count: accept, value: movedVals.reduce((s, v) => s + v, 0), createdAt: now }).catch(() => {});
       setPanel(null); setFriendQuery(''); setFriendMatches([]); setFriendPick(null); setGiftCount(1);
       flash(`${fName}님께 ${accept}개 선물! 🎁${returned ? ` (초과 ${returned}개 회수)` : ''}`, 4000); await load();
     } catch { flash('선물 실패'); } finally { setBusy(false); }
   };
 
-  const useQr = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=6&data=${encodeURIComponent(`ss-redeem:${typeof window !== 'undefined' ? getDeviceId() : ''}:${balance.toFixed(2)}`)}`;
+  // 캐시 사용 송금 요청 — 매장에 pending 요청 생성, 사장 태블릿 팝업으로 승인
+  const requestCashUse = async () => {
+    const c = disp; const amt = Math.min(parseFloat(useAmount) || 0, balance);
+    if (!(amt > 0)) { flash(t('사용할 금액을 입력해 주세요.', 'Enter an amount.')); return; }
+    if (!c.storeId || c.storeId === 'demo') { flash(t('매장을 선택해 주세요.', 'Pick a store.')); return; }
+    setUseBusy(true);
+    try {
+      const db = getDb(); const id = myId();
+      const ref = doc(collection(db, 'stores', c.storeId, 'cashRequests'));
+      await setDoc(ref, { deviceId: id, name: profile?.name || '', phone: profile?.phone || '', amount: amt, status: 'pending', storeName: c.storeName, createdAt: new Date().toISOString() });
+      setUseReq({ id: ref.id, storeId: c.storeId, status: 'pending' });
+    } catch { flash(t('요청 실패 — 다시 시도해 주세요.', 'Request failed.')); }
+    finally { setUseBusy(false); }
+  };
+  // 요청 상태 실시간 구독 — 사장이 승인/거절하면 시트가 즉시 반영
+  useEffect(() => {
+    if (!useReq || useReq.status !== 'pending') return;
+    const unsub = onSnapshot(doc(getDb(), 'stores', useReq.storeId, 'cashRequests', useReq.id), (snap) => {
+      const s = snap.exists() ? (snap.data().status as string) : '';
+      if (s === 'approved') { setUseReq((r) => r ? { ...r, status: 'approved' } : r); load(); }
+      else if (s === 'rejected') { setUseReq((r) => r ? { ...r, status: 'rejected' } : r); }
+    });
+    return () => unsub();
+    // eslint-disable-next-line
+  }, [useReq?.id, useReq?.status]);
   const clip = 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)';
 
   // ── 로그인 게이트 ──
@@ -576,7 +626,7 @@ export default function MePage() {
                   <div className="text-[11px] font-semibold text-zinc-500">{t('내 스탬프 캐시 잔액', 'My stamp cash')}</div>
                   <div className="text-xl font-black text-zinc-800">${balance.toFixed(2)}</div>
                 </div>
-                <button onClick={() => setUseSheet(true)} disabled={balance <= 0} className="ss-chip disabled:opacity-50">{t('캐시 사용', 'Use cash')}</button>
+                <button onClick={() => { setUseReq(null); setUseAmount(balance.toFixed(2)); setUseSheet(true); }} disabled={balance <= 0} className="ss-chip disabled:opacity-50">{t('캐시 사용', 'Use cash')}</button>
               </section>
 
               {/* Stamp Timeline */}
@@ -613,6 +663,17 @@ export default function MePage() {
             <div className="text-xs font-semibold text-zinc-500">{t('나의 누적 나눔 💛', 'My total giving 💛')}</div>
             <div className="text-3xl font-black text-amber-600">${donated.toFixed(2)}</div>
           </section>
+          {/* 만료 스탬프 자동 기부처 — 내가 지정한 단체로 1년 만료 스탬프가 자동 기부됨 */}
+          <section className="ss-card mt-3 p-5">
+            <h3 className="text-sm font-extrabold text-brand-700">⏳ {t('만료 스탬프 자동 기부처', 'Auto-donation for expired stamps')}</h3>
+            <p className="mt-1 text-[11px] text-zinc-500">{t('스탬프는 적립 1년 후 만료돼요. 지정한 단체로 자동 기부되어 나의 나눔으로 쌓입니다. 미지정 시 매장 기본 단체로 가요.', 'Stamps expire 1 year after earning and are auto-donated to your chosen NPO (or the store default).')}</p>
+            <select value={myNpo?.id || ''} onChange={(e) => saveMyNpo(e.target.value)} className="ss-input mt-2">
+              <option value="">{t('지정 안 함 (매장 기본 단체로)', 'No preference (store default)')}</option>
+              {globalNpos.map((n) => <option key={n.id} value={n.id}>{n.name}{n.sub ? ` · ${n.sub}` : ''}</option>)}
+            </select>
+            {myNpo && <div className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">💛 {t(`만료 스탬프는 ${myNpo.name}(으)로 자동 기부돼요`, `Expired stamps auto-donate to ${myNpo.name}`)}</div>}
+          </section>
+
           <section className="ss-card mt-3 p-5">
             <h3 className="text-sm font-extrabold text-brand-700">{t('기부 내역', 'Donation history')}</h3>
             {donations.length === 0 ? <p className="mt-2 text-center text-sm text-zinc-400">{t('아직 기부 내역이 없어요. 스탬프를 NPO에 전해 보세요!', 'No donations yet. Send stamps to an NPO!')}</p> : (
@@ -630,8 +691,53 @@ export default function MePage() {
         <button onClick={() => setNav('impact')} className={`flex-1 py-3 text-center text-xs font-bold ${nav === 'impact' ? 'text-brand-700' : 'text-zinc-400'}`}>💛<div>{t('나눔 임팩트', 'Impact')}</div></button>
       </nav>
 
-      {/* 시트들 */}
-      {useSheet && <Sheet onClose={() => setUseSheet(false)}><div className="text-center"><h3 className="text-lg font-black">{t('스탬프 캐시 사용 💳', 'Use stamp cash 💳')}</h3><p className="mt-1 text-sm text-zinc-500">{t('결제 시 점주에게 보여주세요.', 'Show this to the owner at checkout.')}</p><div className="mt-2 text-3xl font-black text-rose-500">${balance.toFixed(2)}</div>{/* eslint-disable-next-line @next/next/no-img-element */}<img src={useQr} alt="code" className="mx-auto mt-3 h-44 w-44 rounded-xl border border-zinc-100" /><button onClick={() => setUseSheet(false)} className="ss-btn-soft mt-3 w-full">{t('닫기', 'Close')}</button></div></Sheet>}
+      {/* 캐시 사용 시트 — 금액 조절 → 매장에 송금 요청 → 사장 승인 대기 */}
+      {useSheet && (
+        <Sheet onClose={() => { setUseSheet(false); setUseReq(null); }}>
+          {(!useReq) && (
+            <div className="text-center">
+              <h3 className="text-lg font-black">{t('스탬프 캐시 사용 💳', 'Use stamp cash 💳')}</h3>
+              <p className="mt-1 text-sm text-zinc-500">{t('사용할 금액을 정하고 매장에 요청하세요.', 'Set an amount and request at the counter.')}</p>
+              <div className="mt-3 flex items-center justify-center gap-2 rounded-2xl border-2 border-zinc-200 bg-white px-4 py-3 focus-within:border-brand-500">
+                <span className="text-2xl font-black text-zinc-400">$</span>
+                <input value={useAmount} onChange={(e) => { const v = e.target.value.replace(/[^0-9.]/g, ''); const n = parseFloat(v); setUseAmount(n > balance ? balance.toFixed(2) : v); }} inputMode="decimal" autoFocus className="w-32 bg-transparent text-3xl font-black text-rose-500 outline-none" />
+              </div>
+              <div className="mt-1.5 flex items-center justify-center gap-2 text-xs">
+                <span className="text-zinc-400">{t('잔액', 'Balance')} ${balance.toFixed(2)}</span>
+                <button onClick={() => setUseAmount(balance.toFixed(2))} className="rounded-full bg-zinc-100 px-2 py-0.5 font-bold text-zinc-600">{t('전액', 'Full')}</button>
+              </div>
+              <button onClick={requestCashUse} disabled={useBusy} className="ss-btn-primary mt-4 w-full">{useBusy ? '…' : t('매장에 사용 요청', 'Request to use')}</button>
+              <button onClick={() => setUseSheet(false)} className="ss-btn-soft mt-2 w-full">{t('닫기', 'Close')}</button>
+            </div>
+          )}
+          {useReq?.status === 'pending' && (
+            <div className="text-center">
+              <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-brand-200 border-t-brand-600" />
+              <h3 className="mt-3 text-lg font-black">{t('매장 승인 대기 중…', 'Waiting for approval…')}</h3>
+              <p className="mt-1 text-sm text-zinc-500">{t('직원에게 화면을 보여주세요.', 'Show this to the staff.')}</p>
+              <div className="mt-2 text-3xl font-black text-rose-500">${(parseFloat(useAmount) || 0).toFixed(2)}</div>
+              <button onClick={() => { setUseSheet(false); setUseReq(null); }} className="ss-btn-soft mt-4 w-full">{t('닫기', 'Close')}</button>
+            </div>
+          )}
+          {useReq?.status === 'approved' && (
+            <div className="text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-4xl">✅</div>
+              <h3 className="mt-3 text-lg font-black text-emerald-600">{t('사용 승인됐어요!', 'Approved!')}</h3>
+              <p className="mt-1 text-sm text-zinc-500">{t('결제 금액에서 할인됐고 잔액에서 차감됐어요.', 'Applied at checkout and deducted from your balance.')}</p>
+              <div className="mt-2 text-xl font-black text-zinc-800">{t('남은 잔액', 'Balance')} ${balance.toFixed(2)}</div>
+              <button onClick={() => { setUseSheet(false); setUseReq(null); }} className="ss-btn-primary mt-4 w-full">{t('확인', 'Done')}</button>
+            </div>
+          )}
+          {useReq?.status === 'rejected' && (
+            <div className="text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-rose-100 text-4xl">🙅</div>
+              <h3 className="mt-3 text-lg font-black text-rose-600">{t('요청이 거절됐어요', 'Request declined')}</h3>
+              <p className="mt-1 text-sm text-zinc-500">{t('매장에 문의해 주세요.', 'Please ask the staff.')}</p>
+              <button onClick={() => setUseReq(null)} className="ss-btn-soft mt-4 w-full">{t('다시 요청', 'Try again')}</button>
+            </div>
+          )}
+        </Sheet>
+      )}
 
       {/* 선물·기부·적립은 스탬프 카드 버튼 아래 인라인 패널로 이동(바텀시트 제거) */}
 
