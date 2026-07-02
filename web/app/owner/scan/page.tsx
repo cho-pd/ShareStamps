@@ -9,7 +9,7 @@ import { doc, setDoc, onSnapshot, getDocs, query, collection, where, limit } fro
 // 태블릿 QR 적립 키오스크 — 옛 src/views/TabletKiosk 흐름 포팅(디자인 새로 다듬음).
 // 영수증 촬영 → 동적 QR 생성 → 고객 폰 스캔(/claim) → 토큰 claimed 감지 → 적립 완료 → 카메라 복귀.
 
-type Phase = 'camera' | 'analyzing' | 'amount' | 'qr' | 'success' | 'expired';
+type Phase = 'camera' | 'analyzing' | 'qr' | 'success' | 'expired';
 type Store = { id: string; name: string; slug: string; kioskPin?: string };
 
 const QR_TTL = 20; // 동적 QR 유효시간(초)
@@ -23,7 +23,6 @@ export default function OwnerScanPage() {
   const [countdown, setCountdown] = useState(0);
   const [shot, setShot] = useState<string | null>(null);
   const [camError, setCamError] = useState(false);
-  const [receiptAmount, setReceiptAmount] = useState('');
   const [idleSaver, setIdleSaver] = useState(false);
   const [isFs, setIsFs] = useState(false);
   const [pinOpen, setPinOpen] = useState(false);
@@ -32,6 +31,8 @@ export default function OwnerScanPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const lastActivity = useRef(Date.now());
   const tapRef = useRef(0); const tapTimer = useRef<number | null>(null);
+  const phaseRef = useRef<Phase>('camera');
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   // 매장 로드 (?store=slug → localStorage)
   useEffect(() => {
@@ -64,33 +65,49 @@ export default function OwnerScanPage() {
     return () => { cancelled = true; stop(); };
   }, [phase]);
 
-  // 영수증 촬영 → 분석 → 금액 입력 → 토큰/QR 생성
+  // 영수증 이미지 → Gemini 비전으로 결제 총액 자동 추출.
+  // 인식 실패·오류·6초 초과면 그냥 null 로 넘어감(적립 흐름은 절대 막지 않음).
+  const extractReceiptAmount = async (dataUrl: string): Promise<number | null> => {
+    try {
+      const ctrl = new AbortController();
+      const to = window.setTimeout(() => ctrl.abort(), 6000);
+      const res = await fetch('/api/receipt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: dataUrl }), signal: ctrl.signal });
+      window.clearTimeout(to);
+      const d = await res.json();
+      return typeof d?.amount === 'number' && Number.isFinite(d.amount) ? d.amount : null;
+    } catch { return null; }
+  };
+
+  // 영수증 촬영 → 분석(금액 자동 인식) → 동적 QR 토큰 생성. 금액은 스캔에서 자동 추출(수동 입력 없음).
   const capture = async () => {
     if (!store) return;
+    let dataUrl: string | null = null;
     try {
       const v = videoRef.current;
       if (v && streamRef.current) {
         const c = document.createElement('canvas');
         c.width = v.videoWidth || 1280; c.height = v.videoHeight || 720;
         c.getContext('2d')?.drawImage(v, 0, 0, c.width, c.height);
-        setShot(c.toDataURL('image/jpeg', 0.6));
+        dataUrl = c.toDataURL('image/jpeg', 0.6);
+        setShot(dataUrl);
       }
     } catch {}
-    setPhase('analyzing');
-    window.setTimeout(() => { setShot(null); setReceiptAmount(''); setPhase('amount'); }, 2200);
+    phaseRef.current = 'analyzing'; setPhase('analyzing');
+    const amount = dataUrl ? await extractReceiptAmount(dataUrl) : null;
+    if (phaseRef.current !== 'analyzing') return; // 그새 리셋됐으면 중단
+    await createToken(amount);
   };
 
-  // 금액 입력 확정(건너뛰기 가능) → 동적 QR 토큰 생성
-  const confirmAmount = async (skip = false) => {
+  // 동적 QR 토큰 생성 (금액은 스캔에서 자동 추출된 값)
+  const createToken = async (amount: number | null) => {
     if (!store) return;
     try {
       const tk = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
-      const amt = skip ? null : parseFloat(receiptAmount);
       await setDoc(doc(getDb(), 'stores', store.id, 'scanTokens', tk), {
-        stamps: 1, amount: Number.isFinite(amt) ? amt : null, status: 'pending', createdAt: new Date().toISOString(),
+        stamps: 1, amount, status: 'pending', createdAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + QR_TTL * 1000).toISOString(),
       });
-      setToken(tk); setPhase('qr'); setCountdown(QR_TTL);
+      setShot(null); setToken(tk); setPhase('qr'); setCountdown(QR_TTL);
     } catch { reset(); }
   };
 
@@ -118,7 +135,7 @@ export default function OwnerScanPage() {
     return () => window.clearTimeout(t);
   }, [phase]);
 
-  const reset = () => { setToken(null); setCountdown(0); setShot(null); setReceiptAmount(''); setPhase('camera'); };
+  const reset = () => { phaseRef.current = 'camera'; setToken(null); setCountdown(0); setShot(null); setPhase('camera'); };
 
   // 활동 감지 → 유휴 타이머 리셋
   useEffect(() => {
@@ -216,36 +233,11 @@ export default function OwnerScanPage() {
           </div>
         )}
 
-        {/* ANALYZING */}
+        {/* ANALYZING — 영수증에서 금액 자동 인식 중 */}
         {phase === 'analyzing' && (
           <div className="relative z-10 flex flex-col items-center gap-4">
             <div className="h-12 w-12 animate-spin rounded-full border-4 border-brand-500/30 border-t-brand-500" />
-            <p className="rounded-lg bg-black/60 px-3 py-1.5 text-sm font-bold backdrop-blur">영수증 분석 중…</p>
-          </div>
-        )}
-
-        {/* AMOUNT — 영수증 금액 입력(건너뛰기 가능) */}
-        {phase === 'amount' && (
-          <div className="relative z-10 flex w-full flex-col items-center gap-4 px-6 py-8 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/15 text-3xl">🧾</div>
-            <h3 className="text-lg font-extrabold">영수증 금액을 입력해 주세요</h3>
-            <p className="text-sm text-zinc-400">정산에 반영돼요. 모르면 건너뛸 수 있어요.</p>
-            <div className="flex w-full max-w-xs items-center gap-2 rounded-2xl border-2 border-zinc-700 bg-black/40 px-4 py-3 focus-within:border-brand-500">
-              <span className="text-xl font-black text-zinc-400">$</span>
-              <input
-                value={receiptAmount}
-                onChange={(e) => setReceiptAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-                onKeyDown={(e) => { if (e.key === 'Enter') confirmAmount(false); }}
-                inputMode="decimal"
-                autoFocus
-                placeholder="0.00"
-                className="w-full bg-transparent text-2xl font-black text-white outline-none placeholder:text-zinc-600"
-              />
-            </div>
-            <div className="mt-1 flex w-full max-w-xs gap-2">
-              <button onClick={() => confirmAmount(true)} className="flex-1 rounded-2xl border border-zinc-700 py-3 text-sm font-bold text-zinc-300">건너뛰기</button>
-              <button onClick={() => confirmAmount(false)} disabled={!receiptAmount.trim()} className="flex-1 rounded-2xl bg-brand-600 py-3 text-sm font-bold shadow-lg disabled:opacity-40">확인</button>
-            </div>
+            <p className="rounded-lg bg-black/60 px-3 py-1.5 text-sm font-bold backdrop-blur">🧾 영수증 금액 인식 중…</p>
           </div>
         )}
 
