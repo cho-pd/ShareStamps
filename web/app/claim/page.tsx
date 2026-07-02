@@ -15,7 +15,6 @@ function getDeviceId(): string {
     return id;
   } catch { return `dev_${Date.now()}`; }
 }
-const normPhone = (p: string) => p.replace(/[^0-9]/g, '');
 
 type State = 'working' | 'signup' | 'done' | 'expired' | 'used' | 'error' | 'nostore' | 'suspended';
 
@@ -92,15 +91,24 @@ export default function ClaimPage() {
     } catch { setState('error'); }
   };
 
+  // 가입 — 이름·전화만 받고 바로 시작. 전화 "인증"(문자 코드)은 내 프로필에서 나중에 (뒤에 줄 선 손님 배려).
   const submitSignup = async () => {
-    if (!nameIn.trim() || normPhone(phoneIn).length < 8) return;
+    const phone = phoneIn.replace(/[^0-9]/g, '');
+    if (!nameIn.trim() || phone.length < 10) return;
     setBusy(true);
     try {
-      const db = getDb(); const id = getDeviceId(); const phone = normPhone(phoneIn);
-      await setDoc(doc(db, 'customers', id), { name: nameIn.trim(), phone, role: 'customer' }, { merge: true });
+      const db = getDb(); const id = getDeviceId();
+      await setDoc(doc(db, 'customers', id), { name: nameIn.trim(), phone, phoneVerified: false, role: 'customer' }, { merge: true });
       await setDoc(doc(db, 'phoneIndex', phone), { deviceId: id, name: nameIn.trim() }, { merge: true });
       goCustomer(slugRef.current);
     } catch { setBusy(false); }
+  };
+  // 미국식 하이픈 표기 입력
+  const fmtUS = (p: string) => {
+    const d = p.replace(/[^0-9]/g, '');
+    if (d.length > 6) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6, 10)}`;
+    if (d.length > 3) return `${d.slice(0, 3)}-${d.slice(3)}`;
+    return d;
   };
 
   // 스캔 즉시 안내
@@ -148,10 +156,11 @@ export default function ClaimPage() {
             </div>
             <div>
               <label className="ss-label">전화번호</label>
-              <input value={phoneIn} onChange={(e) => setPhoneIn(e.target.value)} className="ss-input" placeholder="000-000-0000" inputMode="tel" />
+              <input value={phoneIn} onChange={(e) => setPhoneIn(fmtUS(e.target.value))} onKeyDown={(e) => { if (e.key === 'Enter') submitSignup(); }} className="ss-input" placeholder="000-000-0000" inputMode="tel" maxLength={12} />
             </div>
           </div>
-          <button onClick={submitSignup} disabled={busy} className="ss-btn-primary mt-5 block w-full py-3 text-center">{busy ? '…' : '카드 만들고 시작하기'}</button>
+          <button onClick={submitSignup} disabled={busy || !nameIn.trim() || phoneIn.replace(/[^0-9]/g, '').length < 10} className="ss-btn-primary mt-4 block w-full py-3 text-center disabled:opacity-50">{busy ? '…' : '카드 만들고 시작하기'}</button>
+          <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-left text-[11px] leading-relaxed text-amber-700">🙏 뒤에 기다리는 손님을 위해 여기선 입력만 하고 넘어가요.<br />📱 <b>전화번호 인증(문자 코드 확인)은 내 프로필에서</b> 해주세요 — 인증해야 친구 선물·기부·캐시 전환을 쓸 수 있어요.</p>
         </div>
       </Wrap>
     );

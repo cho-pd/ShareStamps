@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import AdBannerSlot from './AdBanner';
-import { getDb } from '@/lib/firebase';
+import { getDb, getStorageBucket } from '@/lib/firebase';
 import { NPOS } from '@/lib/npos';
-import { collection, getDocs, doc, getDoc, setDoc, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, setDoc, deleteDoc, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // 옛 CustomerPWA 대시보드 구성 그대로: 상단바(닉네임·QR스캔) · 매장 선택 드롭다운 ·
 // 매장 헤더(9-stamp Cash·누적가치·인터벌) · 허니컴(번호/하트+칸별가치) · My Stamp Cash Balance(+Request) ·
@@ -20,6 +21,15 @@ function getDeviceId(): string {
   } catch { return `dev_${Date.now()}`; }
 }
 const normPhone = (p: string) => p.replace(/[^0-9]/g, '');
+// 미국식 전화 표기: 213-256-4820 (11자리 1로 시작하면 1-xxx-xxx-xxxx)
+const fmtUS = (p?: string) => {
+  const d = normPhone(p || '');
+  if (d.length === 11 && d.startsWith('1')) return `1-${d.slice(1, 4)}-${d.slice(4, 7)}-${d.slice(7)}`;
+  if (d.length === 10) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+  if (d.length > 6) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+  if (d.length > 3) return `${d.slice(0, 3)}-${d.slice(3)}`;
+  return d;
+};
 
 // 스탬프 목표: 방문·리뷰·SNS연결 3가지 획득이라 9개로. 벌집 = 큰 금액 허니컴 + 4 + 5.
 const STAMP_GOAL = 9;
@@ -47,6 +57,20 @@ export default function MePage() {
   const [cards, setCards] = useState<Card[]>([]);
   const [selId, setSelId] = useState<string>('');
   const [balance, setBalance] = useState(0); const [donated, setDonated] = useState(0);
+  // 프로필 사진 — 없으면 닉네임 첫 글자 아바타
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  // 내 프로필 화면 (헤더 아바타 클릭) — 보기·수정 + 사진 + 나눔 임팩트
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [pfEdit, setPfEdit] = useState(false); // 프로필 수정 — 처음엔 접혀 있음
+  const [pfName, setPfName] = useState(''); const [pfPhone, setPfPhone] = useState(''); const [pfPw, setPfPw] = useState(''); const [pfPw2, setPfPw2] = useState('');
+  const [myPw, setMyPw] = useState('');
+  // 전화번호 인증 (문자 코드) — 인증해야 친구 선물·기부·캐시 전환 가능
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [vGen, setVGen] = useState<{ code: string; exp: number } | null>(null);
+  const [vCode, setVCode] = useState('');
+  const [vBusy, setVBusy] = useState(false);
+  const [vTestHint, setVTestHint] = useState('');
   const [donations, setDonations] = useState<Donation[]>([]);
   const [nav, setNav] = useState<'home' | 'impact'>('home');
   const [busy, setBusy] = useState(false); const [toast, setToast] = useState<string | null>(null);
@@ -63,11 +87,10 @@ export default function MePage() {
   const tapTimerRef = useRef<number | null>(null);
   const bigTimerRef = useRef<number | null>(null);
   const [giftCount, setGiftCount] = useState(1);
-  // 친구 선물 — 전화 뒷 4자리로 검색 → 후보 목록에서 선택
+  // 친구 선물 — 닉네임 또는 전화번호로 라이브 검색(1글자부터) → 후보 목록에서 선택
   const [friendQuery, setFriendQuery] = useState('');
-  const [friendMatches, setFriendMatches] = useState<{ phone: string; name: string; deviceId: string }[]>([]);
+  const [friendIndex, setFriendIndex] = useState<{ phone: string; name: string; deviceId: string }[] | null>(null);
   const [friendPick, setFriendPick] = useState<{ phone: string; name: string; deviceId: string } | null>(null);
-  const [friendSearching, setFriendSearching] = useState(false);
   const [donateCount, setDonateCount] = useState(1); // 기부할 스탬프 수량
   // 만료 스탬프 자동 기부처 (내 설정) + 전체 NPO 목록 (본사 등록 npos 컬렉션, 없으면 기본)
   const [myNpo, setMyNpo] = useState<{ id: string; name: string } | null>(null);
@@ -121,6 +144,9 @@ export default function MePage() {
       setSelId((prev) => prev && cs.some((c) => c.storeId === prev) ? prev : (cs[0]?.storeId || ''));
       const c = custSnap.exists() ? custSnap.data() : {};
       setBalance((c.balance as number) || 0); setDonated((c.donated as number) || 0);
+      setPhotoUrl((c.photoUrl as string) || '');
+      setMyPw((c.password as string) || '');
+      setPhoneVerified(!!c.phoneVerified);
       setMyNpo(c.defaultNpoName ? { id: (c.defaultNpoId as string) || '', name: c.defaultNpoName as string } : null);
       setProfile(c.name ? { name: c.name as string, phone: (c.phone as string) || '' } : null);
       setDonations(donSnap ? donSnap.docs.map((d) => d.data() as Donation) : []);
@@ -250,6 +276,7 @@ export default function MePage() {
     await setDoc(doc(db, 'customers', id, 'cards', c.storeId), { currentStamps: 0, stampValues: [], stampDates: [], updatedAt: now }, { merge: true });
   };
   const redeem = async (c: Card) => {
+    if (!requireVerified()) return;
     setBusy(true);
     try { const db = getDb(); const id = getDeviceId(); const now = new Date().toISOString(); const v = value(c);
       const cnt = Math.min(c.currentStamps, STAMP_GOAL);
@@ -265,25 +292,32 @@ export default function MePage() {
     const k = Math.max(0, Math.min(n, vals.length));
     return vals.slice(vals.length - k).reduce((s, v) => s + v, 0);
   };
-  // 전화 뒷 4자리로 친구 검색 → 후보(전화·닉네임) 목록
-  const searchFriends = async () => {
-    const q = friendQuery.replace(/[^0-9]/g, '');
-    if (q.length < 4) { flash(t('전화번호 뒷 4자리를 입력해 주세요.', 'Enter the last 4 digits.')); return; }
-    setFriendSearching(true); setFriendMatches([]); setFriendPick(null);
+  // 친구 인덱스 1회 로드 — 이후 타이핑마다 즉시(클라이언트) 필터
+  const ensureFriendIndex = async () => {
+    if (friendIndex) return;
     try {
-      const db = getDb();
-      const mine = profile?.phone ? normPhone(profile.phone) : '';
-      const snap = await getDocs(collection(db, 'phoneIndex'));
-      const res = snap.docs
+      const snap = await getDocs(collection(getDb(), 'phoneIndex'));
+      setFriendIndex(snap.docs
         .map((d) => ({ phone: d.id, name: (d.data().name as string) || '', deviceId: (d.data().deviceId as string) || '' }))
-        .filter((r) => r.deviceId && r.phone.endsWith(q) && r.phone !== mine);
-      setFriendMatches(res);
-      if (res.length === 0) flash(t('일치하는 친구가 없어요.', 'No matching friend.'));
-    } catch { flash(t('검색 실패', 'Search failed')); }
-    finally { setFriendSearching(false); }
+        .filter((r) => r.deviceId));
+    } catch { setFriendIndex([]); }
   };
+  useEffect(() => { if (panel === 'gift') ensureFriendIndex(); /* eslint-disable-next-line */ }, [panel]);
+  // 닉네임 부분일치(대소문자 무시) 또는 전화번호 숫자 부분일치 — 1글자부터 즉시
+  const friendMatches = useMemo(() => {
+    const q = friendQuery.trim();
+    if (!q || !friendIndex) return [];
+    const mine = profile?.phone ? normPhone(profile.phone) : '';
+    const ql = q.toLowerCase();
+    const qd = q.replace(/[^0-9]/g, '');
+    return friendIndex
+      .filter((r) => r.phone !== mine)
+      .filter((r) => r.name.toLowerCase().includes(ql) || (qd.length > 0 && r.phone.includes(qd)))
+      .slice(0, 8);
+  }, [friendQuery, friendIndex, profile?.phone]);
   const confirmDonate = async () => {
     const c = disp; if (c.currentStamps < 1) return;
+    if (!requireVerified()) return;
     const qty = Math.max(1, Math.min(donateCount, c.currentStamps)); setBusy(true);
     try { const db = getDb(); const id = getDeviceId(); const now = new Date().toISOString();
       const n = charityList.find((x) => x.id === npo)?.name;
@@ -302,6 +336,7 @@ export default function MePage() {
   };
   const confirmGift = async () => {
     const c = disp;
+    if (!requireVerified()) return;
     if (!friendPick) { flash(t('선물할 친구를 선택해 주세요.', 'Pick a friend first.')); return; }
     if (friendPick.phone === (profile?.phone ? normPhone(profile.phone) : '')) { flash('본인에게는 선물할 수 없어요.'); return; }
     const want = Math.max(1, Math.min(giftCount, c.currentStamps)); setBusy(true);
@@ -329,9 +364,93 @@ export default function MePage() {
       await setDoc(doc(db, 'customers', id, 'cards', c.storeId), { currentStamps: myNext, stampValues: myVals, stampDates: myDates, updatedAt: now }, { merge: true });
       // 정산용 로그 — 선물 이동 이벤트 (이동한 칸들의 잠금 가치 합)
       await setDoc(doc(collection(db, 'stores', c.storeId, 'stampLog')), { deviceId: id, toDeviceId: fId, amount: null, source: 'gift', count: accept, value: movedVals.reduce((s, v) => s + v, 0), createdAt: now }).catch(() => {});
-      setPanel(null); setFriendQuery(''); setFriendMatches([]); setFriendPick(null); setGiftCount(1);
+      setPanel(null); setFriendQuery(''); setFriendPick(null); setGiftCount(1);
       flash(`${fName}님께 ${accept}개 선물! 🎁${returned ? ` (초과 ${returned}개 회수)` : ''}`, 4000); await load();
     } catch { flash('선물 실패'); } finally { setBusy(false); }
+  };
+
+  // 프로필 사진 업로드 — Storage avatars/ 에 올리고 customers 문서에 URL 저장
+  const uploadAvatar = async (file: File) => {
+    if (!file.type.startsWith('image/')) { flash(t('이미지 파일만 올릴 수 있어요.', 'Images only.')); return; }
+    if (file.size > 10 * 1024 * 1024) { flash(t('사진은 10MB 미만이어야 해요.', 'Under 10MB please.')); return; }
+    setAvatarBusy(true);
+    try {
+      const id = myId();
+      const r = storageRef(getStorageBucket(), `avatars/${id}_${Date.now()}.jpg`);
+      await uploadBytes(r, file, { contentType: file.type });
+      const url = await getDownloadURL(r);
+      await setDoc(doc(getDb(), 'customers', id), { photoUrl: url }, { merge: true });
+      setPhotoUrl(url); flash(t('프로필 사진이 바뀌었어요 ✓', 'Profile photo updated ✓'));
+    } catch { flash(t('업로드 실패 — 다시 시도해 주세요.', 'Upload failed.')); }
+    finally { setAvatarBusy(false); }
+  };
+
+  // 인증 코드 발송 — 6자리 생성 후 문자 발송(API). 게이트웨이 연동 전엔 테스트 모드로 코드 표시.
+  const sendVerifyCode = async () => {
+    const phone = profile?.phone ? normPhone(profile.phone) : '';
+    if (phone.length < 10) { flash(t('전화번호를 먼저 등록해 주세요.', 'Register your phone first.')); setPfEdit(true); return; }
+    setVBusy(true); setVTestHint('');
+    try {
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      const res = await fetch('/api/verify-sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, code }) });
+      const d = await res.json();
+      if (!d?.ok) { flash(t('문자 발송 실패 — 잠시 후 다시 시도해 주세요.', 'SMS failed — try again.')); return; }
+      setVGen({ code, exp: Date.now() + 10 * 60 * 1000 }); setVCode('');
+      if (d.testMode) { setVTestHint(code); flash(t('테스트 모드 — 아래 코드를 입력하세요.', 'Test mode — enter the code below.')); }
+      else flash(t('인증 코드를 문자로 보냈어요 📩', 'Code sent 📩'));
+    } catch { flash(t('문자 발송 실패', 'SMS failed.')); }
+    finally { setVBusy(false); }
+  };
+  // 코드 확인 → 인증 완료
+  const confirmVerifyCode = async () => {
+    if (!vGen) return;
+    if (Date.now() > vGen.exp) { flash(t('코드가 만료됐어요. 다시 받아주세요.', 'Code expired — resend.')); setVGen(null); return; }
+    if (vCode.trim() !== vGen.code) { flash(t('코드가 올바르지 않아요.', 'Wrong code.')); return; }
+    setVBusy(true);
+    try {
+      await setDoc(doc(getDb(), 'customers', myId()), { phoneVerified: true }, { merge: true });
+      setPhoneVerified(true); setVGen(null); setVCode(''); setVTestHint('');
+      flash(t('전화번호 인증 완료 ✓ 이제 선물·기부·캐시 전환을 쓸 수 있어요!', 'Phone verified ✓'), 3500);
+    } catch { flash(t('처리 실패', 'Failed.')); }
+    finally { setVBusy(false); }
+  };
+  // 인증 필요 액션 게이트 — 선물·기부·캐시 전환
+  const requireVerified = () => {
+    if (phoneVerified) return true;
+    flash(t('전화번호 인증 후 이용할 수 있어요 — 내 프로필에서 인증해 주세요 📱', 'Verify your phone in My Profile first 📱'), 3500);
+    openProfile();
+    return false;
+  };
+
+  // 내 프로필 열기 — 현재 값으로 드래프트 채움 (수정 섹션은 접힌 채)
+  const openProfile = () => {
+    setPfName(profile?.name || ''); setPfPhone(fmtUS(profile?.phone)); setPfPw(myPw); setPfPw2(myPw);
+    setPfEdit(false);
+    setProfileOpen(true);
+  };
+  // 내 프로필 저장 — 닉네임·전화(선택)·비밀번호(확인 일치). 전화 변경 시 phoneIndex 이전(중복 검사)
+  const saveProfile = async () => {
+    const name = pfName.trim(); const phone = normPhone(pfPhone);
+    if (!name) { flash(t('닉네임을 입력해 주세요.', 'Enter a nickname.')); return; }
+    if (phone && phone.length < 10) { flash(t('전화번호를 확인해 주세요. (미국식 10자리)', 'Check the phone number (10 digits).')); return; }
+    if (pfPw.trim() !== pfPw2.trim()) { flash(t('비밀번호 확인이 일치하지 않아요.', 'Passwords do not match.')); return; }
+    setBusy(true);
+    try {
+      const db = getDb(); const id = myId();
+      const oldP = profile?.phone ? normPhone(profile.phone) : '';
+      if (phone && phone !== oldP) {
+        const dup = await getDoc(doc(db, 'phoneIndex', phone));
+        if (dup.exists() && dup.data().deviceId !== id) { flash(t('이미 사용 중인 전화번호예요.', 'Phone already in use.')); setBusy(false); return; }
+      }
+      const phoneChanged = phone !== oldP;
+      await setDoc(doc(db, 'customers', id), { name, phone, password: pfPw.trim(), ...(phoneChanged ? { phoneVerified: false } : {}) }, { merge: true });
+      if (oldP && oldP !== phone) await deleteDoc(doc(db, 'phoneIndex', oldP)).catch(() => {});
+      if (phone) await setDoc(doc(db, 'phoneIndex', phone), { deviceId: id, name }, { merge: true });
+      setProfile({ name, phone }); setMyPw(pfPw.trim()); setPfEdit(false);
+      if (phoneChanged) { setPhoneVerified(false); setVGen(null); setVTestHint(''); }
+      flash(t('프로필이 저장됐어요 ✓', 'Profile saved ✓'));
+    } catch { flash(t('저장 실패', 'Save failed.')); }
+    finally { setBusy(false); }
   };
 
   // 캐시 사용 송금 요청 — 매장에 pending 요청 생성, 사장 태블릿 팝업으로 승인
@@ -423,7 +542,15 @@ export default function MePage() {
       )}
       {/* 상단바 */}
       <div className="flex items-center justify-between pt-3 pb-2">
-        <span className="flex items-center gap-1.5 text-sm font-bold text-brand-700">👤 {profile.name}</span>
+        <button onClick={openProfile} className="flex items-center gap-2" title={t('내 프로필', 'My profile')}>
+          {photoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photoUrl} alt={profile.name} className="h-9 w-9 rounded-full border-2 border-brand-200 object-cover" />
+          ) : (
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-base font-black text-white">{(profile.name || '?').trim().charAt(0).toUpperCase()}</span>
+          )}
+          <span className="text-sm font-bold text-brand-700">{profile.name}</span>
+        </button>
         <div className="flex items-center gap-2">
           <button onClick={toggleLang} className="rounded-full bg-zinc-100 px-2.5 py-1.5 text-xs font-bold text-zinc-600">🌐 {lang === 'ko' ? 'EN' : 'KO'}</button>
           <Link href={cards[0] ? `/store/${cards[0].slug}` : '/'} className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-bold text-white">📷 {t('QR 스캔', 'QR Scan')}</Link>
@@ -524,9 +651,9 @@ export default function MePage() {
                   })()}
                   {/* 액션: 0개여도 또렷하게(흐림 X), 누르면 안내 */}
                   <div className="mt-4 grid grid-cols-3 gap-2">
-                    <button onClick={() => setPanel(panel === 'redeem' ? null : 'redeem')} disabled={busy} className={`rounded-xl border py-3 text-sm font-bold text-rose-600 transition active:scale-[0.98] ${panel === 'redeem' ? 'border-rose-400 bg-rose-50' : 'border-rose-200 bg-white'}`}>{t('적립 전환', 'Redeem')}</button>
-                    <button onClick={() => setPanel(panel === 'gift' ? null : 'gift')} disabled={busy} className={`rounded-xl border py-3 text-sm font-bold text-brand-700 transition active:scale-[0.98] ${panel === 'gift' ? 'border-brand-500 bg-brand-50' : 'border-brand-200 bg-white'}`}>{t('친구 선물', 'Gift')}</button>
-                    <button onClick={() => setPanel(panel === 'donate' ? null : 'donate')} disabled={busy} className={`rounded-xl border py-3 text-sm font-bold text-amber-700 transition active:scale-[0.98] ${panel === 'donate' ? 'border-amber-400 bg-amber-100' : 'border-amber-300 bg-amber-50'}`}>{t('기부', 'Donate')} 💛</button>
+                    <button onClick={() => { if (panel === 'redeem') { setPanel(null); return; } if (!requireVerified()) return; setPanel('redeem'); }} disabled={busy} className={`rounded-xl border py-3 text-sm font-bold text-rose-600 transition active:scale-[0.98] ${panel === 'redeem' ? 'border-rose-400 bg-rose-50' : 'border-rose-200 bg-white'}`}>{t('적립 전환', 'Redeem')}</button>
+                    <button onClick={() => { if (panel === 'gift') { setPanel(null); return; } if (!requireVerified()) return; setPanel('gift'); }} disabled={busy} className={`rounded-xl border py-3 text-sm font-bold text-brand-700 transition active:scale-[0.98] ${panel === 'gift' ? 'border-brand-500 bg-brand-50' : 'border-brand-200 bg-white'}`}>{t('친구 선물', 'Gift')}</button>
+                    <button onClick={() => { if (panel === 'donate') { setPanel(null); return; } if (!requireVerified()) return; setPanel('donate'); }} disabled={busy} className={`rounded-xl border py-3 text-sm font-bold text-amber-700 transition active:scale-[0.98] ${panel === 'donate' ? 'border-amber-400 bg-amber-100' : 'border-amber-300 bg-amber-50'}`}>{t('기부', 'Donate')} 💛</button>
                   </div>
 
                   {/* 버튼 바로 아래 인라인 패널 — 적립/선물/기부 같은 스타일 */}
@@ -550,11 +677,9 @@ export default function MePage() {
                       ) : (
                         <div>
                           <p className="text-sm font-bold">{t('친구에게 스탬프 선물 🎁', 'Gift stamps 🎁')} <span className="text-zinc-400">({t('보유', 'have')} {disp.currentStamps})</span></p>
-                          {/* 1) 전화 뒷 4자리로 친구 검색 */}
-                          <div className="mt-2 flex gap-2">
-                            <input value={friendQuery} onChange={(e) => { setFriendQuery(e.target.value.replace(/[^0-9]/g, '').slice(0, 4)); setFriendPick(null); }} onKeyDown={(e) => { if (e.key === 'Enter') searchFriends(); }} className="ss-input" placeholder={t('전화 뒷 4자리', 'Last 4 digits')} inputMode="numeric" maxLength={4} />
-                            <button onClick={searchFriends} disabled={friendSearching} className="ss-btn-soft shrink-0 px-4">{friendSearching ? '…' : t('검색', 'Search')}</button>
-                          </div>
+                          {/* 1) 닉네임 또는 전화번호 — 1글자부터 즉시 검색 */}
+                          <input value={friendQuery} onChange={(e) => { setFriendQuery(e.target.value); setFriendPick(null); }} className="ss-input mt-2" placeholder={t('닉네임 또는 전화번호', 'Nickname or phone')} autoFocus />
+                          {friendQuery.trim() && friendMatches.length === 0 && <p className="mt-2 text-center text-xs text-zinc-400">{t('일치하는 친구가 없어요. (친구도 가입 필요)', 'No match — your friend needs an account.')}</p>}
                           {/* 2) 후보 목록에서 선택 (전화·닉네임 표시) */}
                           {friendMatches.length > 0 && (
                             <div className="mt-2 space-y-1.5">
@@ -648,7 +773,7 @@ export default function MePage() {
               {charityList.map((n) => (
                 <div key={n.id} className="flex items-center justify-between rounded-xl bg-zinc-50 p-3">
                   <div><div className="text-sm font-bold">{n.name}</div><div className="text-[11px] text-zinc-500">{n.sub}</div></div>
-                  <button onClick={() => { if (!sel || sel.currentStamps < 1) { flash(t('스탬프 1개 이상부터 기부 가능해요.', 'Need at least 1 stamp to donate.')); return; } setNpo(n.id); setDonateCount(1); setPanel('donate'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="ss-chip">{t('기부', 'Donate')}</button>
+                  <button onClick={() => { if (!sel || sel.currentStamps < 1) { flash(t('스탬프 1개 이상부터 기부 가능해요.', 'Need at least 1 stamp to donate.')); return; } if (!requireVerified()) return; setNpo(n.id); setDonateCount(1); setPanel('donate'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="ss-chip">{t('기부', 'Donate')}</button>
                 </div>
               ))}
             </div>
@@ -690,6 +815,126 @@ export default function MePage() {
         <button onClick={() => setNav('home')} className={`flex-1 py-3 text-center text-xs font-bold ${nav === 'home' ? 'text-brand-700' : 'text-zinc-400'}`}>⭐<div>{t('스탬프', 'Stamps')}</div></button>
         <button onClick={() => setNav('impact')} className={`flex-1 py-3 text-center text-xs font-bold ${nav === 'impact' ? 'text-brand-700' : 'text-zinc-400'}`}>💛<div>{t('나눔 임팩트', 'Impact')}</div></button>
       </nav>
+
+      {/* 내 프로필 — 사진·정보 수정 + 나눔 임팩트 (헤더 아바타 클릭) */}
+      {profileOpen && (
+        <div className="fixed inset-0 z-[72] mx-auto flex max-w-md flex-col bg-zinc-50">
+          <div className="flex items-center justify-between border-b border-zinc-100 bg-white px-4 py-3">
+            <span className="text-base font-black">👤 {t('내 프로필', 'My Profile')}</span>
+            <button onClick={() => setProfileOpen(false)} className="text-xl font-bold text-zinc-400">✕</button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 pb-10 pt-4">
+            {/* 사진 — 탭하면 바꾸기 */}
+            <section className="ss-card p-5 text-center">
+              <label className="inline-block cursor-pointer">
+                <input type="file" accept="image/*" className="hidden" disabled={avatarBusy} onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAvatar(f); e.target.value = ''; }} />
+                {photoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={photoUrl} alt={profile.name} className={`mx-auto h-24 w-24 rounded-full border-4 border-brand-200 object-cover ${avatarBusy ? 'opacity-50' : ''}`} />
+                ) : (
+                  <span className={`mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-4xl font-black text-white ${avatarBusy ? 'opacity-50' : ''}`}>{(profile.name || '?').trim().charAt(0).toUpperCase()}</span>
+                )}
+                <div className="mt-2 text-xs font-bold text-brand-600">{avatarBusy ? t('업로드 중…', 'Uploading…') : t('📷 사진 바꾸기', '📷 Change photo')}</div>
+              </label>
+            </section>
+
+            {/* 전화번호 인증 — 가입 땐 입력만 받고, 인증(문자 코드)은 여기서. 수정 폼이 열려 있으면 폼 안 UI 사용 */}
+            {profile.phone && !phoneVerified && !pfEdit && (
+              <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <div className="text-sm font-extrabold text-amber-800">📱 {t('전화번호 인증이 필요해요', 'Verify your phone')}</div>
+                <p className="mt-1 text-xs leading-relaxed text-amber-700">{t(`${fmtUS(profile.phone)} 로 문자 코드를 보내 확인해요. 가입할 땐 뒤에 기다리는 손님을 위해 입력만 받았어요. 인증하면 친구 선물·기부·캐시 전환을 쓸 수 있어요.`, `We'll text a code to ${fmtUS(profile.phone)}. Verify to unlock gifting, donating, and cash conversion.`)}</p>
+                {!vGen ? (
+                  <button onClick={sendVerifyCode} disabled={vBusy} className="mt-2 rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{vBusy ? '…' : t('📩 문자로 인증 코드 받기', '📩 Text me a code')}</button>
+                ) : (
+                  <div className="mt-2">
+                    {vTestHint && <div className="mb-2 rounded-lg bg-zinc-800 px-3 py-1.5 text-center text-xs font-bold text-amber-300">{t('테스트 모드 · 코드', 'Test mode · code')}: {vTestHint} <span className="font-medium text-zinc-400">{t('(SMS 연동 전)', '(pre-SMS gateway)')}</span></div>}
+                    <div className="flex gap-2">
+                      <input value={vCode} onChange={(e) => setVCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))} inputMode="numeric" maxLength={6} placeholder="000000" className="ss-input text-center text-lg font-black tracking-widest" />
+                      <button onClick={confirmVerifyCode} disabled={vBusy || vCode.length !== 6} className="ss-btn-primary shrink-0 px-4 disabled:opacity-50">{t('확인', 'Verify')}</button>
+                    </div>
+                    <button onClick={sendVerifyCode} disabled={vBusy} className="mt-1.5 text-[11px] font-bold text-amber-600">{t('코드 다시 받기', 'Resend code')}</button>
+                  </div>
+                )}
+              </div>
+            )}
+            {!profile.phone && (
+              <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <div className="text-sm font-extrabold text-amber-800">📱 {t('전화번호를 등록해 주세요', 'Register your phone')}</div>
+                <p className="mt-1 text-xs leading-relaxed text-amber-700">{t('전화번호를 등록·인증하면 다른 폰 로그인, 친구 선물, 기부, 캐시 전환을 쓸 수 있어요.', 'Add and verify your phone to unlock gifting, donating, and cash conversion.')}</p>
+                <button onClick={() => setPfEdit(true)} className="mt-2 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white">{t('지금 등록하기', 'Register now')}</button>
+              </div>
+            )}
+
+            {/* 프로필 수정 — 처음엔 접혀 있고 클릭하면 펼침 */}
+            <section className="ss-card mt-3 p-5">
+              <button onClick={() => setPfEdit(!pfEdit)} className="flex w-full items-center justify-between">
+                <h3 className="text-base font-extrabold">✏️ {t('프로필 수정', 'Edit profile')}</h3>
+                <span className="text-sm font-bold text-zinc-400">{pfEdit ? '▲' : '▼'}</span>
+              </button>
+              {!pfEdit ? (
+                <div className="mt-2 space-y-1 text-sm text-zinc-600">
+                  <div>{t('닉네임', 'Nickname')} · <b className="text-zinc-800">{profile.name}</b></div>
+                  <div>{t('전화번호', 'Phone')} · <b className="text-zinc-800">{profile.phone ? fmtUS(profile.phone) : <span className="font-bold text-amber-600">{t('미등록', 'Not set')}</span>}</b>{profile.phone && (phoneVerified ? <span className="ml-1.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">✓ {t('인증됨', 'Verified')}</span> : <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">{t('미인증', 'Unverified')}</span>)}</div>
+                  <div>{t('비밀번호', 'Password')} · <b className="text-zinc-800">{myPw ? '••••' : t('없음', 'None')}</b></div>
+                </div>
+              ) : (
+                <div className="mt-1">
+                  <label className="ss-label">{t('닉네임', 'Nickname')}</label>
+                  <input value={pfName} onChange={(e) => setPfName(e.target.value)} className="ss-input" />
+                  <label className="ss-label">{t('전화번호', 'Phone')}</label>
+                  <input value={pfPhone} onChange={(e) => setPfPhone(fmtUS(e.target.value))} className="ss-input" inputMode="tel" placeholder="000-000-0000" maxLength={14} />
+                  {/* 전화 인증 — 폼 안에서 바로 (저장된 번호 기준) */}
+                  <div className="mt-1.5">
+                    {phoneVerified && normPhone(pfPhone) === normPhone(profile.phone || '') ? (
+                      <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">✓ {t('인증됨', 'Verified')}</span>
+                    ) : !vGen ? (
+                      <button onClick={() => {
+                        if (normPhone(pfPhone) !== normPhone(profile.phone || '')) { flash(t('변경한 번호는 먼저 저장한 뒤 인증해 주세요.', 'Save the new number first, then verify.')); return; }
+                        sendVerifyCode();
+                      }} disabled={vBusy} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50">{vBusy ? '…' : t('📩 인증하기 (문자 코드)', '📩 Verify (SMS code)')}</button>
+                    ) : (
+                      <div>
+                        {vTestHint && <div className="mb-1.5 rounded-lg bg-zinc-800 px-3 py-1.5 text-center text-xs font-bold text-amber-300">{t('테스트 모드 · 코드', 'Test mode · code')}: {vTestHint}</div>}
+                        <div className="flex gap-2">
+                          <input value={vCode} onChange={(e) => setVCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))} inputMode="numeric" maxLength={6} placeholder="000000" className="ss-input text-center font-black tracking-widest" />
+                          <button onClick={confirmVerifyCode} disabled={vBusy || vCode.length !== 6} className="ss-btn-primary shrink-0 px-4 disabled:opacity-50">{t('확인', 'Verify')}</button>
+                        </div>
+                        <button onClick={sendVerifyCode} disabled={vBusy} className="mt-1 text-[11px] font-bold text-amber-600">{t('코드 다시 받기', 'Resend code')}</button>
+                      </div>
+                    )}
+                  </div>
+                  <label className="ss-label">{t('비밀번호 (선택)', 'Password (optional)')}</label>
+                  <input value={pfPw} onChange={(e) => setPfPw(e.target.value)} type="password" className="ss-input" placeholder={t('설정하면 로그인 때 물어봐요', 'Asked at login if set')} />
+                  <label className="ss-label">{t('비밀번호 확인', 'Confirm password')}</label>
+                  <input value={pfPw2} onChange={(e) => setPfPw2(e.target.value)} type="password" className="ss-input" placeholder={t('한 번 더 입력', 'Repeat password')} />
+                  <button onClick={saveProfile} disabled={busy} className="ss-btn-primary mt-3 w-full disabled:opacity-50">{busy ? '…' : t('저장', 'Save')}</button>
+                </div>
+              )}
+            </section>
+
+            {/* 나눔 임팩트 */}
+            <section className="ss-card mt-3 bg-amber-50 p-5 text-center">
+              <div className="text-xs font-semibold text-zinc-500">{t('나의 누적 나눔 💛', 'My total giving 💛')}</div>
+              <div className="text-3xl font-black text-amber-600">${donated.toFixed(2)}</div>
+            </section>
+            <section className="ss-card mt-3 p-5">
+              <h3 className="text-sm font-extrabold text-brand-700">⏳ {t('만료 스탬프 자동 기부처', 'Auto-donation for expired stamps')}</h3>
+              <select value={myNpo?.id || ''} onChange={(e) => saveMyNpo(e.target.value)} className="ss-input mt-2">
+                <option value="">{t('지정 안 함 (매장 기본 단체로)', 'No preference (store default)')}</option>
+                {globalNpos.map((n) => <option key={n.id} value={n.id}>{n.name}{n.sub ? ` · ${n.sub}` : ''}</option>)}
+              </select>
+            </section>
+            <section className="ss-card mt-3 p-5">
+              <h3 className="text-sm font-extrabold text-brand-700">{t('기부 내역', 'Donation history')}</h3>
+              {donations.length === 0 ? <p className="mt-2 text-center text-sm text-zinc-400">{t('아직 기부 내역이 없어요.', 'No donations yet.')}</p> : (
+                <div className="mt-2 divide-y divide-zinc-100">
+                  {donations.map((d, i) => <div key={i} className="flex justify-between py-2.5 text-sm"><span className="text-zinc-600">{d.storeName} → {d.npoName ?? '기부'}</span><span className="font-bold text-amber-600">${d.amount.toFixed(2)}</span></div>)}
+                </div>
+              )}
+            </section>
+          </div>
+        </div>
+      )}
 
       {/* 캐시 사용 시트 — 금액 조절 → 매장에 송금 요청 → 사장 승인 대기 */}
       {useSheet && (
