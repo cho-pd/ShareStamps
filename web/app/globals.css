@@ -60,4 +60,15 @@ body {
   .ss-label {
     @apply block text-[13px] font-bold text-zinc-700 mt-3.5 mb-1.5;
   }
+  /* 허니컴 칸 터치 시 날짜 툴팁 — 나타났다 사라짐 */
+  .ss-tapfade {
+    animation: ss-tapfade 1.6s ease forwards;
+  }
+}
+
+@keyframes ss-tapfade {
+  0% { opacity: 0; transform: translateY(4px); }
+  15% { opacity: 1; transform: translateY(0); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
 }

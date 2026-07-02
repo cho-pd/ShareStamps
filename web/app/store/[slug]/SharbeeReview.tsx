@@ -85,7 +85,11 @@ export default function SharbeeReview({ storeId, storeName, menu, guidance }: { 
       const cardSnap = await getDoc(cardRef);
       const cur = cardSnap.exists() ? ((cardSnap.data().currentStamps as number) || 0) : 0;
       const next = cur + 1;
-      await setDoc(cardRef, { storeId, storeName: st.name || storeName, slug: st.slug || '', currentStamps: next, reward: st.pointRewardPer7Stamps ?? 5, currency: st.currency || 'USD', interval: st.earningIntervalMinutes ?? 60, updatedAt: now }, { merge: true });
+      // 칸별 가치 기록 — 획득 시점의 보상÷7로 고정
+      const reward = st.pointRewardPer7Stamps ?? 5;
+      const prevVals = (cardSnap.exists() ? (cardSnap.data().stampValues as number[] | undefined) : undefined) ?? Array.from({ length: cur }).map(() => reward / 7);
+      const stampValues = [...prevVals.slice(0, cur), reward / 7];
+      await setDoc(cardRef, { storeId, storeName: st.name || storeName, slug: st.slug || '', currentStamps: next, reward, currency: st.currency || 'USD', interval: st.earningIntervalMinutes ?? 60, stampValues, updatedAt: now }, { merge: true });
       await setDoc(mirrorRef, { deviceId: idv, currentStamps: next, updatedAt: now }, { merge: true });
       await setDoc(doc(collection(db, 'stores', storeId, 'stampLog')), { deviceId: idv, amount: null, source: 'review', createdAt: now });
     } catch { /* 스탬프 지급 실패해도 리뷰 등록 자체는 유지 */ }

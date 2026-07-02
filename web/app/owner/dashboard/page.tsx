@@ -231,12 +231,18 @@ export default function OwnerDashboard() {
     try {
       const db = getDb();
       const cardRef = doc(db, 'stores', data.storeId, 'stampCards', deviceId);
+      const custCardRef = doc(db, 'customers', deviceId, 'cards', data.storeId);
       const snap = await getDoc(cardRef);
       const cur = snap.exists() ? ((snap.data().currentStamps as number) || 0) : 0;
       const next = Math.max(0, Math.min(7, cur + delta));
       const now = new Date().toISOString();
+      // 칸별 가치: 지급은 "지금 보상÷7"을 뒤에 추가, 차감은 마지막 것 제거
+      const custSnap = await getDoc(custCardRef);
+      const prevVals = (custSnap.exists() ? (custSnap.data().stampValues as number[] | undefined) : undefined) ?? Array.from({ length: cur }).map(() => data.reward / 7);
+      const stampValues = next > cur ? [...prevVals.slice(0, cur), data.reward / 7] : prevVals.slice(0, next);
       await setDoc(cardRef, { deviceId, currentStamps: next, updatedAt: now }, { merge: true });
-      await setDoc(doc(db, 'customers', deviceId, 'cards', data.storeId), { storeId: data.storeId, storeName: data.storeName, slug: data.slug, currentStamps: next, reward: data.reward, currency: 'USD', interval: data.interval, updatedAt: now }, { merge: true });
+      await setDoc(custCardRef, { storeId: data.storeId, storeName: data.storeName, slug: data.slug, currentStamps: next, reward: data.reward, currency: 'USD', interval: data.interval, stampValues, updatedAt: now }, { merge: true });
+      if (next > cur) await setDoc(doc(collection(db, 'stores', data.storeId, 'stampLog')), { deviceId, amount: null, source: 'owner', createdAt: now });
       flash(`${name || t('회원', 'Member')}: ${delta > 0 ? '+' : ''}${delta} → ${next}/7`);
       await load(data.slug);
     } catch { flash(t('처리 실패', 'Failed.')); } finally { setBusy(false); }
@@ -588,7 +594,7 @@ export default function OwnerDashboard() {
                       <div key={i} className="flex items-center justify-between py-2.5 text-sm">
                         <div>
                           <span className="font-semibold">{l.name}</span>
-                          <span className="ml-1.5 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-bold text-zinc-500">{l.source === 'review' ? t('리뷰', 'Review') : t('영수증', 'Receipt')}</span>
+                          <span className="ml-1.5 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-bold text-zinc-500">{l.source === 'review' ? t('리뷰', 'Review') : l.source === 'owner' ? t('점주 지급', 'Owner') : t('영수증', 'Receipt')}</span>
                           <span className="ml-1.5 text-[11px] text-zinc-400">{new Date(l.createdAt).toLocaleDateString()}</span>
                         </div>
                         <span className="font-bold text-brand-700">{l.amount != null ? `$${l.amount.toFixed(2)}` : t('금액 없음', 'No amount')}</span>
