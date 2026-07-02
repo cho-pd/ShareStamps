@@ -66,11 +66,13 @@ export default function ClaimPage() {
           const cardSnap = await tx.get(cardRef);
           const cur = cardSnap.exists() ? ((cardSnap.data().currentStamps as number) || 0) : 0;
           const next = cur + stamps;
-          // 칸별 가치 기록 — 이 스탬프는 "지금 보상÷7"의 가치로 고정 (이후 보상이 인상돼도 유지)
+          // 칸별 가치·날짜 기록 — 이 스탬프는 "지금 보상÷7"의 가치로 고정 (이후 보상이 인상돼도 유지)
           const reward = st.pointRewardPer7Stamps ?? 5;
           const prevVals = (cardSnap.exists() ? (cardSnap.data().stampValues as number[] | undefined) : undefined) ?? Array.from({ length: cur }).map(() => reward / 7);
+          const prevDates = (cardSnap.exists() ? (cardSnap.data().stampDates as string[] | undefined) : undefined) ?? Array.from({ length: cur }).map(() => now);
           const stampValues = [...prevVals.slice(0, cur), ...Array.from({ length: stamps }).map(() => reward / 7)];
-          tx.set(cardRef, { storeId, storeName: st.name || slug, slug, currentStamps: next, reward, currency: st.currency || 'USD', interval: st.earningIntervalMinutes ?? 60, stampValues, updatedAt: now }, { merge: true });
+          const stampDates = [...prevDates.slice(0, cur), ...Array.from({ length: stamps }).map(() => now)];
+          tx.set(cardRef, { storeId, storeName: st.name || slug, slug, currentStamps: next, reward, currency: st.currency || 'USD', interval: st.earningIntervalMinutes ?? 60, stampValues, stampDates, updatedAt: now }, { merge: true });
           tx.set(mirrorRef, { deviceId: id, currentStamps: next, updatedAt: now }, { merge: true });
           tx.set(tRef, { status: 'claimed', claimedBy: id, claimedAt: now }, { merge: true });
           tx.set(doc(collection(db, 'stores', storeId, 'stampLog')), { deviceId: id, amount: receiptAmount, source: 'receipt', createdAt: now });

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import AdBannerSlot from './AdBanner';
 import { getDb } from '@/lib/firebase';
-import { collection, getDocs, doc, getDoc, setDoc, query, orderBy, limit, where, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, setDoc, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 // 옛 CustomerPWA 대시보드 구성 그대로: 상단바(닉네임·QR스캔) · 매장 선택 드롭다운 ·
 // 매장 헤더(7-stamp Cash·누적가치·인터벌) · 허니컴(번호/하트+칸별가치) · My Stamp Cash Balance(+Request) ·
@@ -25,10 +25,11 @@ function getDeviceId(): string {
 }
 const normPhone = (p: string) => p.replace(/[^0-9]/g, '');
 
-// stampValues: 칸별 가치(획득 시점의 보상÷7) — 보상 인상 전 받은 스탬프는 옛 가치를 유지한다.
-type Card = { storeId: string; storeName: string; slug: string; currentStamps: number; reward: number; currency: string; interval?: number; stampValues?: number[] };
+// stampValues: 칸별 가치(획득 시점의 보상÷7) · stampDates: 칸별 획득일 — 가치·날짜를 카드에 함께 고정한다.
+type Card = { storeId: string; storeName: string; slug: string; currentStamps: number; reward: number; currency: string; interval?: number; stampValues?: number[]; stampDates?: string[] };
 // 칸별 가치: 기록 있으면 그 값, 없으면(옛 데이터) 현재 보상÷7 폴백
 const cellValue = (c: Card, i: number) => c.stampValues?.[i] ?? c.reward / 7;
+const cellDate = (c: Card, i: number) => c.stampDates?.[i];
 const cardValue = (c: Card) => Array.from({ length: Math.min(c.currentStamps, 7) }).reduce<number>((s, _, i) => s + cellValue(c, i), 0);
 type Donation = { storeName?: string; npoName?: string; amount: number; currency: string; createdAt: string };
 
@@ -54,7 +55,6 @@ export default function MePage() {
   const [useSheet, setUseSheet] = useState(false);
   const [npo, setNpo] = useState(NPOS[0].id);
   const [storeCharities, setStoreCharities] = useState<{ id: string; name: string; source: string }[]>([]);
-  const [stampDates, setStampDates] = useState<string[]>([]);
   const [tapIdx, setTapIdx] = useState<number | null>(null);
   const tapTimerRef = useRef<number | null>(null);
   const [friendPhone, setFriendPhone] = useState(''); const [giftCount, setGiftCount] = useState(1);
@@ -185,21 +185,6 @@ export default function MePage() {
     })();
     return () => { cancelled = true; };
   }, [disp.storeId]);
-  // 선택 매장의 내 스탬프 적립 로그 — 허니컴 칸 터치 시 "언제 받았는지" 보여주는 데 사용
-  useEffect(() => {
-    const sid = disp.storeId;
-    if (!sid || sid === 'demo') { setStampDates([]); return; }
-    let cancelled = false;
-    (async () => {
-      try {
-        const idv = getDeviceId();
-        const snap = await getDocs(query(collection(getDb(), 'stores', sid, 'stampLog'), where('deviceId', '==', idv)));
-        if (cancelled) return;
-        setStampDates(snap.docs.map((d) => d.data().createdAt as string).sort((a, b) => new Date(a).getTime() - new Date(b).getTime()));
-      } catch { if (!cancelled) setStampDates([]); }
-    })();
-    return () => { cancelled = true; };
-  }, [disp.storeId]);
   const showTapDate = (i: number) => {
     setTapIdx(i);
     if (tapTimerRef.current) window.clearTimeout(tapTimerRef.current);
@@ -215,7 +200,7 @@ export default function MePage() {
 
   const reset = async (db: ReturnType<typeof getDb>, id: string, c: Card, now: string) => {
     await setDoc(doc(db, 'stores', c.storeId, 'stampCards', id), { currentStamps: 0, updatedAt: now }, { merge: true });
-    await setDoc(doc(db, 'customers', id, 'cards', c.storeId), { currentStamps: 0, stampValues: [], updatedAt: now }, { merge: true });
+    await setDoc(doc(db, 'customers', id, 'cards', c.storeId), { currentStamps: 0, stampValues: [], stampDates: [], updatedAt: now }, { merge: true });
   };
   const redeem = async (c: Card) => {
     setBusy(true);
@@ -248,16 +233,20 @@ export default function MePage() {
       const accept = Math.min(want, 7 - fCur); const returned = want - accept;
       if (accept <= 0) { flash(`${fName}님 카드가 가득 찼어요 (7/7).`); setBusy(false); return; }
       const fNext = fCur + accept;
-      // 가치 배열도 함께 이동 — 내 마지막 accept개(폴백: 현재 보상÷7)를 친구 카드 뒤에 붙인다
+      // 가치·날짜 배열도 함께 이동 — 내 마지막 accept개를 친구 카드 뒤에 붙인다
       const myVals = Array.from({ length: Math.min(c.currentStamps, 7) }).map((_, i) => cellValue(c, i));
-      const moved = myVals.splice(myVals.length - accept, accept);
+      const myDates = Array.from({ length: Math.min(c.currentStamps, 7) }).map((_, i) => cellDate(c, i) || now);
+      const movedVals = myVals.splice(myVals.length - accept, accept);
+      const movedDates = myDates.splice(myDates.length - accept, accept);
       const fCardSnap = await getDoc(doc(db, 'customers', fId, 'cards', c.storeId));
-      const fVals = (fCardSnap.exists() ? (fCardSnap.data().stampValues as number[] | undefined) : undefined) ?? Array.from({ length: fCur }).map(() => c.reward / 7);
+      const fData = fCardSnap.exists() ? fCardSnap.data() : {};
+      const fVals = ((fData.stampValues as number[] | undefined) ?? Array.from({ length: fCur }).map(() => c.reward / 7)).slice(0, fCur);
+      const fDates = ((fData.stampDates as string[] | undefined) ?? Array.from({ length: fCur }).map(() => now)).slice(0, fCur);
       await setDoc(fRef, { deviceId: fId, currentStamps: fNext, updatedAt: now }, { merge: true });
-      await setDoc(doc(db, 'customers', fId, 'cards', c.storeId), { storeId: c.storeId, storeName: c.storeName, slug: c.slug, currentStamps: fNext, reward: c.reward, currency: c.currency, stampValues: [...fVals.slice(0, fCur), ...moved], updatedAt: now }, { merge: true });
+      await setDoc(doc(db, 'customers', fId, 'cards', c.storeId), { storeId: c.storeId, storeName: c.storeName, slug: c.slug, currentStamps: fNext, reward: c.reward, currency: c.currency, stampValues: [...fVals, ...movedVals], stampDates: [...fDates, ...movedDates], updatedAt: now }, { merge: true });
       const myNext = c.currentStamps - accept;
       await setDoc(doc(db, 'stores', c.storeId, 'stampCards', id), { currentStamps: myNext, updatedAt: now }, { merge: true });
-      await setDoc(doc(db, 'customers', id, 'cards', c.storeId), { currentStamps: myNext, stampValues: myVals, updatedAt: now }, { merge: true });
+      await setDoc(doc(db, 'customers', id, 'cards', c.storeId), { currentStamps: myNext, stampValues: myVals, stampDates: myDates, updatedAt: now }, { merge: true });
       setPanel(null); setFriendPhone(''); setGiftCount(1);
       flash(`${fName}님께 ${accept}개 선물! 🎁${returned ? ` (초과 ${returned}개 회수)` : ''}`, 4000); await load();
     } catch { flash('선물 실패'); } finally { setBusy(false); }
@@ -366,9 +355,8 @@ export default function MePage() {
                 <div className="border-t border-zinc-100 bg-brand-50/50 p-5">
                   {(() => {
                     const filledCount = Math.min(disp.currentStamps, 7);
-                    const recentDates = stampDates.slice(-filledCount);
                     const fmtTap = (iso?: string) => {
-                      if (!iso) return t('받은 날짜 정보 없음', 'No date on record');
+                      if (!iso) return t('받은 날짜 기록 없음', 'No date on record');
                       const d = new Date(iso);
                       return t(`${d.getMonth() + 1}월 ${d.getDate()}일 적립`, `Earned ${d.getMonth() + 1}/${d.getDate()}`);
                     };
@@ -380,7 +368,7 @@ export default function MePage() {
                             <div key={i} className="relative flex flex-col items-center gap-1">
                               {tapIdx === i && (
                                 <span className="ss-tapfade pointer-events-none absolute -top-7 z-20 whitespace-nowrap rounded-full bg-zinc-900 px-2 py-1 text-[10px] font-bold text-white shadow-lg">
-                                  {fmtTap(recentDates[i])}
+                                  {fmtTap(cellDate(disp, i))}
                                 </span>
                               )}
                               <div

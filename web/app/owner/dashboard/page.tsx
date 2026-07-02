@@ -236,12 +236,14 @@ export default function OwnerDashboard() {
       const cur = snap.exists() ? ((snap.data().currentStamps as number) || 0) : 0;
       const next = Math.max(0, Math.min(7, cur + delta));
       const now = new Date().toISOString();
-      // 칸별 가치: 지급은 "지금 보상÷7"을 뒤에 추가, 차감은 마지막 것 제거
+      // 칸별 가치·날짜: 지급은 "지금 보상÷7"·오늘 날짜를 뒤에 추가, 차감은 마지막 것 제거
       const custSnap = await getDoc(custCardRef);
       const prevVals = (custSnap.exists() ? (custSnap.data().stampValues as number[] | undefined) : undefined) ?? Array.from({ length: cur }).map(() => data.reward / 7);
+      const prevDates = (custSnap.exists() ? (custSnap.data().stampDates as string[] | undefined) : undefined) ?? Array.from({ length: cur }).map(() => now);
       const stampValues = next > cur ? [...prevVals.slice(0, cur), data.reward / 7] : prevVals.slice(0, next);
+      const stampDates = next > cur ? [...prevDates.slice(0, cur), now] : prevDates.slice(0, next);
       await setDoc(cardRef, { deviceId, currentStamps: next, updatedAt: now }, { merge: true });
-      await setDoc(custCardRef, { storeId: data.storeId, storeName: data.storeName, slug: data.slug, currentStamps: next, reward: data.reward, currency: 'USD', interval: data.interval, stampValues, updatedAt: now }, { merge: true });
+      await setDoc(custCardRef, { storeId: data.storeId, storeName: data.storeName, slug: data.slug, currentStamps: next, reward: data.reward, currency: 'USD', interval: data.interval, stampValues, stampDates, updatedAt: now }, { merge: true });
       if (next > cur) await setDoc(doc(collection(db, 'stores', data.storeId, 'stampLog')), { deviceId, amount: null, source: 'owner', createdAt: now });
       flash(`${name || t('회원', 'Member')}: ${delta > 0 ? '+' : ''}${delta} → ${next}/7`);
       await load(data.slug);
