@@ -142,6 +142,7 @@ export default function OwnerDashboard() {
   const [memoDraft, setMemoDraft] = useState(''); const [allergyDraft, setAllergyDraft] = useState('');
   // 회원 정보 수정 드래프트 (닉네임·전화·비밀번호)
   const [editName, setEditName] = useState(''); const [editPhone, setEditPhone] = useState(''); const [editPassword, setEditPassword] = useState('');
+  const [stampHistoryOpen, setStampHistoryOpen] = useState(false); // 스탬프 내역 더보기
   const [newMemberName, setNewMemberName] = useState(''); const [newMemberPhone, setNewMemberPhone] = useState('');
   const normPhone = (p: string) => p.replace(/\D/g, '');
   const [memberDonations, setMemberDonations] = useState<{ npoName?: string; storeName?: string; amount: number; createdAt: string }[]>([]);
@@ -718,7 +719,7 @@ export default function OwnerDashboard() {
                   </thead>
                   <tbody>
                     {filteredMembers.map((m) => (
-                      <tr key={m.deviceId} onClick={() => { setSelMemberId(m.deviceId); setConfirmDelete(false); setMemoDraft(m.memo || ''); setAllergyDraft(m.allergy || ''); setEditName(m.name || ''); setEditPhone(m.phone || ''); setEditPassword(m.password || ''); }} className={`cursor-pointer border-b border-zinc-100 hover:bg-zinc-50 ${m.suspended ? 'opacity-50' : ''}`}>
+                      <tr key={m.deviceId} onClick={() => { setSelMemberId(m.deviceId); setConfirmDelete(false); setStampHistoryOpen(false); setMemoDraft(m.memo || ''); setAllergyDraft(m.allergy || ''); setEditName(m.name || ''); setEditPhone(m.phone || ''); setEditPassword(m.password || ''); }} className={`cursor-pointer border-b border-zinc-100 hover:bg-zinc-50 ${m.suspended ? 'opacity-50' : ''}`}>
                         <td className="px-3 py-2.5 font-bold text-brand-700 hover:underline">
                           {m.name || t('손님', 'Guest')}
                           {m.suspended && <span className="ml-1.5 rounded bg-zinc-200 px-1.5 py-0.5 align-middle text-[10px] font-bold text-zinc-500">{t('정지', 'Suspended')}</span>}
@@ -820,33 +821,40 @@ export default function OwnerDashboard() {
                 </section>
               )}
 
-              {/* 카드 · 스탬프 획득/이동 내역 (이 회원) */}
+              {/* 카드 · 스탬프 획득/이동 내역 (이 회원) — 최근 1건만, 나머지는 더보기 */}
               {(() => {
                 const rows = data.stampLogs.filter((l) => l.deviceId === selMember.deviceId);
+                const tagOf = (src: string) => src === 'review' ? { ko: '리뷰', en: 'Review', cls: 'bg-honey/40 text-honey-ink' }
+                  : src === 'owner' ? { ko: '점주 지급', en: 'Owner', cls: 'bg-blue-100 text-blue-700' }
+                  : src === 'gift' ? { ko: '선물', en: 'Gift', cls: 'bg-purple-100 text-purple-700' }
+                  : src === 'redeem' ? { ko: '캐시 전환', en: 'Redeem', cls: 'bg-rose-100 text-rose-600' }
+                  : src === 'expired' ? { ko: '만료 기부', en: 'Expired', cls: 'bg-amber-100 text-amber-700' }
+                  : { ko: '영수증', en: 'Receipt', cls: 'bg-zinc-100 text-zinc-500' };
+                const Row = ({ l }: { l: StampLog }) => { const tag = tagOf(l.source); return (
+                  <div className="flex items-center justify-between py-2.5 text-sm">
+                    <div>
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${tag.cls}`}>{t(tag.ko, tag.en)}</span>
+                      {l.count != null && <span className="ml-1.5 font-bold text-zinc-700">{l.count}{t('개', '')}</span>}
+                      {l.npoName && <span className="ml-1 text-[11px] text-zinc-400">→ {l.npoName}</span>}
+                      <span className="ml-1.5 text-[11px] text-zinc-400">{new Date(l.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    <span className="font-bold text-brand-700">{l.amount != null ? `$${l.amount.toFixed(2)}` : l.value != null ? `$${l.value.toFixed(2)}` : '—'}</span>
+                  </div>
+                ); };
                 return (
                   <section className="ss-card mt-3 p-5">
                     <h3 className="text-base font-extrabold">🐝 {t('스탬프 내역', 'Stamp history')} <span className="text-xs font-medium text-zinc-400">· {rows.length}{t('건', '')}</span></h3>
                     {rows.length === 0 ? <p className="mt-2 text-sm text-zinc-400">{t('아직 스탬프 내역이 없어요.', 'No stamp activity yet.')}</p> : (
-                      <div className="mt-2 max-h-72 divide-y divide-zinc-100 overflow-y-auto">
-                        {rows.map((l, i) => {
-                          const tag = l.source === 'review' ? { ko: '리뷰', en: 'Review', cls: 'bg-honey/40 text-honey-ink' }
-                            : l.source === 'owner' ? { ko: '점주 지급', en: 'Owner', cls: 'bg-blue-100 text-blue-700' }
-                            : l.source === 'gift' ? { ko: '선물', en: 'Gift', cls: 'bg-purple-100 text-purple-700' }
-                            : l.source === 'redeem' ? { ko: '캐시 전환', en: 'Redeem', cls: 'bg-rose-100 text-rose-600' }
-                            : l.source === 'expired' ? { ko: '만료 기부', en: 'Expired', cls: 'bg-amber-100 text-amber-700' }
-                            : { ko: '영수증', en: 'Receipt', cls: 'bg-zinc-100 text-zinc-500' };
-                          return (
-                            <div key={i} className="flex items-center justify-between py-2.5 text-sm">
-                              <div>
-                                <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${tag.cls}`}>{t(tag.ko, tag.en)}</span>
-                                {l.count != null && <span className="ml-1.5 font-bold text-zinc-700">{l.count}{t('개', '')}</span>}
-                                {l.npoName && <span className="ml-1 text-[11px] text-zinc-400">→ {l.npoName}</span>}
-                                <span className="ml-1.5 text-[11px] text-zinc-400">{new Date(l.createdAt).toLocaleDateString()}</span>
-                              </div>
-                              <span className="font-bold text-brand-700">{l.amount != null ? `$${l.amount.toFixed(2)}` : l.value != null ? `$${l.value.toFixed(2)}` : '—'}</span>
-                            </div>
-                          );
-                        })}
+                      <div className="mt-2">
+                        <div className="divide-y divide-zinc-100"><Row l={rows[0]} /></div>
+                        {rows.length > 1 && (
+                          <>
+                            {stampHistoryOpen && <div className="divide-y divide-zinc-100 border-t border-zinc-100">{rows.slice(1).map((l, i) => <Row key={i} l={l} />)}</div>}
+                            <button onClick={() => setStampHistoryOpen((v) => !v)} className="mt-2 w-full rounded-lg border border-zinc-200 py-2 text-xs font-bold text-zinc-500 hover:bg-zinc-50">
+                              {stampHistoryOpen ? `▲ ${t('접기', 'Collapse')}` : `▼ ${t(`나머지 ${rows.length - 1}건 더보기`, `Show ${rows.length - 1} more`)}`}
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
                   </section>
