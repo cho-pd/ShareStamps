@@ -17,7 +17,7 @@ type Cardholder = { name: string; phone?: string; stamps: number };
 type Member = { deviceId: string; name: string; phone?: string; password?: string; stamps: number; balance: number; donated: number; suspended?: boolean; memo?: string; allergy?: string };
 type Donation = { npoName?: string; amount: number; settled?: boolean; source?: string; createdAt: string; refPath?: string };
 type Charity = { id: string; name: string; desc?: string; linkUrl?: string; source: 'owner' | 'hq'; status: 'pending' | 'approved' | 'rejected'; docUrl?: string; docName?: string };
-type StampLog = { name: string; amount: number | null; count?: number; value?: number; source: 'receipt' | 'review' | string; createdAt: string };
+type StampLog = { deviceId: string; name: string; amount: number | null; count?: number; value?: number; source: 'receipt' | 'review' | string; createdAt: string; npoName?: string };
 type CashReq = { id: string; deviceId: string; name?: string; phone?: string; amount: number; usedAmount?: number; status: string; createdAt: string; resolvedAt?: string };
 type Loaded = {
   storeId: string; storeName: string; slug: string;
@@ -123,6 +123,22 @@ export default function OwnerDashboard() {
   // 캐시 사용 요청 — 손님이 송금 요청하면 팝업으로 승인/거절, 홈에 오늘 사용 목록
   const [cashPending, setCashPending] = useState<CashReq[]>([]);
   const [cashToday, setCashToday] = useState<CashReq[]>([]);
+  // 마케팅 푸시 — 제목·내용 작성해 이 매장 회원에게 발송 (남발 금지 안내 포함)
+  const [pushTitle, setPushTitle] = useState(''); const [pushBody, setPushBody] = useState(''); const [pushSending, setPushSending] = useState(false);
+  const sendMarketingPush = async () => {
+    if (!data) return;
+    if (!pushBody.trim()) { flash(t('보낼 내용을 입력해 주세요.', 'Enter a message.')); return; }
+    const ids = data.members.map((m) => m.deviceId);
+    if (!ids.length) { flash(t('발송할 회원이 없어요.', 'No members.')); return; }
+    setPushSending(true);
+    try {
+      const res = await fetch('/api/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceIds: ids, title: pushTitle.trim() || `📣 ${data.storeName}`, body: pushBody.trim(), url: `/me?store=${data.slug}`, tag: `mkt_${data.storeId}` }) });
+      const d = await res.json();
+      if (d?.ok) { flash(t(`발송 완료 — 알림 켠 ${d.subscribed}명 중 ${d.sent}명에게 전송`, `Sent to ${d.sent} of ${d.subscribed} opted-in`)); setPushTitle(''); setPushBody(''); }
+      else flash(t(d?.error === 'VAPID keys not set' ? '푸시 키 미설정 (배포 후 Vercel 환경변수 필요)' : '발송 실패', 'Send failed'));
+    } catch { flash(t('발송 실패', 'Send failed')); }
+    finally { setPushSending(false); }
+  };
   const [memoDraft, setMemoDraft] = useState(''); const [allergyDraft, setAllergyDraft] = useState('');
   // 회원 정보 수정 드래프트 (닉네임·전화·비밀번호)
   const [editName, setEditName] = useState(''); const [editPhone, setEditPhone] = useState(''); const [editPassword, setEditPassword] = useState('');
@@ -262,7 +278,7 @@ export default function OwnerDashboard() {
         .map((d) => ({ ...(d.data() as Donation), refPath: d.ref.path }))
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       const stampLogs: StampLog[] = (logSnap?.docs ?? [])
-        .map((d) => { const l = d.data() as { deviceId?: string; amount?: number | null; count?: number; value?: number; source?: string; createdAt: string }; return { name: custMap.get(l.deviceId || '')?.name || t('손님', 'Guest'), amount: l.amount ?? null, count: l.count, value: l.value, source: l.source || 'receipt', createdAt: l.createdAt }; })
+        .map((d) => { const l = d.data() as { deviceId?: string; amount?: number | null; count?: number; value?: number; source?: string; createdAt: string; npoName?: string }; return { deviceId: l.deviceId || '', name: custMap.get(l.deviceId || '')?.name || t('손님', 'Guest'), amount: l.amount ?? null, count: l.count, value: l.value, source: l.source || 'receipt', createdAt: l.createdAt, npoName: l.npoName }; })
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setData({
         storeId: sd.id, storeName: st.name, slug: st.slug, reward: rwd, interval: itv,
@@ -336,7 +352,11 @@ export default function OwnerDashboard() {
       const stampDates = added > 0 ? [...prevDates.slice(0, cur), ...Array.from({ length: added }).map(() => now)] : prevDates.slice(0, next);
       await setDoc(cardRef, { deviceId, currentStamps: next, updatedAt: now }, { merge: true });
       await setDoc(custCardRef, { storeId: data.storeId, storeName: data.storeName, slug: data.slug, currentStamps: next, reward: data.reward, currency: 'USD', interval: data.interval, stampValues, stampDates, updatedAt: now }, { merge: true });
-      if (added > 0) await setDoc(doc(collection(db, 'stores', data.storeId, 'stampLog')), { deviceId, amount: null, source: 'owner', count: added, value: added * (data.reward / 9), createdAt: now });
+      if (added > 0) {
+        await setDoc(doc(collection(db, 'stores', data.storeId, 'stampLog')), { deviceId, amount: null, source: 'owner', count: added, value: added * (data.reward / 9), createdAt: now });
+        // 카톡처럼 — 점주 특별 지급을 회원에게 웹푸시로 알림
+        fetch('/api/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceIds: [deviceId], title: `🎁 ${data.storeName}`, body: t(`스탬프 ${added}개를 특별 지급받았어요! 지금 확인해 보세요.`, `You received ${added} bonus stamp(s)!`), url: `/me?store=${data.slug}`, tag: `grant_${deviceId}` }) }).catch(() => {});
+      }
       flash(`${name || t('회원', 'Member')}: ${added > 0 ? '+' : ''}${added} → ${next}/9`);
       await load(data.slug);
     } catch { flash(t('처리 실패', 'Failed.')); } finally { setBusy(false); }
@@ -570,6 +590,18 @@ export default function OwnerDashboard() {
                 </section>
               </div>
 
+              {/* 📣 마케팅 푸시 알림 — 앱 알림 켠 회원에게 발송 (재사용 가능한 마케팅 도구) */}
+              <section className="ss-card mt-4 p-5">
+                <h3 className="text-base font-extrabold">📣 {t('푸시 알림 보내기', 'Push Notification')} <span className="text-xs font-medium text-zinc-400">· {t('회원', 'members')} {data.members.length}</span></h3>
+                <p className="mt-0.5 text-[11px] text-zinc-400">{t('앱 알림을 켠 회원의 휴대폰으로 알림이 가요. 이벤트·신메뉴·재방문 유도에 쓰되, 너무 자주 보내면 회원이 알림을 꺼요.', 'Sent to members who opted in. Great for events & re-engagement — but too many pushes and they opt out.')}</p>
+                <input value={pushTitle} onChange={(e) => setPushTitle(e.target.value)} maxLength={40} className="ss-input mt-2" placeholder={t(`제목 (비우면 "📣 ${data.storeName}")`, 'Title (optional)')} />
+                <textarea value={pushBody} onChange={(e) => setPushBody(e.target.value)} maxLength={120} className="ss-input mt-2 min-h-16" placeholder={t('예: 오늘 방문하면 스탬프 2배! 저녁 8시까지 🐝', 'e.g. Double stamps today until 8pm 🐝')} />
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="text-[11px] text-zinc-400">{pushBody.length}/120</span>
+                  <button onClick={sendMarketingPush} disabled={pushSending || !pushBody.trim()} className="ss-btn-primary px-5 py-2 text-sm disabled:opacity-50">{pushSending ? '…' : t('전체 회원에게 발송', 'Send to all members')}</button>
+                </div>
+              </section>
+
               <section className="ss-card mt-4 p-5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-base font-extrabold">{t('💳 오늘의 스탬프 캐시 사용', "💳 Today's Cash Use")}</h3>
@@ -787,6 +819,39 @@ export default function OwnerDashboard() {
                   </div>
                 </section>
               )}
+
+              {/* 카드 · 스탬프 획득/이동 내역 (이 회원) */}
+              {(() => {
+                const rows = data.stampLogs.filter((l) => l.deviceId === selMember.deviceId);
+                return (
+                  <section className="ss-card mt-3 p-5">
+                    <h3 className="text-base font-extrabold">🐝 {t('스탬프 내역', 'Stamp history')} <span className="text-xs font-medium text-zinc-400">· {rows.length}{t('건', '')}</span></h3>
+                    {rows.length === 0 ? <p className="mt-2 text-sm text-zinc-400">{t('아직 스탬프 내역이 없어요.', 'No stamp activity yet.')}</p> : (
+                      <div className="mt-2 max-h-72 divide-y divide-zinc-100 overflow-y-auto">
+                        {rows.map((l, i) => {
+                          const tag = l.source === 'review' ? { ko: '리뷰', en: 'Review', cls: 'bg-honey/40 text-honey-ink' }
+                            : l.source === 'owner' ? { ko: '점주 지급', en: 'Owner', cls: 'bg-blue-100 text-blue-700' }
+                            : l.source === 'gift' ? { ko: '선물', en: 'Gift', cls: 'bg-purple-100 text-purple-700' }
+                            : l.source === 'redeem' ? { ko: '캐시 전환', en: 'Redeem', cls: 'bg-rose-100 text-rose-600' }
+                            : l.source === 'expired' ? { ko: '만료 기부', en: 'Expired', cls: 'bg-amber-100 text-amber-700' }
+                            : { ko: '영수증', en: 'Receipt', cls: 'bg-zinc-100 text-zinc-500' };
+                          return (
+                            <div key={i} className="flex items-center justify-between py-2.5 text-sm">
+                              <div>
+                                <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${tag.cls}`}>{t(tag.ko, tag.en)}</span>
+                                {l.count != null && <span className="ml-1.5 font-bold text-zinc-700">{l.count}{t('개', '')}</span>}
+                                {l.npoName && <span className="ml-1 text-[11px] text-zinc-400">→ {l.npoName}</span>}
+                                <span className="ml-1.5 text-[11px] text-zinc-400">{new Date(l.createdAt).toLocaleDateString()}</span>
+                              </div>
+                              <span className="font-bold text-brand-700">{l.amount != null ? `$${l.amount.toFixed(2)}` : l.value != null ? `$${l.value.toFixed(2)}` : '—'}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                );
+              })()}
 
               {/* 카드 5 · 회원 정보 수정 (닉네임·전화·비밀번호) */}
               <section className="ss-card mt-3 p-5">

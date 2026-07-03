@@ -7,6 +7,7 @@ import { getDb, getStorageBucket } from '@/lib/firebase';
 import { NPOS } from '@/lib/npos';
 import { collection, getDocs, doc, getDoc, setDoc, deleteDoc, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { enablePush, disablePush, pushPermission } from '@/lib/push';
 
 // 옛 CustomerPWA 대시보드 구성 그대로: 상단바(닉네임·QR스캔) · 매장 선택 드롭다운 ·
 // 매장 헤더(9-stamp Cash·누적가치·인터벌) · 허니컴(번호/하트+칸별가치) · My Stamp Cash Balance(+Request) ·
@@ -87,6 +88,16 @@ export default function MePage() {
   const tapTimerRef = useRef<number | null>(null);
   const bigTimerRef = useRef<number | null>(null);
   const [giftCount, setGiftCount] = useState(1);
+  const [giftMsg, setGiftMsg] = useState(''); // 친구에게 보내는 인삿말
+  const [pushOn, setPushOn] = useState(false); const [pushBusy, setPushBusy] = useState(false);
+  useEffect(() => { setPushOn(pushPermission() === 'granted'); }, []);
+  const togglePush = async () => {
+    setPushBusy(true);
+    try {
+      if (pushOn) { await disablePush(myId()); setPushOn(false); flash(t('알림을 껐어요.', 'Notifications off.')); }
+      else { const ok = await enablePush(myId()); setPushOn(ok); flash(ok ? t('알림을 켰어요 🔔 선물·이벤트 소식을 받아요!', 'Notifications on 🔔') : t('알림 권한이 거부됐어요. 브라우저 설정에서 허용해 주세요.', 'Permission denied — allow in browser settings.')); }
+    } finally { setPushBusy(false); }
+  };
   // 친구 선물 — 닉네임 또는 전화번호로 라이브 검색(1글자부터) → 후보 목록에서 선택
   const [friendQuery, setFriendQuery] = useState('');
   const [friendIndex, setFriendIndex] = useState<{ phone: string; name: string; deviceId: string }[] | null>(null);
@@ -364,7 +375,11 @@ export default function MePage() {
       await setDoc(doc(db, 'customers', id, 'cards', c.storeId), { currentStamps: myNext, stampValues: myVals, stampDates: myDates, updatedAt: now }, { merge: true });
       // 정산용 로그 — 선물 이동 이벤트 (이동한 칸들의 잠금 가치 합)
       await setDoc(doc(collection(db, 'stores', c.storeId, 'stampLog')), { deviceId: id, toDeviceId: fId, amount: null, source: 'gift', count: accept, value: movedVals.reduce((s, v) => s + v, 0), createdAt: now }).catch(() => {});
-      setPanel(null); setFriendQuery(''); setFriendPick(null); setGiftCount(1);
+      // 카톡처럼 — 친구에게 인삿말과 함께 웹푸시 알림
+      const myName = profile?.name || '친구';
+      const bodyMsg = giftMsg.trim() ? `"${giftMsg.trim()}" — ${myName}` : t(`${myName}님이 스탬프 ${accept}개를 선물했어요!`, `${myName} gifted you ${accept} stamp(s)!`);
+      fetch('/api/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceIds: [fId], title: `🎁 ${t('스탬프 선물', 'Stamp gift')} (${accept})`, body: bodyMsg, url: `/me?store=${c.slug}`, tag: `gift_${fId}` }) }).catch(() => {});
+      setPanel(null); setFriendQuery(''); setFriendPick(null); setGiftCount(1); setGiftMsg('');
       flash(`${fName}님께 ${accept}개 선물! 🎁${returned ? ` (초과 ${returned}개 회수)` : ''}`, 4000); await load();
     } catch { flash('선물 실패'); } finally { setBusy(false); }
   };
@@ -702,6 +717,7 @@ export default function MePage() {
                                 <span className="text-sm font-bold text-zinc-600">{t('보낼 수량', 'Qty')}</span>
                                 <input type="number" min={1} max={disp.currentStamps} value={giftCount} onChange={(e) => setGiftCount(Math.max(1, Math.min(disp.currentStamps, parseInt(e.target.value, 10) || 1)))} className="ss-input" />
                               </div>
+                              <input value={giftMsg} onChange={(e) => setGiftMsg(e.target.value)} maxLength={60} className="ss-input mt-2" placeholder={t('💌 인삿말 (예: 생일 축하해! 커피 한잔 사줄게)', '💌 Message (optional)')} />
                               <button onClick={confirmGift} disabled={busy} className="ss-btn-primary mt-2 w-full">{busy ? '…' : t(`${friendPick.name || '친구'}님께 ${giftCount}개 선물`, `Gift ${giftCount} to ${friendPick.name || 'friend'}`)}</button>
                             </>
                           )}
@@ -910,6 +926,17 @@ export default function MePage() {
                   <button onClick={saveProfile} disabled={busy} className="ss-btn-primary mt-3 w-full disabled:opacity-50">{busy ? '…' : t('저장', 'Save')}</button>
                 </div>
               )}
+            </section>
+
+            {/* 🔔 알림 받기 — 선물·이벤트 웹푸시 (남발 방지: 매장이 과하게 보내면 여기서 끄면 됨) */}
+            <section className="ss-card mt-3 flex items-center justify-between gap-3 p-5">
+              <div className="min-w-0">
+                <div className="text-base font-extrabold">🔔 {t('알림 받기', 'Notifications')}</div>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{t('친구 선물·점주 특별 지급·매장 이벤트 소식을 휴대폰 알림으로 받아요. 언제든 끌 수 있어요.', 'Get gifts, bonus stamps, and store events as phone notifications. Toggle off anytime.')}</p>
+              </div>
+              <button onClick={togglePush} disabled={pushBusy || pushPermission() === 'unsupported'} className={`relative h-7 w-12 shrink-0 rounded-full transition ${pushOn ? 'bg-brand-600' : 'bg-zinc-300'} disabled:opacity-40`}>
+                <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${pushOn ? 'left-[22px]' : 'left-0.5'}`} />
+              </button>
             </section>
 
             {/* 나눔 임팩트 */}
