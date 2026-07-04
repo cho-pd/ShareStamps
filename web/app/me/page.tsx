@@ -5,7 +5,7 @@ import Link from 'next/link';
 import AdBannerSlot from './AdBanner';
 import { getDb, getStorageBucket } from '@/lib/firebase';
 import { NPOS } from '@/lib/npos';
-import { collection, getDocs, doc, getDoc, setDoc, deleteDoc, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, setDoc, deleteDoc, query, orderBy, limit, onSnapshot, where, addDoc, updateDoc } from 'firebase/firestore';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { enablePush, disablePush, pushPermission } from '@/lib/push';
 
@@ -41,6 +41,9 @@ const cellValue = (c: Card, i: number) => c.stampValues?.[i] ?? c.reward / STAMP
 const cellDate = (c: Card, i: number) => c.stampDates?.[i];
 const cardValue = (c: Card) => Array.from({ length: Math.min(c.currentStamps, STAMP_GOAL) }).reduce<number>((s, _, i) => s + cellValue(c, i), 0);
 type Donation = { storeName?: string; npoName?: string; amount: number; currency: string; createdAt: string };
+// 주고받은 "마음" — 선물에 실린 메시지를 저장해 인앱 피드로 남긴다(푸시는 보조).
+// count 0 = 상대 카드가 가득 차 스탬프는 못 갔지만 마음(메시지)만 전한 경우.
+type Heart = { id: string; fromDeviceId: string; fromName: string; toDeviceId: string; toName: string; storeId: string; storeName: string; slug: string; message: string; count: number; createdAt: string; read?: boolean; reply?: string; replyAt?: string };
 
 // 스탬프 카드가 없을 때도 허니컴 구조를 보여주는 미리보기(예시) 카드 — 옛 'Unassigned' 빈 카드처럼.
 const DEMO: Card = { storeId: 'demo', storeName: '스탬프 카드 미리보기', slug: 'loveletter-fullerton', currentStamps: 0, reward: 5, currency: 'USD', interval: 60 };
@@ -89,6 +92,9 @@ export default function MePage() {
   const bigTimerRef = useRef<number | null>(null);
   const [giftCount, setGiftCount] = useState(1);
   const [giftMsg, setGiftMsg] = useState(''); // 친구에게 보내는 인삿말
+  // 주고받은 마음 피드 + 답장 입력값(하트별)
+  const [hearts, setHearts] = useState<Heart[]>([]);
+  const [heartReply, setHeartReply] = useState<Record<string, string>>({});
   const [pushOn, setPushOn] = useState(false); const [pushBusy, setPushBusy] = useState(false);
   useEffect(() => { setPushOn(pushPermission() === 'granted'); }, []);
   const togglePush = async () => {
@@ -188,6 +194,34 @@ export default function MePage() {
     });
     return () => unsub();
   }, [profile]);
+
+  // 주고받은 마음 실시간 구독 — 받은 것(toDeviceId==나) + 보낸 것(fromDeviceId==나)을 합쳐 최신순.
+  // where 단일 조건이라 복합 인덱스 불필요(정렬은 클라이언트에서).
+  useEffect(() => {
+    if (!profile) return;
+    const db = getDb(); const id = myId();
+    const map = new Map<string, Heart>();
+    const apply = (docs: { id: string; data: () => Record<string, unknown> }[]) => {
+      docs.forEach((d) => map.set(d.id, { id: d.id, ...(d.data() as Omit<Heart, 'id'>) }));
+      setHearts([...map.values()].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
+    };
+    const u1 = onSnapshot(query(collection(db, 'hearts'), where('toDeviceId', '==', id)), (s) => apply(s.docs));
+    const u2 = onSnapshot(query(collection(db, 'hearts'), where('fromDeviceId', '==', id)), (s) => apply(s.docs));
+    return () => { u1(); u2(); };
+  }, [profile]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 홈에서 받은 마음을 보면 잠깐(2.5s) NEW 뱃지를 보여준 뒤 읽음 처리
+  useEffect(() => {
+    if (preview || nav !== 'home' || !profile) return;
+    const mine = myId();
+    const unread = hearts.filter((h) => h.toDeviceId === mine && !h.read);
+    if (!unread.length) return;
+    const timer = window.setTimeout(() => {
+      const db = getDb();
+      unread.forEach((h) => { updateDoc(doc(db, 'hearts', h.id), { read: true }).catch(() => {}); });
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [hearts, nav, profile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // /claim 등에서 ?store=slug 로 넘어오면 그 매장 카드를 선택
   const preRan = useRef(false);
@@ -357,7 +391,18 @@ export default function MePage() {
       const fRef = doc(db, 'stores', c.storeId, 'stampCards', fId); const fSnap = await getDoc(fRef);
       const fCur = fSnap.exists() ? ((fSnap.data().currentStamps as number) || 0) : 0;
       const accept = Math.min(want, STAMP_GOAL - fCur); const returned = want - accept;
-      if (accept <= 0) { flash(`${fName}님 카드가 가득 찼어요 (${STAMP_GOAL}/${STAMP_GOAL}).`); setBusy(false); return; }
+      if (accept <= 0) {
+        // 상대 카드가 가득 참: 스탬프는 못 보내도 "마음"(메시지)만은 저장·전달한다.
+        const myName = profile?.name || '친구';
+        if (giftMsg.trim()) {
+          await addDoc(collection(db, 'hearts'), { fromDeviceId: id, fromName: myName, toDeviceId: fId, toName: fName, storeId: c.storeId, storeName: c.storeName, slug: c.slug, message: giftMsg.trim(), count: 0, createdAt: now, read: false }).catch(() => {});
+          fetch('/api/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceIds: [fId], title: `💌 ${t('마음 메시지', 'Heart message')}`, body: `"${giftMsg.trim()}" — ${myName}`, url: `/me?store=${c.slug}`, tag: `heart_${fId}` }) }).catch(() => {});
+          setPanel(null); setFriendQuery(''); setFriendPick(null); setGiftCount(1); setGiftMsg('');
+          flash(t(`${fName}님 카드가 가득 차 스탬프는 회수했지만, 마음은 전했어요 💌`, `${fName}'s card is full — stamps returned, but your message was delivered 💌`), 4200);
+          setBusy(false); return;
+        }
+        flash(`${fName}님 카드가 가득 찼어요 (${STAMP_GOAL}/${STAMP_GOAL}).`); setBusy(false); return;
+      }
       const fNext = fCur + accept;
       // 가치·날짜 배열도 함께 이동 — 내 마지막 accept개를 친구 카드 뒤에 붙인다
       const myVals = Array.from({ length: Math.min(c.currentStamps, STAMP_GOAL) }).map((_, i) => cellValue(c, i));
@@ -379,9 +424,23 @@ export default function MePage() {
       const myName = profile?.name || '친구';
       const bodyMsg = giftMsg.trim() ? `"${giftMsg.trim()}" — ${myName}` : t(`${myName}님이 스탬프 ${accept}개를 선물했어요!`, `${myName} gifted you ${accept} stamp(s)!`);
       fetch('/api/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceIds: [fId], title: `🎁 ${t('스탬프 선물', 'Stamp gift')} (${accept})`, body: bodyMsg, url: `/me?store=${c.slug}`, tag: `gift_${fId}` }) }).catch(() => {});
+      // 마음 저장 — 선물에 실린 메시지를 인앱 피드로 영속화(양쪽에서 다시 볼 수 있게)
+      await addDoc(collection(db, 'hearts'), { fromDeviceId: id, fromName: myName, toDeviceId: fId, toName: fName, storeId: c.storeId, storeName: c.storeName, slug: c.slug, message: giftMsg.trim(), count: accept, createdAt: now, read: false }).catch(() => {});
       setPanel(null); setFriendQuery(''); setFriendPick(null); setGiftCount(1); setGiftMsg('');
       flash(`${fName}님께 ${accept}개 선물! 🎁${returned ? ` (초과 ${returned}개 회수)` : ''}`, 4000); await load();
     } catch { flash('선물 실패'); } finally { setBusy(false); }
+  };
+
+  // 받은 마음에 화답 — 하트 문서에 reply 기록 + 보낸 사람에게 푸시. 양쪽 피드에서 교감이 남는다.
+  const replyHeart = async (h: Heart, text: string) => {
+    const msg = text.trim(); if (!msg || preview) return;
+    try {
+      const db = getDb(); const now = new Date().toISOString();
+      await updateDoc(doc(db, 'hearts', h.id), { reply: msg, replyAt: now, read: true });
+      fetch('/api/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceIds: [h.fromDeviceId], title: `💌 ${t('화답이 왔어요', 'You got a reply')}`, body: `"${msg}" — ${h.toName}`, url: '/me', tag: `heartreply_${h.id}` }) }).catch(() => {});
+      setHeartReply((m) => ({ ...m, [h.id]: '' }));
+      flash(t('마음을 되돌려줬어요 💌', 'Reply sent 💌'));
+    } catch { flash(t('전송 실패', 'Send failed')); }
   };
 
   // 프로필 사진 업로드 — Storage avatars/ 에 올리고 customers 문서에 URL 저장
@@ -768,6 +827,63 @@ export default function MePage() {
                   <div className="text-xl font-black text-zinc-800">${balance.toFixed(2)}</div>
                 </div>
                 <button onClick={() => { setUseReq(null); setUseAmount(balance.toFixed(2)); setUseSheet(true); }} disabled={balance <= 0} className="ss-chip disabled:opacity-50">{t('캐시 사용', 'Use cash')}</button>
+              </section>
+
+              {/* 💌 주고받은 마음 — 선물에 실린 메시지를 저장해 인앱 피드로. 카드가 꽉 차도 마음은 도착하고, 한 번에 화답(교감)한다. */}
+              <section className="ss-card mt-3 p-5">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-extrabold text-brand-700">💌 {t('주고받은 마음', 'Hearts')}</h3>
+                  {hearts.filter((h) => h.toDeviceId === myId() && !h.read).length > 0 && (
+                    <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{hearts.filter((h) => h.toDeviceId === myId() && !h.read).length} NEW</span>
+                  )}
+                </div>
+                {hearts.length === 0 ? (
+                  <p className="mt-2 text-center text-sm text-zinc-400">{t('아직 주고받은 마음이 없어요. 친구에게 스탬프와 한마디를 보내보세요 💌', 'No hearts yet. Send a friend some stamps with a note 💌')}</p>
+                ) : (
+                  <div className="mt-3 space-y-3">
+                    {hearts.map((h) => {
+                      const received = h.toDeviceId === myId();
+                      const who = received ? (h.fromName || '친구') : (h.toName || '친구');
+                      const when = (() => { try { return new Date(h.createdAt).toLocaleDateString(lang === 'ko' ? 'ko-KR' : 'en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } })();
+                      const isNew = received && !h.read;
+                      return (
+                        <div key={h.id} className={`rounded-xl border p-3 ${isNew ? 'border-rose-200 bg-rose-50' : 'border-zinc-100 bg-zinc-50'}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 text-sm">
+                              <span className="font-bold text-zinc-800">{received ? who : t('나', 'Me')}</span>
+                              <span className="text-zinc-400">→</span>
+                              <span className="font-bold text-zinc-800">{received ? t('나', 'Me') : who}</span>
+                              {isNew && <span className="rounded-full bg-rose-500 px-1.5 text-[9px] font-bold leading-4 text-white">NEW</span>}
+                            </div>
+                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${h.count > 0 ? (received ? 'bg-emerald-100 text-emerald-700' : 'bg-brand-50 text-brand-700') : 'bg-rose-100 text-rose-600'}`}>{h.count > 0 ? `${received ? '+' : ''}${h.count} ${t('스탬프', 'stamps')}` : `💌 ${t('마음', 'heart')}`}</span>
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-zinc-500">🏪 {h.storeName} · {when}</div>
+                          {h.message && <div className="mt-1.5 whitespace-pre-wrap text-sm text-zinc-800">{h.message}</div>}
+                          {h.reply ? (
+                            <div className="mt-2 rounded-lg border-l-2 border-brand-200 bg-white px-2.5 py-1.5">
+                              <span className="text-[11px] font-bold text-zinc-500">{received ? t('나의 답장', 'My reply') : `${who}${t('의 답장', "'s reply")}`}</span>
+                              <div className="text-sm italic text-zinc-700">“{h.reply}”</div>
+                            </div>
+                          ) : received && !preview ? (
+                            <div className="mt-2">
+                              <div className="flex flex-wrap gap-1.5">
+                                {['❤️', '🥰', '🙏', '👍', '😊'].map((e) => (
+                                  <button key={e} type="button" onClick={() => setHeartReply((m) => ({ ...m, [h.id]: (m[h.id] ? m[h.id] + ' ' : '') + e }))} className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-base leading-none active:scale-95">{e}</button>
+                                ))}
+                              </div>
+                              <div className="mt-1.5 flex gap-1.5">
+                                <input value={heartReply[h.id] || ''} onChange={(e) => setHeartReply((m) => ({ ...m, [h.id]: e.target.value }))} maxLength={60} placeholder={t('한마디로 마음을 되돌려주세요…', 'Send a heart back…')} className="ss-input flex-1" />
+                                <button onClick={() => replyHeart(h, heartReply[h.id] || '')} disabled={!(heartReply[h.id] || '').trim()} className="ss-btn-primary shrink-0 px-3 disabled:opacity-40">{t('화답', 'Reply')}</button>
+                              </div>
+                            </div>
+                          ) : !received ? (
+                            <div className="mt-1.5 text-[11px] text-zinc-400">{t('답장 대기 중…', 'Waiting for reply…')}</div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </section>
 
               {/* Stamp Timeline */}
