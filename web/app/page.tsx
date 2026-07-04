@@ -6,7 +6,7 @@ import { sampleHero } from '@/lib/sampleImages';
 export const metadata: Metadata = { title: { absolute: 'ShareStamps — 동네 가게 AI 검색·스탬프 로열티' } };
 export const revalidate = 600;
 
-// 옛 LandingPage(VISION deck) 구성 차용: 문제 → 노출(AEO) → 콘텐츠(샤비) → 7스탬프 보상
+// 옛 LandingPage(VISION deck) 구성 차용: 문제 → 노출(AEO) → 콘텐츠(샤비) → 9스탬프 보상
 //  → 경제 역설 → 사회적 가치(3출구) → 게임화/엔진 → 무한 루프 → 생태계 혜택표.
 
 const expose = [
@@ -19,19 +19,19 @@ const content = [
   { icon: '📤', t: '전채널 자동 배포', d: '생성된 리뷰가 페북·인스타·유튜브 쇼츠·틱톡·구글 비즈니스 등 전 채널에 자동 배포됩니다.' },
 ];
 const paradox = [
-  { icon: '🧾', t: '기존 모델의 한계 (낙전)', d: '고객은 7장을 다 못 채울 걸 알아서 포기합니다. 사라지는 스탬프(낙전)는 전부 돈입니다.' },
+  { icon: '🧾', t: '기존 모델의 한계 (낙전)', d: '고객은 9장을 다 못 채울 걸 알아서 포기합니다. 사라지는 스탬프(낙전)는 전부 돈입니다.' },
   { icon: '📈', t: '점주의 진짜 이득', d: '돈을 안 줘서 이득이 아닙니다. 약간의 비용으로 손님이 한 번이라도 더 방문하면 그게 이득입니다.' },
   { icon: '🏆', t: '압도적 가치 창출', d: '스탬프에 들어가는 비용보다, 단골이 되어 발생하는 재방문 가치가 훨씬 큽니다.' },
 ];
 const social = [
   { icon: '💛', t: '비영리 단체 기부', d: '단 1개의 스탬프라도 내가 지정한 비영리 단체에 기부할 수 있습니다.' },
   { icon: '🎁', t: '친구에게 선물', d: '가족·연인·친구에게 내가 모은 스탬프를 선물해 함께 혜택을 나눕니다.' },
-  { icon: '💳', t: '적립금 직접 사용', d: '7개를 모아 본인이 직접 현금(적립금)으로 알뜰하게 쓸 수도 있습니다.' },
+  { icon: '💳', t: '적립금 직접 사용', d: '9개를 모아 본인이 직접 현금(적립금)으로 알뜰하게 쓸 수도 있습니다.' },
 ];
 const loopSteps = ['손님 방문', '샤비 리뷰', '전채널 배포', 'AI 검색 노출', '보상·재방문'];
 const tableRows = [
   { who: '소상공인 (점주)', benefit: '자동화된 AEO/GEO 마케팅, 고객 재방문율 상승', result: "'좋은 가게' 현판, 기부액 세금 공제" },
-  { who: '고객 (소비자)', benefit: '리뷰 작성으로 확실한 보상 (7개=현금)', result: '기부·선물·직접 사용의 가치 소비' },
+  { who: '고객 (소비자)', benefit: '리뷰 작성으로 확실한 보상 (9개=현금)', result: '기부·선물·직접 사용의 가치 소비' },
   { who: '매장 직원 (서버)', benefit: '고객 스탬프 발행 시 10% 인센티브', result: '업무 동기 + 추가 수익' },
   { who: '사회단체', benefit: '점주·고객이 지정한 기부금 수령', result: '안정적 후원, 지역사회 기여' },
 ];
@@ -42,26 +42,80 @@ function Eyebrow({ children }: { children: string }) {
 
 export default async function HomePage() {
   const stores = await getAllStores();
+  // 착한 가맹점 미니홈피 — ShareStamps 공식 매장/다지점(호점)은 제외한 이웃 가게만
+  const featured = stores.filter((s) => s.id !== 'store_sharestamps' && !s.name.includes('호점'));
   return (
     <main className="mx-auto max-w-xl px-4 pb-24">
-      {/* Hero / 문제 */}
-      <section className="pt-10">
+      {/* 브랜드 헤더 */}
+      <header className="flex items-center justify-between pt-5">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo/sharestamps-logo.svg" alt="ShareStamps" className="h-7" />
+        <img src="/logo/sharestamps-logo.svg" alt="ShareStamps" className="h-6" />
+        <Link href="/me" className="ss-chip">내 스탬프</Link>
+      </header>
+
+      {/* Hero — 디자인 시스템(퍼플 brand + honey + ss-btn) 적용. 부드러운 퍼플 카드에 떠다니는 샤비. */}
+      <section className="relative mt-4 overflow-hidden rounded-3xl border border-zinc-100 bg-gradient-to-b from-brand-50 to-white px-5 pb-9 pt-9 text-center" style={{ boxShadow: 'var(--shadow-card)' }}>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[12px] font-bold text-brand-700 ring-1 ring-brand-100">🐝 AI 검색 마케팅 엔진</span>
+        <div className="relative mx-auto mb-6 mt-6 h-[132px] w-[132px]">
+          <div aria-hidden className="absolute inset-0 rounded-full" style={{ background: 'radial-gradient(circle, rgba(253,230,138,0.55), transparent 68%)' }} />
+          <div className="ss-float relative flex h-full w-full items-center justify-center rounded-full bg-white" style={{ boxShadow: '0 16px 38px rgba(109,40,217,0.16)' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/sharbee/sharbee10.png" alt="샤비" className="h-[104px] w-[104px] object-contain" />
+          </div>
+        </div>
+        <h1 className="text-[30px] font-black leading-[1.18] tracking-tight text-zinc-900">AI가 우리 가게를<br /><span className="text-brand-600">추천하게</span> 만듭니다</h1>
+        <p className="mx-auto mt-3.5 max-w-md text-[15px] leading-relaxed text-zinc-600">“제로클릭 서치” 시대, 손님은 더 이상 클릭하지 않아요. 챗봇과 대화하면 페북·인스타·구글 비즈니스 등 여러 채널에 자동 배포되고, <b className="font-bold text-zinc-800">AI 검색이 우리 가게를 먼저 찾아냅니다.</b></p>
+        <div className="mt-6 flex flex-wrap justify-center gap-2.5">
+          <Link href="/owner/new" className="ss-btn-primary px-6 text-[15px]">점주로 시작하기</Link>
+          <Link href="/me" className="ss-btn-soft px-6 py-3.5 text-[15px]">고객 앱 체험하기</Link>
+        </div>
+      </section>
+
+      {/* 착한 가맹점 미니홈피 — ss-card 리스트 row(당근식) + 퍼플/허니 액센트 */}
+      <section className="mt-8">
+        <div className="flex items-end justify-between gap-2">
+          <div>
+            <Eyebrow>추천 가맹점</Eyebrow>
+            <h2 className="mt-1 text-xl font-black tracking-tight text-zinc-900">착한 가맹점 미니홈피</h2>
+          </div>
+          <span className="ss-chip">총 {featured.length}곳</span>
+        </div>
+        <div className="mt-3 space-y-2.5">
+          {featured.map((s) => {
+            const rev = s.reviews || [];
+            const count = rev.length;
+            const avg = count ? rev.reduce((a, r) => a + r.rating, 0) / count : 0;
+            return (
+              <Link key={s.id} href={`/store/${s.slug}`} className="ss-card flex items-center gap-3.5 p-3.5 transition active:scale-[0.99]">
+                <span className="h-[60px] w-[60px] shrink-0 overflow-hidden rounded-2xl bg-brand-50 ring-1 ring-zinc-100">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={s.thumbnailUrl || s.bannerUrl || sampleHero(s.category, s.slug)} alt={s.name} className="h-full w-full object-cover" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2">
+                    <span className="truncate font-extrabold text-zinc-900">{s.name}</span>
+                    <span className="shrink-0 rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-bold text-zinc-500">{s.category}</span>
+                  </span>
+                  <span className="mt-1 flex items-center gap-1 text-[13px] text-zinc-500">
+                    <span className="text-amber-400">★</span><b className="font-bold text-zinc-700">{avg.toFixed(1)}</b><span className="text-zinc-300">·</span>리뷰 {count}
+                  </span>
+                </span>
+                <span className="shrink-0 text-lg text-zinc-300">›</span>
+              </Link>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* 문제 정의 (옛 히어로가 상단으로 오면서 아래로 내린 딜레마 프레이밍) */}
+      <section className="mt-10">
         <Eyebrow>문제 정의</Eyebrow>
-        <h1 className="mt-2 text-[28px] font-black leading-tight tracking-tight">
-          소규모 매장의 생존은<br />결국 <span className="text-brand-600">홍보·마케팅</span>이다
-        </h1>
-        <ul className="mt-4 space-y-2 text-[15px] leading-relaxed text-zinc-600">
+        <h2 className="mt-1 text-xl font-black leading-tight tracking-tight">소규모 매장의 생존은 결국 <span className="text-brand-600">홍보·마케팅</span>이다</h2>
+        <ul className="mt-3 space-y-2 text-[15px] leading-relaxed text-zinc-600">
           <li>• AI 시대 — 검색 결과를 클릭하지 않는 <b>노클릭 서치</b>가 늘었다</li>
           <li>• 단순 SEO를 넘어 <b>AEO(답변엔진)+GEO(생성엔진)</b> 최적화가 필요하다</li>
           <li>• 한 곳에 올리는 것으론 한계 — <b>옴니채널 배포</b>가 필요하다</li>
         </ul>
-        <div className="mt-5 flex flex-wrap gap-2">
-          <Link href="/owner/new" className="ss-btn-primary">점주 시작하기</Link>
-          <Link href="/me" className="ss-btn-soft">내 스탬프</Link>
-          {stores[0] && <Link href={`/store/${stores[0].slug}`} className="ss-chip">데모 매장 보기</Link>}
-        </div>
       </section>
 
       {/* 노출 전략 */}
@@ -89,12 +143,12 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* 7 스탬프 */}
+      {/* 9 스탬프 */}
       <section className="ss-card mt-10 bg-brand-600 p-7 text-center text-white">
-        <div className="text-6xl font-black leading-none">7</div>
+        <div className="text-6xl font-black leading-none">9</div>
         <div className="text-xs font-extrabold tracking-widest text-white/80">STAMPS</div>
         <h2 className="mt-3 text-xl font-black">행동을 유발하는 확실한 보상</h2>
-        <p className="mx-auto mt-2 max-w-sm text-sm text-white/85">손님은 아무 이유 없이 리뷰를 쓰지 않습니다. 7개를 모으면 현금으로 보상하는 파격적 제도로 확실한 참여 동기를 부여합니다.</p>
+        <p className="mx-auto mt-2 max-w-sm text-sm text-white/85">손님은 아무 이유 없이 리뷰를 쓰지 않습니다. 9개를 모으면 현금으로 보상하는 파격적 제도로 확실한 참여 동기를 부여합니다.</p>
       </section>
 
       {/* 경제 역설 */}
@@ -154,23 +208,6 @@ export default async function HomePage() {
               <div className="mt-1 text-[13px] text-zinc-600">{r.benefit}</div>
               <div className="mt-0.5 text-[13px] font-semibold text-zinc-500">→ {r.result}</div>
             </div>
-          ))}
-        </div>
-      </section>
-
-      {/* 매장 둘러보기 */}
-      <section className="mt-10">
-        <h2 className="text-xl font-black tracking-tight">매장 둘러보기</h2>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          {stores.map((s) => (
-            <Link key={s.id} href={`/store/${s.slug}`} className="ss-card overflow-hidden">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={s.bannerUrl || s.thumbnailUrl || sampleHero(s.category, s.slug)} alt={s.name} className="h-24 w-full object-cover" />
-              <div className="p-3">
-                <div className="truncate font-bold">{s.name}</div>
-                <div className="text-xs text-zinc-500">{s.category}</div>
-              </div>
-            </Link>
           ))}
         </div>
       </section>
