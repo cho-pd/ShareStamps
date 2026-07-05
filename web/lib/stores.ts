@@ -9,9 +9,15 @@ export const SITE_URL = 'https://www.sharestamps.com';
 export interface MenuItem {
   id: string;
   name: string;
-  price: number;
+  price: number;              // 단일가 + 하위호환. variants 있으면 그쪽이 우선.
   description?: string;
   signature?: boolean;
+  category?: string;          // 카테고리(그룹핑용)
+  variants?: { label: string; price: number }[]; // 다중가: 예 [{label:'R',price:17.99},{label:'L',price:22.99}]
+  soldOut?: boolean;          // 품절 토글
+  hidden?: boolean;           // 미니홈/샤비 노출 제외
+  spicy?: boolean;            // 매운맛 표시(뱃지)
+  order?: number;             // 카테고리 내 정렬
 }
 
 export interface Review {
@@ -82,33 +88,33 @@ const SEED_STORES: Store[] = [
   {
     id: 'store_loveletter',
     slug: 'loveletter-fullerton',
-    name: 'LOVELETTER',
-    category: 'Korean Restaurant',
+    name: 'Love Letter Pizza & Chicken',
+    category: 'Korean Pizza & Chicken',
     currency: 'USD',
     description:
-      'A cozy Korean restaurant in Fullerton serving honey bread, soondubu (soft tofu stew), and bibimbap. Friendly service, fresh daily ingredients, and a warm atmosphere for families and first-timers.',
+      'Love Letter Pizza & Chicken is a K-style (Korean) pizza and fried chicken spot in La Habra, CA. Known for its signature Sweet Potato Pizza (고구마 피자), Kimchi Pizza, Korean fried chicken and wings, and K-pasta — plus soju, draft beer, and combo specials. (loveletterusa.com)',
     hours: '11:00 AM - 10:00 PM',
-    phone: '+1-714-555-0142',
+    phone: '+1-714-446-9904',
     address: {
-      street: '123 Commonwealth Ave',
-      city: 'Fullerton',
+      street: '1180 S. Idaho St #D',
+      city: 'La Habra',
       region: 'CA',
-      postalCode: '92832',
+      postalCode: '90631',
       country: 'US',
     },
     priceRange: '$$',
-    sellingPoints: ['Korean comfort food', 'fresh daily', 'soondubu', 'honey bread', 'family friendly'],
+    sellingPoints: ['K-style Korean pizza', 'Korean fried chicken', 'Sweet Potato Pizza', 'Kimchi Pizza', 'chicken wings', 'soju & draft beer'],
     pointRewardPer7Stamps: 5,
     menu: [
-      { id: 'm_honeybread', name: 'Honey Bread', price: 8.99, description: 'Sweet, warm signature dessert', signature: true },
-      { id: 'm_soondubu', name: 'Soondubu (Soft Tofu Stew)', price: 13.99, description: 'Spicy soft tofu stew, choose your spice level', signature: true },
-      { id: 'm_bibimbap', name: 'Bibimbap', price: 14.99, description: 'Rice bowl with seasoned vegetables and egg' },
-      { id: 'm_bulgogi', name: 'Bulgogi', price: 17.99, description: 'Marinated grilled beef' },
+      { id: 'll-sp-01', name: 'Sweet Potato Pizza', price: 17.99, category: 'SIGNATURE PIZZA', description: '고구마 청크, 화이트소스, 햄, 양파, 소시지, 파인애플, 피망, 콘, 치즈', signature: true, variants: [{ label: 'R', price: 17.99 }, { label: 'L', price: 22.99 }] },
+      { id: 'll-sp-02', name: 'Kimchi Pizza', price: 17.99, category: 'SIGNATURE PIZZA', description: '김치, 소시지, 햄, 베이컨, 양파, 피망, 버섯, 할라피뇨, 치즈', spicy: true, variants: [{ label: 'R', price: 17.99 }, { label: 'L', price: 22.99 }] },
+      { id: 'll-fc-01', name: 'Original Fried Chicken', price: 14.99, category: 'FRIED CHICKEN', description: '한국식 후라이드 (Half/Whole)', spicy: true, variants: [{ label: 'Half', price: 14.99 }, { label: 'Whole', price: 27.99 }] },
+      { id: 'll-wg-01', name: 'Original Fried Wings (10pc)', price: 20.99, category: 'CHICKEN WINGS', description: '싱글 배터 윙', spicy: true },
     ],
     reviews: [
-      { id: 'r1', author: 'Jamie', rating: 5, comment: 'The soondubu was rich and not too salty. Cozy spot, kind staff.', createdAt: '2026-06-20T19:05:00Z' },
-      { id: 'r2', author: 'Min', rating: 4, comment: 'Honey bread is a must — sweet and warm. Will visit again.', createdAt: '2026-06-22T18:40:00Z' },
-      { id: 'r3', author: 'Alex', rating: 5, comment: 'First time trying Korean food and the staff explained the menu. Loved the bibimbap.', createdAt: '2026-06-24T20:10:00Z' },
+      { id: 'r1', author: 'Jamie', rating: 5, comment: 'The Sweet Potato Pizza is unreal — sweet, savory, so K-style. Crispy juicy fried chicken too.', createdAt: '2026-06-20T19:05:00Z' },
+      { id: 'r2', author: 'Min', rating: 5, comment: 'Kimchi pizza + a bottle of soju = perfect night. Cozy spot in La Habra.', createdAt: '2026-06-22T18:40:00Z' },
+      { id: 'r3', author: 'Alex', rating: 4, comment: 'First time trying Korean-style pizza and I get the hype. The combo special is a great deal.', createdAt: '2026-06-24T20:10:00Z' },
     ],
   },
 ];

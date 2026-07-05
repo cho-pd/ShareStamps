@@ -12,7 +12,7 @@ import { NPOS } from '@/lib/npos';
 // 옛 OwnerDashboard 4탭 구성 차용(기프트카드 제외) · 태블릿/PC 레이아웃: 📊오버뷰 · 🔍고객 · 📈정산 · 🏠미니홈피.
 
 type Review = { author: string; rating: number; comment: string; createdAt: string };
-type MenuItem = { id: string; name: string; price: number; signature?: boolean; description?: string; category?: string };
+type MenuItem = { id: string; name: string; price: number; signature?: boolean; description?: string; category?: string; variants?: { label: string; price: number }[]; soldOut?: boolean; hidden?: boolean; spicy?: boolean; order?: number };
 type Cardholder = { name: string; phone?: string; stamps: number };
 type Member = { deviceId: string; name: string; phone?: string; password?: string; stamps: number; balance: number; donated: number; suspended?: boolean; memo?: string; allergy?: string };
 type Donation = { npoName?: string; amount: number; settled?: boolean; source?: string; createdAt: string; refPath?: string };
@@ -105,7 +105,9 @@ export default function OwnerDashboard() {
   const [banner, setBanner] = useState('');
   const [desc, setDesc] = useState('');
   const [sns, setSns] = useState<string[]>([]);
-  const [newItem, setNewItem] = useState({ name: '', price: '', signature: false });
+  const [newItem, setNewItem] = useState({ name: '', price: '', signature: false, category: '' });
+  const [menuQ, setMenuQ] = useState('');
+  const [openCats, setOpenCats] = useState<Record<string, boolean>>({});
   const [cbMenu, setCbMenu] = useState(''); const [cbReview, setCbReview] = useState('');
   const [faqs, setFaqs] = useState<{ q: string; a: string }[]>([]);
   const [custQ, setCustQ] = useState('');
@@ -302,10 +304,17 @@ export default function OwnerDashboard() {
   };
   const addMenu = async () => {
     if (!data || !newItem.name.trim()) return;
-    await setDoc(doc(getDb(), 'stores', data.storeId, 'menuItems', `m_${Date.now()}`), { name: newItem.name.trim(), price: parseFloat(newItem.price) || 0, signature: newItem.signature });
-    setNewItem({ name: '', price: '', signature: false }); flash(t('메뉴 추가됨 ✓', 'Menu added ✓')); await load(data.slug);
+    await setDoc(doc(getDb(), 'stores', data.storeId, 'menuItems', `m_${Date.now()}`), { name: newItem.name.trim(), price: parseFloat(newItem.price) || 0, signature: newItem.signature, category: newItem.category.trim() || t('기타', 'Other') });
+    setNewItem({ name: '', price: '', signature: false, category: newItem.category }); flash(t('메뉴 추가됨 ✓', 'Menu added ✓')); await load(data.slug);
   };
-  const delMenu = async (id: string) => { if (!data) return; await deleteDoc(doc(getDb(), 'stores', data.storeId, 'menuItems', id)); await load(data.slug); };
+  const delMenu = async (id: string) => { if (!data) return; await deleteDoc(doc(getDb(), 'stores', data.storeId, 'menuItems', id)); setData((d) => (d ? { ...d, menu: d.menu.filter((m) => m.id !== id) } : d)); };
+  // 항목 단위 즉시 저장 + 낙관적 반영 (48개 일괄저장 금지 — write-storm 방지, CLAUDE.md §1)
+  const updateMenu = async (id: string, patch: Partial<MenuItem>) => {
+    if (!data) return;
+    setData((d) => (d ? { ...d, menu: d.menu.map((m) => (m.id === id ? { ...m, ...patch } : m)) } : d));
+    try { await setDoc(doc(getDb(), 'stores', data.storeId, 'menuItems', id), patch, { merge: true }); flash(t('저장됐어요 ✓', 'Saved ✓')); }
+    catch { flash(t('저장 실패', 'Save failed')); }
+  };
 
   // 점주가 신규 회원을 수동으로 추가 (이름+전화) — 앱 없이 방문한 손님 온보딩용
   const addMember = async () => {
@@ -1072,22 +1081,77 @@ export default function OwnerDashboard() {
               <section className="ss-card mt-4 p-5">
                 <div className="flex items-center justify-between">
                   <h3 className="text-base font-extrabold">{t('메뉴 관리', 'Menu Management')}</h3>
-                  <span className="ss-chip">{t('📄 엑셀 일괄등록 (곧)', '📄 Excel bulk (soon)')}</span>
+                  <span className="text-xs font-bold text-zinc-400">{data.menu.length}{t('개', '')}</span>
                 </div>
-                <div className="mt-2 divide-y divide-zinc-100">
-                  {data.menu.map((m) => (
-                    <div key={m.id} className="flex items-center justify-between py-2.5">
-                      <div className="text-sm"><span className="font-semibold">{m.name}</span>{m.signature && <span className="ml-1.5 rounded bg-honey px-1.5 py-0.5 text-[10px] font-bold text-honey-ink">SIG</span>}</div>
-                      <div className="flex items-center gap-3"><span className="text-sm font-bold text-zinc-600">${m.price.toFixed(2)}</span><button onClick={() => delMenu(m.id)} className="text-xs text-red-500">{t('삭제', 'Delete')}</button></div>
-                    </div>
-                  ))}
-                  {data.menu.length === 0 && <p className="py-2 text-sm text-zinc-400">{t('메뉴가 없어요. 추가해 보세요.', 'No menu yet. Add one.')}</p>}
+                <input value={menuQ} onChange={(e) => setMenuQ(e.target.value)} className="ss-input mt-2" placeholder={t('메뉴 검색…', 'Search menu…')} />
+
+                <div className="mt-3 space-y-2">
+                  {(() => {
+                    const q = menuQ.trim().toLowerCase();
+                    const filtered = data.menu.filter((m) => !q || m.name.toLowerCase().includes(q));
+                    if (filtered.length === 0) return <p className="py-2 text-sm text-zinc-400">{data.menu.length === 0 ? t('메뉴가 없어요. 아래에서 추가하세요.', 'No menu yet. Add below.') : t('검색 결과가 없어요.', 'No results.')}</p>;
+                    const groups: Record<string, MenuItem[]> = {};
+                    filtered.forEach((m) => { const c = m.category || t('기타', 'Other'); (groups[c] = groups[c] || []).push(m); });
+                    return Object.keys(groups).map((cat) => {
+                      const items = groups[cat];
+                      const open = q ? true : (openCats[cat] ?? false);
+                      const soldCnt = items.filter((m) => m.soldOut).length;
+                      return (
+                        <div key={cat} className="overflow-hidden rounded-xl border border-zinc-100">
+                          <button type="button" onClick={() => setOpenCats((p) => ({ ...p, [cat]: !open }))} className="flex w-full items-center justify-between bg-zinc-50 px-3.5 py-2.5 text-left">
+                            <span className="text-sm font-extrabold text-zinc-800">{cat}</span>
+                            <span className="flex items-center gap-2 text-[11px] text-zinc-400"><span>{items.length}{t('개', '')}{soldCnt > 0 && <span className="ml-1 text-red-500">· {t('품절', 'sold')} {soldCnt}</span>}</span><span className="text-zinc-300">{open ? '▲' : '▼'}</span></span>
+                          </button>
+                          {open && (
+                            <div className="divide-y divide-zinc-100">
+                              {items.map((m) => (
+                                <div key={m.id} className="px-3.5 py-2.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className={`text-sm ${m.soldOut ? 'text-zinc-400 line-through' : 'font-semibold text-zinc-800'}`}>
+                                      {m.name}
+                                      {m.signature && <span className="ml-1.5 rounded bg-honey px-1.5 py-0.5 text-[10px] font-bold text-honey-ink">SIG</span>}
+                                      {m.spicy && <span className="ml-1">🌶️</span>}
+                                    </div>
+                                    <div className="flex shrink-0 items-center gap-1.5">
+                                      <button type="button" onClick={() => updateMenu(m.id, { soldOut: !m.soldOut })} className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${m.soldOut ? 'bg-red-100 text-red-600' : 'bg-zinc-100 text-zinc-500'}`}>{m.soldOut ? t('품절', 'Sold out') : t('판매중', 'On')}</button>
+                                      <button type="button" onClick={() => updateMenu(m.id, { hidden: !m.hidden })} className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${m.hidden ? 'bg-zinc-200 text-zinc-600' : 'bg-zinc-100 text-zinc-400'}`}>{m.hidden ? t('숨김', 'Hidden') : t('노출', 'Shown')}</button>
+                                      <button type="button" onClick={() => { if (window.confirm(t('삭제할까요?', 'Delete?'))) delMenu(m.id); }} className="text-[11px] text-red-500">{t('삭제', 'Del')}</button>
+                                    </div>
+                                  </div>
+                                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                                    {m.variants && m.variants.length > 0 ? (
+                                      m.variants.map((v, i) => (
+                                        <span key={i} className="flex items-center gap-1">
+                                          <span className="text-[11px] font-bold text-zinc-400">{v.label}</span>
+                                          <span className="relative"><span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-zinc-400">$</span>
+                                            <input type="text" inputMode="decimal" defaultValue={v.price.toFixed(2)} onBlur={(e) => updateMenu(m.id, { variants: (m.variants || []).map((x, j) => (j === i ? { ...x, price: parseFloat(e.target.value) || 0 } : x)) })} className="ss-input w-20 py-1.5 pl-5 text-sm" /></span>
+                                        </span>
+                                      ))
+                                    ) : (
+                                      <span className="relative"><span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-zinc-400">$</span>
+                                        <input type="text" inputMode="decimal" defaultValue={m.price.toFixed(2)} onBlur={(e) => updateMenu(m.id, { price: parseFloat(e.target.value) || 0 })} className="ss-input w-24 py-1.5 pl-5 text-sm" /></span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
-                <div className="mt-3 flex max-w-md gap-2">
-                  <input value={newItem.name} onChange={(e) => setNewItem({ ...newItem, name: e.target.value })} className="ss-input flex-1" placeholder={t('메뉴명', 'Item name')} />
-                  <input value={newItem.price} onChange={(e) => setNewItem({ ...newItem, price: e.target.value })} className="ss-input w-24" placeholder="$" inputMode="decimal" />
-                  <label className="flex items-center gap-1.5 whitespace-nowrap text-sm text-zinc-600"><input type="checkbox" checked={newItem.signature} onChange={(e) => setNewItem({ ...newItem, signature: e.target.checked })} /> {t('시그니처', 'Signature')}</label>
-                  <button onClick={addMenu} className="ss-btn-primary px-5">{t('추가', 'Add')}</button>
+
+                {/* 새 메뉴 추가 */}
+                <div className="mt-3 rounded-xl border border-dashed border-zinc-200 p-3">
+                  <div className="flex flex-wrap gap-2">
+                    <input value={newItem.name} onChange={(e) => setNewItem({ ...newItem, name: e.target.value })} className="ss-input min-w-[120px] flex-1" placeholder={t('메뉴명', 'Item name')} />
+                    <input value={newItem.category} onChange={(e) => setNewItem({ ...newItem, category: e.target.value })} className="ss-input w-32" placeholder={t('카테고리', 'Category')} />
+                    <input value={newItem.price} onChange={(e) => setNewItem({ ...newItem, price: e.target.value })} className="ss-input w-24" placeholder="$" inputMode="decimal" />
+                    <label className="flex items-center gap-1.5 whitespace-nowrap text-sm text-zinc-600"><input type="checkbox" checked={newItem.signature} onChange={(e) => setNewItem({ ...newItem, signature: e.target.checked })} /> {t('시그니처', 'Sig')}</label>
+                    <button onClick={addMenu} className="ss-btn-primary px-5">{t('추가', 'Add')}</button>
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-zinc-400">{t('가격은 항목의 숫자를 탭해 바로 고쳐요(입력창 밖을 누르면 저장). R/L 등 다중가격은 자동 표시.', 'Tap a price to edit — saves on blur. Multi-size (R/L) shows automatically.')}</p>
                 </div>
               </section>
 
