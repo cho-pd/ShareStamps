@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { getDb } from '@/lib/firebase';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { MENU_CATEGORIES, type MenuItem } from '@/lib/stores';
+import { menuSampleImage } from '@/lib/menuImages';
 
 type Msg = { who: 'bee' | 'me'; text: string };
 type Line = { key: string; item: MenuItem; label?: string; price: number; qty: number };
@@ -168,12 +169,14 @@ export default function SharbeeOrder({ storeId, storeName, menu, guidance }: { s
           ))}
         </div>
         <div className="grid grid-cols-2 gap-2.5 p-3">
-          {visible.map((m) => (
+          {visible.map((m) => {
+            const img = m.imageUrl || menuSampleImage(m.name, m.category);
+            return (
             <div key={m.id} className={`ss-card overflow-hidden ${m.soldOut ? 'opacity-50' : ''}`}>
               <div className="aspect-square w-full bg-zinc-100">
-                {m.imageUrl ? (
+                {img ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={m.imageUrl} alt={m.name} className="h-full w-full object-cover" />
+                  <img src={img} alt={m.name} className="h-full w-full object-cover" />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center text-3xl text-zinc-300">🍽️</div>
                 )}
@@ -192,7 +195,8 @@ export default function SharbeeOrder({ storeId, storeName, menu, guidance }: { s
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

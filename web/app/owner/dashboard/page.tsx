@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getDb, getStorageBucket } from '@/lib/firebase';
+import { menuSampleImage } from '@/lib/menuImages';
 import { collection, getDocs, getDoc, collectionGroup, doc, setDoc, deleteDoc, onSnapshot, runTransaction, query, where, limit, type Firestore, type QuerySnapshot, type DocumentData } from 'firebase/firestore';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { buildSettlementReport, resolveExpiredNpo } from '@/lib/settlement';
@@ -306,7 +307,9 @@ export default function OwnerDashboard() {
   };
   const addMenu = async () => {
     if (!data || !newItem.name.trim()) return;
-    await setDoc(doc(getDb(), 'stores', data.storeId, 'menuItems', `m_${Date.now()}`), { name: newItem.name.trim(), price: parseFloat(newItem.price) || 0, signature: newItem.signature, category: newItem.category.trim() || t('기타', 'Other') });
+    const cat = newItem.category.trim() || t('기타', 'Other');
+    const img = menuSampleImage(newItem.name.trim(), cat); // 메뉴 올라가면 자동으로 종류 맞는 스톡 사진 기본값
+    await setDoc(doc(getDb(), 'stores', data.storeId, 'menuItems', `m_${Date.now()}`), { name: newItem.name.trim(), price: parseFloat(newItem.price) || 0, signature: newItem.signature, category: cat, ...(img ? { imageUrl: img, imageSample: true } : {}) });
     setNewItem({ name: '', price: '', signature: false, category: newItem.category }); flash(t('메뉴 추가됨 ✓', 'Menu added ✓')); await load(data.slug);
   };
   const delMenu = async (id: string) => { if (!data) return; await deleteDoc(doc(getDb(), 'stores', data.storeId, 'menuItems', id)); setData((d) => (d ? { ...d, menu: d.menu.filter((m) => m.id !== id) } : d)); };
