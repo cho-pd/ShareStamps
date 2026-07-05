@@ -809,6 +809,16 @@ export default function MePage() {
                 </div>
               </section>
 
+              {/* 메뉴 보고 주문하기 — 독립 카드. 재방문 동선의 급소(스탬프 본 직후). 어두운 solid = 밖으로 나가는 행동(비너스), 퍼플 규율 무손상 */}
+              <Link href={`/store/${disp.slug}?order=1`} className="ss-card mt-3 flex items-center gap-3 bg-zinc-900 p-4 text-white active:scale-[0.99]">
+                <span className="text-2xl">🍽️</span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-extrabold">{t('메뉴 보고 주문하기', 'See menu & order')}</div>
+                  <div className="truncate text-[11px] text-white/70">{t(`${disp.storeName}에서 주문하고 스탬프도 쌓으세요 ⭐`, `Order from ${disp.storeName} and earn stamps ⭐`)}</div>
+                </div>
+                <span className="text-white/50">›</span>
+              </Link>
+
               {/* 샤비와 리뷰 — 독립 카드 (챗봇 바로 열기) */}
               <Link href={`/store/${disp.slug}?review=1`} className="ss-card mt-3 flex items-center gap-3 border border-honey/60 bg-honey/20 p-4 active:scale-[0.99]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
