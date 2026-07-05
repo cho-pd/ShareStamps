@@ -1,6 +1,6 @@
 // 샤비 Gemini 프록시 (Next API Route, 호스트 중립). 키는 서버 env GEMINI_API_KEY 에서만.
 // Netlify Function(netlify/functions/sharbee.mjs)을 대체 — Vercel SSR에서 동작.
-const GEMINI_MODEL = 'gemini-3.1-flash';
+const GEMINI_MODEL = 'gemini-3.1-flash-lite';
 
 export async function POST(req: Request) {
   const key = process.env.GEMINI_API_KEY;
