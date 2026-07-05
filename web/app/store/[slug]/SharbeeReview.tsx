@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getDb } from '@/lib/firebase';
 import { doc, setDoc, getDoc, collection } from 'firebase/firestore';
 import { postReviewToSns } from '@/lib/snsApi';
+import { speakGemini, stopSpeak, primeAudio } from '@/lib/tts';
 
 // 옛 CustomerPWA 'openSharbeeReview' 복원: 샤비와 대화(Q&A) → AI 리뷰 초안 → 별점 → 등록 + SNS.
 type Msg = { who: 'bee' | 'me'; text: string };
@@ -50,13 +51,8 @@ export default function SharbeeReview({ storeId, storeName, menu, guidance }: { 
     setVoiceSupported(typeof window !== 'undefined' && !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition));
   }, []);
   const speak = (text: string) => {
-    if (!voiceOn || typeof window === 'undefined' || !window.speechSynthesis) return;
-    try {
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '').trim());
-      u.lang = sttLang;
-      window.speechSynthesis.speak(u);
-    } catch { /* TTS 미지원은 무시 */ }
+    if (!voiceOn) return;
+    void speakGemini(text); // 제미나이 자연 음성(폴백: 브라우저 내장 음성)
   };
 
   const start = () => {
@@ -89,6 +85,7 @@ export default function SharbeeReview({ storeId, storeName, menu, guidance }: { 
 
   // STT: 마이크로 말하면 텍스트로 받아 그대로 send. (한 번에 한 발화)
   const startListening = () => {
+    primeAudio(); // 사용자 제스처 순간 오디오 잠금해제
     if (busy || listening) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -218,7 +215,7 @@ export default function SharbeeReview({ storeId, storeName, menu, guidance }: { 
               </div>
             )}
             <div className="mb-2 flex items-center gap-1.5 text-[11px]">
-              <button type="button" onClick={() => setVoiceOn((v) => !v)} className={`rounded-full px-2.5 py-1 font-bold ${voiceOn ? 'bg-brand-50 text-brand-700' : 'bg-zinc-100 text-zinc-500'}`}>{voiceOn ? '🔊 샤비 음성 켜짐' : '🔇 샤비 음성'}</button>
+              <button type="button" onClick={() => { primeAudio(); setVoiceOn((v) => { if (v) stopSpeak(); return !v; }); }} className={`rounded-full px-2.5 py-1 font-bold ${voiceOn ? 'bg-brand-50 text-brand-700' : 'bg-zinc-100 text-zinc-500'}`}>{voiceOn ? '🔊 샤비 음성 켜짐' : '🔇 샤비 음성'}</button>
               <button type="button" onClick={() => setSttLang((l) => (l === 'ko-KR' ? 'en-US' : 'ko-KR'))} className="rounded-full bg-zinc-100 px-2.5 py-1 font-bold text-zinc-600">{sttLang === 'ko-KR' ? '🇰🇷 한국어' : '🇺🇸 English'}</button>
               {!voiceSupported && <span className="text-zinc-400">이 브라우저는 음성 미지원</span>}
             </div>

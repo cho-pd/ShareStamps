@@ -8,6 +8,7 @@ import { getDb } from '@/lib/firebase';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { MENU_CATEGORIES, type MenuItem } from '@/lib/stores';
 import { menuSampleImage } from '@/lib/menuImages';
+import { speakGemini, stopSpeak, primeAudio } from '@/lib/tts';
 
 type Msg = { who: 'bee' | 'me'; text: string };
 type Line = { key: string; item: MenuItem; label?: string; price: number; qty: number };
@@ -82,8 +83,8 @@ export default function SharbeeOrder({ storeId, storeName, menu, guidance }: { s
   }, [highlightId]);
 
   const speak = (text: string) => {
-    if (!voiceOn || typeof window === 'undefined' || !window.speechSynthesis) return;
-    try { window.speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '').trim()); u.lang = 'ko-KR'; window.speechSynthesis.speak(u); } catch {}
+    if (!voiceOn) return;
+    void speakGemini(text); // 제미나이 자연 음성(폴백: 브라우저 내장 음성)
   };
 
   // 손님이 말/글로 언급한 메뉴를 찾아 화면에 띄운다 (이름·설명 키워드 가중 매칭). 예: "고구마피자" → Sweet Potato Pizza
@@ -100,6 +101,7 @@ export default function SharbeeOrder({ storeId, storeName, menu, guidance }: { s
   };
 
   const startOrder = () => {
+    primeAudio();
     setDone(null); setCart([]);
     setMsgs([{ who: 'bee', text: `안녕하세요, 샤비예요 🐝 ${storeName}에 오신 걸 환영해요! 뭐 드시고 싶으세요? 말로 하셔도 되고, 아래 메뉴에서 골라 담으셔도 돼요.` }]);
     setOpen(true);
@@ -119,6 +121,7 @@ export default function SharbeeOrder({ storeId, storeName, menu, guidance }: { s
 
   // STT 핸즈프리: 켜면 계속 청취(끝나면 자동 재시작), 인식되면 send
   const toggleListen = () => {
+    primeAudio(); // 사용자 제스처 순간 오디오 잠금해제 → 이후 샤비 음성이 모바일에서도 재생됨
     if (listening) { setListening(false); try { recRef.current?.stop?.(); } catch {} return; }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -229,7 +232,7 @@ export default function SharbeeOrder({ storeId, storeName, menu, guidance }: { s
       {!done && (
         <div className="border-t border-zinc-100 p-2.5">
           <div className="mb-1.5 flex items-center gap-1.5 text-[11px]">
-            <button type="button" onClick={() => setVoiceOn((v) => !v)} className={`rounded-full px-2.5 py-1 font-bold ${voiceOn ? 'bg-brand-50 text-brand-700' : 'bg-zinc-100 text-zinc-500'}`}>{voiceOn ? '🔊 샤비 음성 켜짐' : '🔇 샤비 음성'}</button>
+            <button type="button" onClick={() => { primeAudio(); setVoiceOn((v) => { if (v) stopSpeak(); return !v; }); }} className={`rounded-full px-2.5 py-1 font-bold ${voiceOn ? 'bg-brand-50 text-brand-700' : 'bg-zinc-100 text-zinc-500'}`}>{voiceOn ? '🔊 샤비 음성 켜짐' : '🔇 샤비 음성'}</button>
             {listening && <span className="font-bold text-red-500">● 듣는 중… 편하게 말씀하세요</span>}
           </div>
           <div className="flex gap-2">
