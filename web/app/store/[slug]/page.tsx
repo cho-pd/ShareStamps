@@ -5,6 +5,7 @@ import { buildStoreJsonLd, buildFaqJsonLd } from '@/lib/schema';
 import { sampleHero } from '@/lib/sampleImages';
 import SharbeeChat from './SharbeeChat';
 import SharbeeReview from './SharbeeReview';
+import SharbeeOrder from './SharbeeOrder';
 import ReviewForm from './ReviewForm';
 import StoreReviews from './StoreReviews';
 
@@ -100,8 +101,13 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
         </div>
       </section>
 
-      {/* 샤비 */}
+      {/* 대화형 주문 (?order=1 / ?table=N 이면 자동 오픈) */}
       <div className="mt-4">
+        <SharbeeOrder storeId={store.id} storeName={store.name} menu={store.menu} guidance={store.chatbotMenu} />
+      </div>
+
+      {/* 샤비 메뉴 추천 */}
+      <div className="mt-3">
         <SharbeeChat storeName={store.name} menu={store.menu} guidance={store.chatbotMenu} />
       </div>
 
