@@ -12,7 +12,8 @@ import { NPOS } from '@/lib/npos';
 // 옛 OwnerDashboard 4탭 구성 차용(기프트카드 제외) · 태블릿/PC 레이아웃: 📊오버뷰 · 🔍고객 · 📈정산 · 🏠미니홈피.
 
 type Review = { author: string; rating: number; comment: string; createdAt: string };
-type MenuItem = { id: string; name: string; price: number; signature?: boolean; description?: string; category?: string; variants?: { label: string; price: number }[]; soldOut?: boolean; hidden?: boolean; spicy?: boolean; order?: number };
+type MenuItem = { id: string; name: string; price: number; signature?: boolean; description?: string; category?: string; variants?: { label: string; price: number }[]; soldOut?: boolean; hidden?: boolean; spicy?: boolean; order?: number; imageUrl?: string };
+const MENU_CATS = ['STARTERS', 'SIDE MEAL', 'PIZZA', 'CHICKEN', 'PASTA', 'DRINKS'];
 type Cardholder = { name: string; phone?: string; stamps: number };
 type Member = { deviceId: string; name: string; phone?: string; password?: string; stamps: number; balance: number; donated: number; suspended?: boolean; memo?: string; allergy?: string };
 type Donation = { npoName?: string; amount: number; settled?: boolean; source?: string; createdAt: string; refPath?: string };
@@ -108,6 +109,7 @@ export default function OwnerDashboard() {
   const [newItem, setNewItem] = useState({ name: '', price: '', signature: false, category: '' });
   const [menuQ, setMenuQ] = useState('');
   const [openCats, setOpenCats] = useState<Record<string, boolean>>({});
+  const [uploadingMenuId, setUploadingMenuId] = useState<string | null>(null);
   const [cbMenu, setCbMenu] = useState(''); const [cbReview, setCbReview] = useState('');
   const [faqs, setFaqs] = useState<{ q: string; a: string }[]>([]);
   const [custQ, setCustQ] = useState('');
@@ -314,6 +316,18 @@ export default function OwnerDashboard() {
     setData((d) => (d ? { ...d, menu: d.menu.map((m) => (m.id === id ? { ...m, ...patch } : m)) } : d));
     try { await setDoc(doc(getDb(), 'stores', data.storeId, 'menuItems', id), patch, { merge: true }); flash(t('저장됐어요 ✓', 'Saved ✓')); }
     catch { flash(t('저장 실패', 'Save failed')); }
+  };
+  // 메뉴 사진 업로드 → Firebase Storage 공개 URL → imageUrl 저장 (CLAUDE.md §5: blob 금지, 공개 URL 필수)
+  const uploadMenuPhoto = async (id: string, file: File) => {
+    if (!data) return;
+    setUploadingMenuId(id);
+    try {
+      const r = storageRef(getStorageBucket(), `menu-photos/${data.storeId}/${id}_${Date.now()}`);
+      await uploadBytes(r, file, { contentType: file.type });
+      const url = await getDownloadURL(r);
+      await updateMenu(id, { imageUrl: url });
+    } catch { flash(t('사진 업로드 실패', 'Photo upload failed')); }
+    finally { setUploadingMenuId(null); }
   };
 
   // 점주가 신규 회원을 수동으로 추가 (이름+전화) — 앱 없이 방문한 손님 온보딩용
@@ -1092,7 +1106,8 @@ export default function OwnerDashboard() {
                     if (filtered.length === 0) return <p className="py-2 text-sm text-zinc-400">{data.menu.length === 0 ? t('메뉴가 없어요. 아래에서 추가하세요.', 'No menu yet. Add below.') : t('검색 결과가 없어요.', 'No results.')}</p>;
                     const groups: Record<string, MenuItem[]> = {};
                     filtered.forEach((m) => { const c = m.category || t('기타', 'Other'); (groups[c] = groups[c] || []).push(m); });
-                    return Object.keys(groups).map((cat) => {
+                    const cats = Object.keys(groups).sort((a, b) => { const ia = MENU_CATS.indexOf(a), ib = MENU_CATS.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); });
+                    return cats.map((cat) => {
                       const items = groups[cat];
                       const open = q ? true : (openCats[cat] ?? false);
                       const soldCnt = items.filter((m) => m.soldOut).length;
@@ -1105,32 +1120,44 @@ export default function OwnerDashboard() {
                           {open && (
                             <div className="divide-y divide-zinc-100">
                               {items.map((m) => (
-                                <div key={m.id} className="px-3.5 py-2.5">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className={`text-sm ${m.soldOut ? 'text-zinc-400 line-through' : 'font-semibold text-zinc-800'}`}>
-                                      {m.name}
-                                      {m.signature && <span className="ml-1.5 rounded bg-honey px-1.5 py-0.5 text-[10px] font-bold text-honey-ink">SIG</span>}
-                                      {m.spicy && <span className="ml-1">🌶️</span>}
-                                    </div>
-                                    <div className="flex shrink-0 items-center gap-1.5">
-                                      <button type="button" onClick={() => updateMenu(m.id, { soldOut: !m.soldOut })} className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${m.soldOut ? 'bg-red-100 text-red-600' : 'bg-zinc-100 text-zinc-500'}`}>{m.soldOut ? t('품절', 'Sold out') : t('판매중', 'On')}</button>
-                                      <button type="button" onClick={() => updateMenu(m.id, { hidden: !m.hidden })} className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${m.hidden ? 'bg-zinc-200 text-zinc-600' : 'bg-zinc-100 text-zinc-400'}`}>{m.hidden ? t('숨김', 'Hidden') : t('노출', 'Shown')}</button>
-                                      <button type="button" onClick={() => { if (window.confirm(t('삭제할까요?', 'Delete?'))) delMenu(m.id); }} className="text-[11px] text-red-500">{t('삭제', 'Del')}</button>
-                                    </div>
-                                  </div>
-                                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                                    {m.variants && m.variants.length > 0 ? (
-                                      m.variants.map((v, i) => (
-                                        <span key={i} className="flex items-center gap-1">
-                                          <span className="text-[11px] font-bold text-zinc-400">{v.label}</span>
-                                          <span className="relative"><span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-zinc-400">$</span>
-                                            <input type="text" inputMode="decimal" defaultValue={v.price.toFixed(2)} onBlur={(e) => updateMenu(m.id, { variants: (m.variants || []).map((x, j) => (j === i ? { ...x, price: parseFloat(e.target.value) || 0 } : x)) })} className="ss-input w-20 py-1.5 pl-5 text-sm" /></span>
-                                        </span>
-                                      ))
+                                <div key={m.id} className="flex gap-2.5 px-3.5 py-2.5">
+                                  <label className="relative h-12 w-12 shrink-0 cursor-pointer overflow-hidden rounded-lg bg-zinc-100 ring-1 ring-zinc-100">
+                                    {m.imageUrl ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={m.imageUrl} alt="" className="h-full w-full object-cover" />
                                     ) : (
-                                      <span className="relative"><span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-zinc-400">$</span>
-                                        <input type="text" inputMode="decimal" defaultValue={m.price.toFixed(2)} onBlur={(e) => updateMenu(m.id, { price: parseFloat(e.target.value) || 0 })} className="ss-input w-24 py-1.5 pl-5 text-sm" /></span>
+                                      <span className="flex h-full w-full items-center justify-center text-lg text-zinc-300">＋</span>
                                     )}
+                                    {uploadingMenuId === m.id && <span className="absolute inset-0 flex items-center justify-center bg-white/70 text-[9px] font-bold text-brand-700">…</span>}
+                                    <input type="file" accept="image/*" className="hidden" disabled={uploadingMenuId === m.id} onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMenuPhoto(m.id, f); e.target.value = ''; }} />
+                                  </label>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className={`text-sm ${m.soldOut ? 'text-zinc-400 line-through' : 'font-semibold text-zinc-800'}`}>
+                                        {m.name}
+                                        {m.signature && <span className="ml-1.5 rounded bg-honey px-1.5 py-0.5 text-[10px] font-bold text-honey-ink">SIG</span>}
+                                        {m.spicy && <span className="ml-1">🌶️</span>}
+                                      </div>
+                                      <div className="flex shrink-0 items-center gap-1.5">
+                                        <button type="button" onClick={() => updateMenu(m.id, { soldOut: !m.soldOut })} className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${m.soldOut ? 'bg-red-100 text-red-600' : 'bg-zinc-100 text-zinc-500'}`}>{m.soldOut ? t('품절', 'Sold out') : t('판매중', 'On')}</button>
+                                        <button type="button" onClick={() => updateMenu(m.id, { hidden: !m.hidden })} className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${m.hidden ? 'bg-zinc-200 text-zinc-600' : 'bg-zinc-100 text-zinc-400'}`}>{m.hidden ? t('숨김', 'Hidden') : t('노출', 'Shown')}</button>
+                                        <button type="button" onClick={() => { if (window.confirm(t('삭제할까요?', 'Delete?'))) delMenu(m.id); }} className="text-[11px] text-red-500">{t('삭제', 'Del')}</button>
+                                      </div>
+                                    </div>
+                                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                                      {m.variants && m.variants.length > 0 ? (
+                                        m.variants.map((v, i) => (
+                                          <span key={i} className="flex items-center gap-1">
+                                            <span className="text-[11px] font-bold text-zinc-400">{v.label}</span>
+                                            <span className="relative"><span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-zinc-400">$</span>
+                                              <input type="text" inputMode="decimal" defaultValue={v.price.toFixed(2)} onBlur={(e) => updateMenu(m.id, { variants: (m.variants || []).map((x, j) => (j === i ? { ...x, price: parseFloat(e.target.value) || 0 } : x)) })} className="ss-input w-20 py-1.5 pl-5 text-sm" /></span>
+                                          </span>
+                                        ))
+                                      ) : (
+                                        <span className="relative"><span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-zinc-400">$</span>
+                                          <input type="text" inputMode="decimal" defaultValue={m.price.toFixed(2)} onBlur={(e) => updateMenu(m.id, { price: parseFloat(e.target.value) || 0 })} className="ss-input w-24 py-1.5 pl-5 text-sm" /></span>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
                               ))}
@@ -1146,7 +1173,8 @@ export default function OwnerDashboard() {
                 <div className="mt-3 rounded-xl border border-dashed border-zinc-200 p-3">
                   <div className="flex flex-wrap gap-2">
                     <input value={newItem.name} onChange={(e) => setNewItem({ ...newItem, name: e.target.value })} className="ss-input min-w-[120px] flex-1" placeholder={t('메뉴명', 'Item name')} />
-                    <input value={newItem.category} onChange={(e) => setNewItem({ ...newItem, category: e.target.value })} className="ss-input w-32" placeholder={t('카테고리', 'Category')} />
+                    <input value={newItem.category} onChange={(e) => setNewItem({ ...newItem, category: e.target.value })} list="menucats" className="ss-input w-32" placeholder={t('카테고리', 'Category')} />
+                    <datalist id="menucats">{MENU_CATS.map((c) => <option key={c} value={c} />)}</datalist>
                     <input value={newItem.price} onChange={(e) => setNewItem({ ...newItem, price: e.target.value })} className="ss-input w-24" placeholder="$" inputMode="decimal" />
                     <label className="flex items-center gap-1.5 whitespace-nowrap text-sm text-zinc-600"><input type="checkbox" checked={newItem.signature} onChange={(e) => setNewItem({ ...newItem, signature: e.target.checked })} /> {t('시그니처', 'Sig')}</label>
                     <button onClick={addMenu} className="ss-btn-primary px-5">{t('추가', 'Add')}</button>

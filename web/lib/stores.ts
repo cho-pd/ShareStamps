@@ -18,7 +18,11 @@ export interface MenuItem {
   hidden?: boolean;           // 미니홈/샤비 노출 제외
   spicy?: boolean;            // 매운맛 표시(뱃지)
   order?: number;             // 카테고리 내 정렬
+  imageUrl?: string;          // 메뉴 사진(Firebase Storage 공개 URL). "말하면 사진 팝업"의 원천.
 }
+
+// 손님 주문 화면·점주 편집의 표준 6 카테고리 (자유입력 금지 — enum 고정)
+export const MENU_CATEGORIES = ['STARTERS', 'SIDE MEAL', 'PIZZA', 'CHICKEN', 'PASTA', 'DRINKS'] as const;
 
 export interface Review {
   id: string;
@@ -106,10 +110,10 @@ const SEED_STORES: Store[] = [
     sellingPoints: ['K-style Korean pizza', 'Korean fried chicken', 'Sweet Potato Pizza', 'Kimchi Pizza', 'chicken wings', 'soju & draft beer'],
     pointRewardPer7Stamps: 5,
     menu: [
-      { id: 'll-sp-01', name: 'Sweet Potato Pizza', price: 17.99, category: 'SIGNATURE PIZZA', description: '고구마 청크, 화이트소스, 햄, 양파, 소시지, 파인애플, 피망, 콘, 치즈', signature: true, variants: [{ label: 'R', price: 17.99 }, { label: 'L', price: 22.99 }] },
-      { id: 'll-sp-02', name: 'Kimchi Pizza', price: 17.99, category: 'SIGNATURE PIZZA', description: '김치, 소시지, 햄, 베이컨, 양파, 피망, 버섯, 할라피뇨, 치즈', spicy: true, variants: [{ label: 'R', price: 17.99 }, { label: 'L', price: 22.99 }] },
-      { id: 'll-fc-01', name: 'Original Fried Chicken', price: 14.99, category: 'FRIED CHICKEN', description: '한국식 후라이드 (Half/Whole)', spicy: true, variants: [{ label: 'Half', price: 14.99 }, { label: 'Whole', price: 27.99 }] },
-      { id: 'll-wg-01', name: 'Original Fried Wings (10pc)', price: 20.99, category: 'CHICKEN WINGS', description: '싱글 배터 윙', spicy: true },
+      { id: 'll-sp-01', name: 'Sweet Potato Pizza', price: 17.99, category: 'PIZZA', description: '고구마 청크, 화이트소스, 햄, 양파, 소시지, 파인애플, 피망, 콘, 치즈', signature: true, variants: [{ label: 'R', price: 17.99 }, { label: 'L', price: 22.99 }] },
+      { id: 'll-sp-02', name: 'Kimchi Pizza', price: 17.99, category: 'PIZZA', description: '김치, 소시지, 햄, 베이컨, 양파, 피망, 버섯, 할라피뇨, 치즈', spicy: true, variants: [{ label: 'R', price: 17.99 }, { label: 'L', price: 22.99 }] },
+      { id: 'll-fc-01', name: 'Original Fried Chicken', price: 14.99, category: 'CHICKEN', description: '한국식 후라이드 (Half/Whole)', spicy: true, variants: [{ label: 'Half', price: 14.99 }, { label: 'Whole', price: 27.99 }] },
+      { id: 'll-wg-01', name: 'Original Fried Wings (10pc)', price: 20.99, category: 'CHICKEN', description: '싱글 배터 윙', spicy: true },
     ],
     reviews: [
       { id: 'r1', author: 'Jamie', rating: 5, comment: 'The Sweet Potato Pizza is unreal — sweet, savory, so K-style. Crispy juicy fried chicken too.', createdAt: '2026-06-20T19:05:00Z' },
