@@ -7,8 +7,11 @@ export async function POST(req: Request) {
   if (!key) return Response.json({ error: 'GEMINI_API_KEY not set' }, { status: 500 });
 
   let prompt = '';
+  let system = '';
   try {
-    prompt = (await req.json())?.prompt || '';
+    const b = await req.json();
+    prompt = b?.prompt || '';
+    system = b?.system || '';
   } catch {}
   if (!prompt) return Response.json({ error: 'prompt required' }, { status: 400 });
 
@@ -19,8 +22,9 @@ export async function POST(req: Request) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          generationConfig: { temperature: 0.7, topP: 0.9, maxOutputTokens: 160 },
-          contents: [{ parts: [{ text: prompt }] }],
+          ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+          generationConfig: { temperature: 0.7, topP: 0.9, maxOutputTokens: 220 },
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
         }),
       }
     );

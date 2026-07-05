@@ -28,8 +28,10 @@ ${lines}`;
 
 async function askSharbee(sys: string, history: Msg[], userText: string): Promise<string | null> {
   const hist = history.map((m) => `${m.who === 'bee' ? '샤비' : '손님'}: ${m.text}`).join('\n');
+  const prompt = `${hist ? `[지금까지 대화]\n${hist}\n` : ''}손님: ${userText}`;
   try {
-    const res = await fetch('/api/sharbee', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: `${sys}\n\n[대화]\n${hist}\n손님: ${userText}\n샤비:` }) });
+    // 페르소나·메뉴는 systemInstruction으로 분리해야 모델이 지시를 따른다(안 그러면 일반 챗봇처럼 딴소리함).
+    const res = await fetch('/api/sharbee', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ system: sys, prompt }) });
     const data = await res.json();
     return data?.text ? String(data.text).trim() : null;
   } catch { return null; }
@@ -45,7 +47,7 @@ export default function SharbeeOrder({ storeId, storeName, menu, guidance }: { s
   const [cat, setCat] = useState<string>('');
   const [done, setDone] = useState<{ orderNo: string } | null>(null);
   // 음성
-  const [voiceOn, setVoiceOn] = useState(false);
+  const [voiceOn, setVoiceOn] = useState(true); // 샤비 음성 기본 켜기 — 손님이 상호작용하면 샤비가 소리로 답함
   const [listening, setListening] = useState(false);
   const [voiceSupported, setVoiceSupported] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
