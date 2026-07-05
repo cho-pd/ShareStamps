@@ -19,6 +19,7 @@ export interface MenuItem {
   spicy?: boolean;            // 매운맛 표시(뱃지)
   order?: number;             // 카테고리 내 정렬
   imageUrl?: string;          // 메뉴 사진(Firebase Storage 공개 URL). "말하면 사진 팝업"의 원천.
+  imageSample?: boolean;      // 우리가 심은 샘플 사진(스톡). 점주가 실사진 올리면 false로. "샘플" 뱃지 표시용.
 }
 
 // 손님 주문 화면·점주 편집의 표준 6 카테고리 (자유입력 금지 — enum 고정)

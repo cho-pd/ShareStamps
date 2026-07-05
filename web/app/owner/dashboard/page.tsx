@@ -12,7 +12,7 @@ import { NPOS } from '@/lib/npos';
 // 옛 OwnerDashboard 4탭 구성 차용(기프트카드 제외) · 태블릿/PC 레이아웃: 📊오버뷰 · 🔍고객 · 📈정산 · 🏠미니홈피.
 
 type Review = { author: string; rating: number; comment: string; createdAt: string };
-type MenuItem = { id: string; name: string; price: number; signature?: boolean; description?: string; category?: string; variants?: { label: string; price: number }[]; soldOut?: boolean; hidden?: boolean; spicy?: boolean; order?: number; imageUrl?: string };
+type MenuItem = { id: string; name: string; price: number; signature?: boolean; description?: string; category?: string; variants?: { label: string; price: number }[]; soldOut?: boolean; hidden?: boolean; spicy?: boolean; order?: number; imageUrl?: string; imageSample?: boolean };
 const MENU_CATS = ['STARTERS', 'SIDE MEAL', 'PIZZA', 'CHICKEN', 'PASTA', 'DRINKS'];
 type Cardholder = { name: string; phone?: string; stamps: number };
 type Member = { deviceId: string; name: string; phone?: string; password?: string; stamps: number; balance: number; donated: number; suspended?: boolean; memo?: string; allergy?: string };
@@ -325,7 +325,7 @@ export default function OwnerDashboard() {
       const r = storageRef(getStorageBucket(), `menu-photos/${data.storeId}/${id}_${Date.now()}`);
       await uploadBytes(r, file, { contentType: file.type });
       const url = await getDownloadURL(r);
-      await updateMenu(id, { imageUrl: url });
+      await updateMenu(id, { imageUrl: url, imageSample: false });
     } catch { flash(t('사진 업로드 실패', 'Photo upload failed')); }
     finally { setUploadingMenuId(null); }
   };
@@ -1128,6 +1128,7 @@ export default function OwnerDashboard() {
                                     ) : (
                                       <span className="flex h-full w-full items-center justify-center text-lg text-zinc-300">＋</span>
                                     )}
+                                    {m.imageSample && m.imageUrl && <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/55 text-center text-[8px] font-bold text-white">샘플</span>}
                                     {uploadingMenuId === m.id && <span className="absolute inset-0 flex items-center justify-center bg-white/70 text-[9px] font-bold text-brand-700">…</span>}
                                     <input type="file" accept="image/*" className="hidden" disabled={uploadingMenuId === m.id} onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMenuPhoto(m.id, f); e.target.value = ''; }} />
                                   </label>
