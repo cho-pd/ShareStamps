@@ -45,6 +45,7 @@ export default function SharbeeOrder({ storeId, storeName, menu, guidance }: { s
   const [busy, setBusy] = useState(false);
   const [cart, setCart] = useState<Line[]>([]);
   const [cat, setCat] = useState<string>('');
+  const [highlightId, setHighlightId] = useState<string>(''); // 말한 메뉴를 화면에 띄우기
   const [done, setDone] = useState<{ orderNo: string } | null>(null);
   // 음성
   const [voiceOn, setVoiceOn] = useState(true); // 샤비 음성 기본 켜기 — 손님이 상호작용하면 샤비가 소리로 답함
@@ -72,10 +73,30 @@ export default function SharbeeOrder({ storeId, storeName, menu, guidance }: { s
   }, []);
   useEffect(() => { setCat((c) => c || cats[0] || ''); }, [cats]);
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [msgs, busy]);
+  useEffect(() => {
+    if (!highlightId) return;
+    const el = document.getElementById(`mc-${highlightId}`);
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const tmr = window.setTimeout(() => setHighlightId(''), 2600);
+    return () => window.clearTimeout(tmr);
+  }, [highlightId]);
 
   const speak = (text: string) => {
     if (!voiceOn || typeof window === 'undefined' || !window.speechSynthesis) return;
     try { window.speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '').trim()); u.lang = 'ko-KR'; window.speechSynthesis.speak(u); } catch {}
+  };
+
+  // 손님이 말/글로 언급한 메뉴를 찾아 화면에 띄운다 (이름·설명 키워드 가중 매칭). 예: "고구마피자" → Sweet Potato Pizza
+  const findMentioned = (text: string): MenuItem | null => {
+    const t = text.toLowerCase();
+    let best: MenuItem | null = null, bestScore = 0;
+    for (const m of menu.filter((x) => !x.hidden)) {
+      const kws = new Set((m.name + ' ' + (m.description || '')).toLowerCase().split(/[\s,()/·]+/).filter((w) => w.length >= 2));
+      let score = 0;
+      kws.forEach((k) => { if (t.includes(k)) score += k.length; });
+      if (score > bestScore) { bestScore = score; best = m; }
+    }
+    return bestScore >= 2 ? best : null;
   };
 
   const startOrder = () => {
@@ -89,6 +110,8 @@ export default function SharbeeOrder({ storeId, storeName, menu, guidance }: { s
     setInput('');
     const next: Msg[] = [...msgs, { who: 'me', text: t }];
     setMsgs(next); setBusy(true);
+    const hit = findMentioned(t); // 말한 메뉴를 화면에 띄운다
+    if (hit) { if (hit.category) setCat(hit.category); setHighlightId(hit.id); }
     const reply = await askSharbee(systemPrompt(storeName, menu, guidance), next.slice(0, -1), t);
     const bee = reply ?? '앗, 잠깐 연결이 흔들렸어요 🐝 다시 말씀해 주실래요?';
     setMsgs((m) => [...m, { who: 'bee', text: bee }]); speak(bee); setBusy(false);
@@ -174,7 +197,7 @@ export default function SharbeeOrder({ storeId, storeName, menu, guidance }: { s
           {visible.map((m) => {
             const img = m.imageUrl || menuSampleImage(m.name, m.category);
             return (
-            <div key={m.id} className={`ss-card overflow-hidden ${m.soldOut ? 'opacity-50' : ''}`}>
+            <div key={m.id} id={`mc-${m.id}`} className={`ss-card overflow-hidden transition ${m.soldOut ? 'opacity-50' : ''} ${highlightId === m.id ? 'ring-2 ring-brand-500' : ''}`}>
               <div className="aspect-square w-full bg-zinc-100">
                 {img ? (
                   // eslint-disable-next-line @next/next/no-img-element
