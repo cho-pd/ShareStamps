@@ -37,6 +37,27 @@ export default function SharbeeReview({ storeId, storeName, menu, guidance }: { 
   const [snsMsg, setSnsMsg] = useState<string | null>(null);
   const [name, setName] = useState('방문자');
   const scrollRef = useRef<HTMLDivElement>(null);
+  // 음성 레이어 (러브레터 시뮬레이션): 브라우저 Web Speech API로 STT(말→텍스트) + TTS(샤비가 말하기).
+  // 텍스트 입력은 그대로 남겨 폴백 — 미흡하면 텍스트로, 보완 후 다시 음성으로.
+  const [voiceOn, setVoiceOn] = useState(false); // 샤비 답변을 음성으로 읽어줄지
+  const [listening, setListening] = useState(false);
+  const [sttLang, setSttLang] = useState<'ko-KR' | 'en-US'>('ko-KR');
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recogRef = useRef<any>(null);
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setVoiceSupported(typeof window !== 'undefined' && !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition));
+  }, []);
+  const speak = (text: string) => {
+    if (!voiceOn || typeof window === 'undefined' || !window.speechSynthesis) return;
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '').trim());
+      u.lang = sttLang;
+      window.speechSynthesis.speak(u);
+    } catch { /* TTS 미지원은 무시 */ }
+  };
 
   const start = () => {
     setStep('chat'); setDraft(''); setRating(5); setSnsMsg(null);
@@ -60,9 +81,33 @@ export default function SharbeeReview({ storeId, storeName, menu, guidance }: { 
     setMsgs(next); setBusy(true);
     const convo = next.map((m) => `${m.who === 'me' ? '손님' : '샤비'}: ${m.text}`).join('\n');
     const reply = await askSharbee(`당신은 "샤비", 손님이 ${storeName} 방문 리뷰를 쓰도록 돕는 다정한 꿀벌이에요. 아래 대화에 이어, 리뷰에 쓸 만한 점(맛·메뉴·분위기·서비스 중 아직 안 나온 것) 1가지만 짧고 따뜻하게 한국어로 물어보세요. 1~2문장, 이모지 1개 이내.${ownerGuide}\n${convo}\n샤비:`);
-    setMsgs((m) => [...m, { who: 'bee', text: reply ?? '좋아요! 더 남기고 싶은 말 있으면 적어주세요 🐝' }]);
+    const beeText = reply ?? '좋아요! 더 남기고 싶은 말 있으면 적어주세요 🐝';
+    setMsgs((m) => [...m, { who: 'bee', text: beeText }]);
+    speak(beeText);
     setBusy(false);
   };
+
+  // STT: 마이크로 말하면 텍스트로 받아 그대로 send. (한 번에 한 발화)
+  const startListening = () => {
+    if (busy || listening) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) return;
+    try {
+      const rec = new SR();
+      rec.lang = sttLang;
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+      recogRef.current = rec;
+      setListening(true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rec.onresult = (e: any) => { const t = String(e?.results?.[0]?.[0]?.transcript ?? '').trim(); setListening(false); if (t) send(t); };
+      rec.onerror = () => setListening(false);
+      rec.onend = () => setListening(false);
+      rec.start();
+    } catch { setListening(false); }
+  };
+  const stopListening = () => { try { recogRef.current?.stop?.(); } catch { /* noop */ } setListening(false); };
 
   const makeDraft = async () => {
     setBusy(true);
@@ -172,8 +217,16 @@ export default function SharbeeReview({ storeId, storeName, menu, guidance }: { 
                 ))}
               </div>
             )}
+            <div className="mb-2 flex items-center gap-1.5 text-[11px]">
+              <button type="button" onClick={() => setVoiceOn((v) => !v)} className={`rounded-full px-2.5 py-1 font-bold ${voiceOn ? 'bg-brand-50 text-brand-700' : 'bg-zinc-100 text-zinc-500'}`}>{voiceOn ? '🔊 샤비 음성 켜짐' : '🔇 샤비 음성'}</button>
+              <button type="button" onClick={() => setSttLang((l) => (l === 'ko-KR' ? 'en-US' : 'ko-KR'))} className="rounded-full bg-zinc-100 px-2.5 py-1 font-bold text-zinc-600">{sttLang === 'ko-KR' ? '🇰🇷 한국어' : '🇺🇸 English'}</button>
+              {!voiceSupported && <span className="text-zinc-400">이 브라우저는 음성 미지원</span>}
+            </div>
             <div className="flex gap-2">
-              <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(input); }} placeholder="샤비에게 답하기" className="ss-input flex-1" />
+              {voiceSupported && (
+                <button type="button" onClick={listening ? stopListening : startListening} disabled={busy} className={`shrink-0 rounded-xl px-3 text-base font-bold transition active:scale-95 ${listening ? 'animate-pulse bg-red-500 text-white' : 'bg-brand-600 text-white'}`} title="말로 답하기">{listening ? '● 듣는 중' : '🎤'}</button>
+              )}
+              <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(input); }} placeholder={listening ? '듣고 있어요…' : '샤비에게 답하기'} className="ss-input flex-1" />
               <button onClick={() => send(input)} disabled={busy} className="ss-btn-soft px-4">보내기</button>
             </div>
             {userTurns >= 1 && (
