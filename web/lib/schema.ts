@@ -1,6 +1,7 @@
 // schema.org JSON-LD 빌더. 서버 HTML에 그대로 박혀 AI/크롤러가 매장을 엔티티로 인식·인용하게 한다.
 // (AEO 핵심: Restaurant/LocalBusiness + Menu + AggregateRating + Review + FAQPage)
 import { Store, FaqItem, SITE_URL, averageRating } from './stores';
+import { menuSampleImage } from './menuImages';
 
 export function buildStoreJsonLd(store: Store) {
   const url = `${SITE_URL}/store/${store.slug}`;
@@ -43,19 +44,30 @@ export function buildStoreJsonLd(store: Store) {
   // 음성검색 답변 구간 지정 (TL;DR 박스 + 제목)
   json.speakable = { '@type': 'SpeakableSpecification', cssSelector: ['#tldr', 'h1'] };
 
-  if (store.menu?.length) {
+  const menu = (store.menu ?? []).filter((m) => !m.hidden);
+  if (menu.length) {
+    // 6 카테고리별 MenuSection으로 분리 + 각 MenuItem에 사진(image)·다중가격(Offer) 마크업 → AI가 dish 단위로 인용
+    const byCat: Record<string, typeof menu> = {};
+    menu.forEach((m) => { const c = m.category || 'Menu'; (byCat[c] = byCat[c] || []).push(m); });
     json.hasMenu = {
       '@type': 'Menu',
-      hasMenuSection: {
+      hasMenuSection: Object.entries(byCat).map(([cat, items]) => ({
         '@type': 'MenuSection',
-        name: 'Menu',
-        hasMenuItem: store.menu.map((m) => ({
-          '@type': 'MenuItem',
-          name: m.name,
-          description: m.description,
-          offers: { '@type': 'Offer', price: m.price.toFixed(2), priceCurrency: store.currency },
-        })),
-      },
+        name: cat,
+        hasMenuItem: items.map((m) => {
+          const img = m.imageUrl || menuSampleImage(m.name, m.category);
+          const item: Record<string, unknown> = {
+            '@type': 'MenuItem',
+            name: m.name,
+            offers: m.variants?.length
+              ? m.variants.map((v) => ({ '@type': 'Offer', name: v.label, price: v.price.toFixed(2), priceCurrency: store.currency }))
+              : { '@type': 'Offer', price: m.price.toFixed(2), priceCurrency: store.currency },
+          };
+          if (m.description) item.description = m.description;
+          if (img) item.image = img;
+          return item;
+        }),
+      })),
     };
   }
 
