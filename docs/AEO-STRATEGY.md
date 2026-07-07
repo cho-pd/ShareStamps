@@ -89,7 +89,7 @@ Instagram(이미지필수·JPEG·4:5~1.91:1) · Facebook Page(가장 관대) · 
 이번 방향은 **"AI 검색 노출"이 목적, 팬아웃·어시스트·링크허브·스키마가 수단.** 순서 제안:
 1. ✅ **P0 정합성 교정** — 자동배포 세트(`SNS_PLATFORMS`)에서 `google_business` 제거 완료(2026-07-06).
 2. ✅ **schema.org 강화**(§1-A) — 타입 분기 + `sameAs` 배선 완료. `Store.socialLinks` 필드 추가. (실제 sameAs 값은 4번 대기)
-3. **구글 어시스트**(§3) — GBP 신선도 엔진. `/api/sharbee` 재사용이라 저비용·고효과.
+3. ✅ **구글 어시스트 MVP**(§3) — 완료(2026-07-06): owner minihome 최상단 "오늘의 구글 포스트" 카드. `/api/sharbee`(Gemini)로 초안 생성 + 편집 + [복사]/[구글에서 올리기 딥링크] + 자기신고 🔥스트릭. store 문서에 `gbpStreak/gbpLastPostedAt/gbpTodayDraft`. tsc/build 통과, 런타임은 인증·prod쓰기라 미검증(배포/스테이징서). **후속:** 자동 초안 생성(오픈 시), 이미지 첨부, 아침 넛지, overview 미러 넛지.
 4. ✅ **링크 허브**(§4) — 완료(2026-07-06): `web/lib/socialLinks.ts`(공유 메타) + 손님 미니홈 아이콘 그리드(`store/[slug]/page.tsx`) + 점주 입력 카드(owner minihome). **socialLinks 입력 시 §1-A schema `sameAs`도 자동 활성화.** 값은 점주 입력 대기.
 5. **NAP 일관성 + Yelp/GBP 온보딩**(§1-B/E) — 점주 온보딩 플로우에 내장("깜짝 놀라게").
 6. SNS 자동배포 P1(fire-and-forget·S4·S2)은 [SNS-REBUILD.md](SNS-REBUILD.md) §7 그대로 병행.

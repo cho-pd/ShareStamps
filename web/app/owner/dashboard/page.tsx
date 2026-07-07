@@ -114,6 +114,13 @@ export default function OwnerDashboard() {
   const [snsError, setSnsError] = useState(false);
   const [snsConnecting, setSnsConnecting] = useState<string | null>(null);
   const [links, setLinks] = useState<Record<string, string>>({}); // 링크 허브(socialLinks) 입력값
+  // 구글 어시스트(오늘의 GBP 포스트) — 자동 게시 아님, 점주가 하루 1번 직접 게시(자기신고 스트릭)
+  const [gbpDraft, setGbpDraft] = useState('');
+  const [gbpBusy, setGbpBusy] = useState(false);
+  const [gbpCopied, setGbpCopied] = useState(false);
+  const [gbpStreak, setGbpStreak] = useState(0);
+  const [gbpLastPostedAt, setGbpLastPostedAt] = useState<string | undefined>(undefined);
+  const [gbpConfirm, setGbpConfirm] = useState(false); // 딥링크 후 "올리셨나요?" 확인 대기
   const [newItem, setNewItem] = useState({ name: '', price: '', signature: false, category: '' });
   const [menuQ, setMenuQ] = useState('');
   const [openCats, setOpenCats] = useState<Record<string, boolean>>({});
@@ -260,7 +267,7 @@ export default function OwnerDashboard() {
       const storeSnap = await getDocs(query(collection(db, 'stores'), where('slug', '==', target), limit(1)));
       if (storeSnap.empty) { setError(t('해당 slug의 매장을 찾지 못했어요.', 'No store found for that slug.')); setData(null); return; }
       const sd = storeSnap.docs[0];
-      const st = sd.data() as { name: string; slug: string; pointRewardPer7Stamps?: number; earningIntervalMinutes?: number; bannerUrl?: string; description?: string; snsChannels?: string[]; socialLinks?: Record<string, string>; chatbotMenu?: string; chatbotReview?: string; faqs?: { q: string; a: string }[]; expiredStampsNpoId?: string; expiredStampsNpoName?: string };
+      const st = sd.data() as { name: string; slug: string; pointRewardPer7Stamps?: number; earningIntervalMinutes?: number; bannerUrl?: string; description?: string; snsChannels?: string[]; socialLinks?: Record<string, string>; gbpStreak?: number; gbpLastPostedAt?: string; gbpTodayDraft?: string; chatbotMenu?: string; chatbotReview?: string; faqs?: { q: string; a: string }[]; expiredStampsNpoId?: string; expiredStampsNpoName?: string };
       // 카드·기부단체 먼저 로드 → 1년 만료 스탬프 자동 기부 처리 → 나머지 로드 (처리 결과가 정산에 바로 반영되게)
       let cardsSnap = await getDocs(collection(db, 'stores', sd.id, 'stampCards'));
       const chSnap = await getDocs(collection(db, 'stores', sd.id, 'charities')).catch(() => null);
@@ -315,6 +322,7 @@ export default function OwnerDashboard() {
       });
       setReward(String(rwd)); setIntervalV(String(itv)); setBanner(st.bannerUrl || ''); setDesc(st.description || ''); setSns(st.snsChannels || []);
       setCbMenu(st.chatbotMenu || ''); setCbReview(st.chatbotReview || ''); setFaqs(st.faqs || []); setLinks(st.socialLinks || {});
+      setGbpStreak(st.gbpStreak || 0); setGbpLastPostedAt(st.gbpLastPostedAt); setGbpDraft(st.gbpTodayDraft || '');
       try { localStorage.setItem('ss_owner_store', target); } catch {}
     } catch { setError(t('불러오기에 실패했어요.', 'Failed to load.')); }
     finally { setBusy(false); }
@@ -360,6 +368,44 @@ export default function OwnerDashboard() {
   const saveLink = async (key: string) => {
     if (!data) return;
     try { await setDoc(doc(getDb(), 'stores', data.storeId), { socialLinks: { [key]: (links[key] || '').trim() } }, { merge: true }); } catch {}
+  };
+
+  // 오늘의 GBP 포스트 초안을 샤비(Gemini)로 생성. 진짜 정보만·과장 금지(AEO 카피 원칙).
+  const genGbpDraft = async () => {
+    if (!data || gbpBusy) return;
+    setGbpBusy(true);
+    try {
+      const sigs = data.menu.filter((m) => m.signature).map((m) => m.name).slice(0, 3);
+      const today = new Date().toLocaleDateString(lang === 'ko' ? 'ko-KR' : 'en-US', { weekday: 'long' });
+      const system = lang === 'ko'
+        ? '너는 동네 가게 사장님을 돕는 따뜻한 마케팅 조수 "샤비"야. 구글 비즈니스 프로필에 오늘 올릴 짧은 게시글(2~3문장)을 쓴다. 규칙: 진짜 정보만, 과장·최상급 자칭 금지("최고" 같은 말은 손님 후기 인용으로만), 지역·구체적 명사 자연스럽게, 이모지 1개, 손님이 검색할 법한 표현. 설명·따옴표 없이 본문만 출력.'
+        : 'You are "Sharbee", a warm marketing helper for a local shop. Write a short Google Business Profile post (2-3 sentences) to publish today. Rules: only true info, no self-praise/superlatives (use customer quotes for those), natural local + concrete nouns, one emoji, phrasing customers might search. Output the post body only, no quotes or preamble.';
+      const prompt = `${lang === 'ko' ? '가게' : 'Shop'}: ${data.storeName}\n${lang === 'ko' ? '소개' : 'About'}: ${data.description || ''}\n${lang === 'ko' ? '대표메뉴' : 'Signature'}: ${sigs.join(', ') || '-'}\n${lang === 'ko' ? '오늘' : 'Today'}: ${today}`;
+      const r = await fetch('/api/sharbee', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, system }) });
+      const j = await r.json().catch(() => ({}));
+      const text = (j?.text || '').trim();
+      if (text) {
+        setGbpDraft(text);
+        try { await setDoc(doc(getDb(), 'stores', data.storeId), { gbpTodayDraft: text }, { merge: true }); } catch {}
+      } else { flash(t('초안 생성에 실패했어요. 다시 시도해 주세요.', 'Draft failed. Try again.')); }
+    } finally { setGbpBusy(false); }
+  };
+
+  const copyGbpDraft = async () => {
+    try { await navigator.clipboard.writeText(gbpDraft); setGbpCopied(true); setTimeout(() => setGbpCopied(false), 2000); } catch {}
+  };
+
+  // "구글에 올렸다" 자기신고 → 스트릭 갱신(어제 게시면 연속+1, 아니면 1). GBP 자동 API 미사용.
+  const confirmGbpPosted = async () => {
+    if (!data) return;
+    const today = new Date();
+    const already = gbpLastPostedAt && new Date(gbpLastPostedAt).toDateString() === today.toDateString();
+    const yesterday = new Date(); yesterday.setDate(today.getDate() - 1);
+    const continued = gbpLastPostedAt && new Date(gbpLastPostedAt).toDateString() === yesterday.toDateString();
+    const nextStreak = already ? gbpStreak : (continued ? gbpStreak + 1 : 1);
+    const nowIso = today.toISOString();
+    setGbpStreak(nextStreak); setGbpLastPostedAt(nowIso); setGbpConfirm(false);
+    try { await setDoc(doc(getDb(), 'stores', data.storeId), { gbpStreak: nextStreak, gbpLastPostedAt: nowIso }, { merge: true }); } catch {}
   };
 
   // 자동배포 대상 채널 on/off(연결된 채널만). snsChannels 에 network enum 저장(조용히 즉시 저장).
@@ -590,6 +636,7 @@ export default function OwnerDashboard() {
   const chStatus = (s?: string) => s === 'approved' ? t('승인됨', 'Approved') : s === 'rejected' ? t('반려됨', 'Rejected') : t('승인 대기', 'Pending');
   const filteredMembers = data ? data.members.filter((m) => { const q = custQ.trim().toLowerCase(); if (!q) return true; return (m.name || '').toLowerCase().includes(q) || (m.phone || '').replace(/\D/g, '').includes(q.replace(/\D/g, '')); }) : [];
   const connectedCount = snsStatus?.connectedNetworks.length ?? 0;
+  const gbpPostedToday = !!gbpLastPostedAt && new Date(gbpLastPostedAt).toDateString() === new Date().toDateString();
   const selMember = data && selMemberId ? data.members.find((m) => m.deviceId === selMemberId) || null : null;
 
   return (
@@ -1146,7 +1193,64 @@ export default function OwnerDashboard() {
           {/* 🏠 AI 미니홈 */}
           {tab === 'minihome' && (
             <div className="mt-5">
-              <div className="grid gap-4 md:grid-cols-2 md:items-start">
+              {/* 🏢 구글 어시스트 — AI 검색의 급소(GBP 신선도). 자동 아님: 점주가 하루 1번 직접 게시. */}
+              <section className="ss-card overflow-hidden">
+                <div className="flex items-center gap-3 border-l-4 border-honey bg-honey/15 px-5 py-3.5">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/sharbee/sharbee5.png" alt="Sharbee" className="h-9 w-9 shrink-0 object-contain" />
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-base font-extrabold text-honey-ink">🏢 {t('오늘의 구글 포스트', "Today's Google Post")}</h3>
+                    <p className="text-[11px] text-honey-ink/70">{t('샤비가 초안을 써줘요 · 3분이면 올려요', 'Sharbee drafts it · 3 min to post')}</p>
+                  </div>
+                  {gbpStreak > 0 && (
+                    <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-extrabold text-honey-ink shadow-sm">🔥 {t(`${gbpStreak}일 연속`, `${gbpStreak}-day`)}</span>
+                  )}
+                </div>
+
+                <div className="p-5">
+                  {gbpPostedToday && !gbpConfirm ? (
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-emerald-700">✅ {t('오늘 구글 포스트 완료!', "Today's Google post done!")}{gbpStreak > 0 && <span className="text-honey-ink">🔥 {t(`${gbpStreak}일 연속`, `${gbpStreak} days`)}</span>}</div>
+                      <p className="mt-1 text-[13px] text-zinc-500">{t('내일 또 새 초안을 준비해 둘게요. 장사 잘 하세요! 🐝', "I'll have a fresh draft tomorrow. 🐝")}</p>
+                    </div>
+                  ) : (
+                    <>
+                      {!gbpPostedToday && (
+                        <div className="mb-3 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-[13px] font-semibold text-amber-700">
+                          ⏰ {t('오늘은 아직 안 올렸어요. 스트릭이 끊기기 전에 올려보세요!', "You haven't posted today — keep your streak alive!")}
+                        </div>
+                      )}
+                      <label className="ss-label">{t('초안 (고쳐도 돼요)', 'Draft (edit freely)')}</label>
+                      <textarea value={gbpDraft} onChange={(e) => setGbpDraft(e.target.value)} placeholder={t('아래 "초안 받기"를 누르면 샤비가 오늘 글을 써줘요.', 'Tap "Get draft" and Sharbee writes today\'s post.')} className="ss-input min-h-[110px] leading-relaxed" />
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <button onClick={genGbpDraft} disabled={gbpBusy} className="ss-chip cursor-pointer border-honey bg-honey/20 text-honey-ink disabled:opacity-60">
+                          {gbpBusy ? t('샤비가 쓰는 중… 🐝', 'Sharbee writing… 🐝') : gbpDraft ? t('🔄 다른 초안', '🔄 New draft') : t('✍️ 초안 받기', '✍️ Get draft')}
+                        </button>
+                      </div>
+
+                      <div className="mt-4 flex gap-2">
+                        <button onClick={copyGbpDraft} disabled={!gbpDraft} className="ss-btn-soft flex-1 py-2.5 text-sm disabled:opacity-50">{gbpCopied ? t('복사됨 ✓', 'Copied ✓') : t('📋 복사하기', '📋 Copy')}</button>
+                        <a href="https://business.google.com/posts" target="_blank" rel="noopener noreferrer" onClick={() => { if (gbpDraft) setGbpConfirm(true); }} className={`ss-btn-primary flex-1 py-2.5 text-center text-sm ${gbpDraft ? '' : 'pointer-events-none opacity-50'}`}>{t('구글에서 올리기 →', 'Post on Google →')}</a>
+                      </div>
+
+                      {gbpConfirm && (
+                        <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-emerald-50 px-3 py-2.5">
+                          <span className="text-[13px] font-semibold text-emerald-700">{t('구글에 올리셨나요?', 'Did you post it?')}</span>
+                          <div className="flex gap-2">
+                            <button onClick={confirmGbpPosted} className="ss-btn-primary px-3 py-1 text-xs">{t('네, 올렸어요 🔥', 'Yes, posted 🔥')}</button>
+                            <button onClick={() => setGbpConfirm(false)} className="text-xs font-bold text-zinc-400">{t('나중에', 'Later')}</button>
+                          </div>
+                        </div>
+                      )}
+
+                      <p className="mt-2 text-[11px] leading-relaxed text-zinc-400">{t('구글 비즈니스가 새 창으로 열려요. 붙여넣기 후 게시하면 완료! (구글 정책상 자동 게시는 안 해요.)', 'Google Business opens in a new tab. Paste, publish, done. (Google policy: no auto-posting.)')}</p>
+                    </>
+                  )}
+                </div>
+              </section>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2 md:items-start">
                 <section className="ss-card p-5">
                   <h3 className="text-base font-extrabold">{t('대문 이미지 & 소개', 'Cover Image & Intro')}</h3>
                   {banner && (
