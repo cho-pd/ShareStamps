@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { getAllStores, getStoreBySlug, averageRating, SITE_URL, type FaqItem, type Store } from '@/lib/stores';
 import { buildStoreJsonLd, buildFaqJsonLd } from '@/lib/schema';
+import { SOCIAL_PLATFORMS, toHref } from '@/lib/socialLinks';
 import { sampleHero } from '@/lib/sampleImages';
 import SharbeeChat from './SharbeeChat';
 import SharbeeReview from './SharbeeReview';
@@ -125,6 +126,28 @@ export default async function StorePage({ params }: { params: Promise<{ slug: st
           )}
         </dl>
       </section>
+
+      {/* 링크 허브 — 매장의 외부 채널(SNS·Yelp·구글·홈페이지). 채워진 것만 노출. schema.org sameAs 와 동일 소스. */}
+      {store.socialLinks && SOCIAL_PLATFORMS.some((p) => store.socialLinks?.[p.key]?.trim()) && (
+        <section className="ss-card mt-4 p-5">
+          <h2 className="text-base font-extrabold">Follow &amp; More</h2>
+          <p className="mt-1 text-[13px] text-zinc-500">Find us on our other channels too.</p>
+          <div className="mt-4 grid grid-cols-4 gap-3">
+            {SOCIAL_PLATFORMS.filter((p) => store.socialLinks?.[p.key]?.trim()).map((p) => (
+              <a
+                key={p.key}
+                href={toHref(store.socialLinks![p.key])}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex flex-col items-center gap-1.5 rounded-xl border border-zinc-100 bg-white py-3 transition hover:border-zinc-200 active:scale-[0.97]"
+              >
+                <span className="text-2xl">{p.icon}</span>
+                <span className="text-[11px] font-bold text-zinc-500">{p.label}</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* 메뉴 */}
       <section className="ss-card mt-4 p-5">

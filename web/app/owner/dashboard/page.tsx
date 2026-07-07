@@ -9,6 +9,7 @@ import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage
 import { buildSettlementReport, resolveExpiredNpo } from '@/lib/settlement';
 import { NPOS } from '@/lib/npos';
 import { SNS_PLATFORMS, requestSnsConnectUrl, fetchSnsStatus, type SnsStatus } from '@/lib/snsApi';
+import { SOCIAL_PLATFORMS } from '@/lib/socialLinks';
 
 
 // 옛 OwnerDashboard 4탭 구성 차용(기프트카드 제외) · 태블릿/PC 레이아웃: 📊오버뷰 · 🔍고객 · 📈정산 · 🏠AI 미니홈.
@@ -112,6 +113,7 @@ export default function OwnerDashboard() {
   const [snsLoading, setSnsLoading] = useState(false);
   const [snsError, setSnsError] = useState(false);
   const [snsConnecting, setSnsConnecting] = useState<string | null>(null);
+  const [links, setLinks] = useState<Record<string, string>>({}); // 링크 허브(socialLinks) 입력값
   const [newItem, setNewItem] = useState({ name: '', price: '', signature: false, category: '' });
   const [menuQ, setMenuQ] = useState('');
   const [openCats, setOpenCats] = useState<Record<string, boolean>>({});
@@ -258,7 +260,7 @@ export default function OwnerDashboard() {
       const storeSnap = await getDocs(query(collection(db, 'stores'), where('slug', '==', target), limit(1)));
       if (storeSnap.empty) { setError(t('해당 slug의 매장을 찾지 못했어요.', 'No store found for that slug.')); setData(null); return; }
       const sd = storeSnap.docs[0];
-      const st = sd.data() as { name: string; slug: string; pointRewardPer7Stamps?: number; earningIntervalMinutes?: number; bannerUrl?: string; description?: string; snsChannels?: string[]; chatbotMenu?: string; chatbotReview?: string; faqs?: { q: string; a: string }[]; expiredStampsNpoId?: string; expiredStampsNpoName?: string };
+      const st = sd.data() as { name: string; slug: string; pointRewardPer7Stamps?: number; earningIntervalMinutes?: number; bannerUrl?: string; description?: string; snsChannels?: string[]; socialLinks?: Record<string, string>; chatbotMenu?: string; chatbotReview?: string; faqs?: { q: string; a: string }[]; expiredStampsNpoId?: string; expiredStampsNpoName?: string };
       // 카드·기부단체 먼저 로드 → 1년 만료 스탬프 자동 기부 처리 → 나머지 로드 (처리 결과가 정산에 바로 반영되게)
       let cardsSnap = await getDocs(collection(db, 'stores', sd.id, 'stampCards'));
       const chSnap = await getDocs(collection(db, 'stores', sd.id, 'charities')).catch(() => null);
@@ -312,7 +314,7 @@ export default function OwnerDashboard() {
         reviews: reviews.slice(0, 8), menu, cardholders, members, donations, charities, stampLogs,
       });
       setReward(String(rwd)); setIntervalV(String(itv)); setBanner(st.bannerUrl || ''); setDesc(st.description || ''); setSns(st.snsChannels || []);
-      setCbMenu(st.chatbotMenu || ''); setCbReview(st.chatbotReview || ''); setFaqs(st.faqs || []);
+      setCbMenu(st.chatbotMenu || ''); setCbReview(st.chatbotReview || ''); setFaqs(st.faqs || []); setLinks(st.socialLinks || {});
       try { localStorage.setItem('ss_owner_store', target); } catch {}
     } catch { setError(t('불러오기에 실패했어요.', 'Failed to load.')); }
     finally { setBusy(false); }
@@ -352,6 +354,12 @@ export default function OwnerDashboard() {
         if (s.connectedNetworks.length > before || tries >= 20) { clearInterval(iv); setSnsConnecting(null); }
       } catch { if (tries >= 20) { clearInterval(iv); setSnsConnecting(null); } }
     }, 3000);
+  };
+
+  // 링크 허브 URL 저장(해당 키만 즉시 병합 저장; 빈 값은 '' 로 저장돼 손님/스키마에서 필터됨).
+  const saveLink = async (key: string) => {
+    if (!data) return;
+    try { await setDoc(doc(getDb(), 'stores', data.storeId), { socialLinks: { [key]: (links[key] || '').trim() } }, { merge: true }); } catch {}
   };
 
   // 자동배포 대상 채널 on/off(연결된 채널만). snsChannels 에 network enum 저장(조용히 즉시 저장).
@@ -1219,6 +1227,26 @@ export default function OwnerDashboard() {
                   <p className="mt-3 text-[11px] leading-relaxed text-zinc-400">{t('연결하기를 누르면 로그인 창이 열려요. 로그인하면 자동으로 연동돼요. (구글은 매장 소식용)', 'Connect opens a login window; once you log in it links automatically. (Google is for store posts)')}</p>
                 </section>
               </div>
+
+              {/* 링크 허브 — 손님 미니홈에 보여줄 우리 가게 외부 링크. schema.org sameAs 도 이 값을 씀(AEO 엔티티 그래프). */}
+              <section className="ss-card mt-4 p-5">
+                <h3 className="text-base font-extrabold">🔗 {t('링크 허브', 'Link Hub')}</h3>
+                <p className="mt-0.5 text-[13px] leading-relaxed text-zinc-500">{t('손님 미니홈에 보여줄 우리 가게 링크예요. 있는 것만 채우면 돼요. (AI 검색이 우리 가게를 알아보는 데도 쓰여요)', 'Links shown on your guest mini-home. Fill only what you have. (Also helps AI search recognize your store.)')}</p>
+                <div className="mt-3 space-y-2">
+                  {SOCIAL_PLATFORMS.map((p) => (
+                    <div key={p.key} className="flex items-center gap-2.5">
+                      <span className="w-7 shrink-0 text-center text-lg">{p.icon}</span>
+                      <input
+                        value={links[p.key] || ''}
+                        onChange={(e) => setLinks((prev) => ({ ...prev, [p.key]: e.target.value }))}
+                        onBlur={() => saveLink(p.key)}
+                        placeholder={p.placeholder}
+                        className="ss-input flex-1"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </section>
 
               <section className="ss-card mt-4 p-5">
                 <div className="flex items-center justify-between">
