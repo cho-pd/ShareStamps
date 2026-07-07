@@ -1,12 +1,16 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { getDb } from '@/lib/firebase';
+import { getDb, getStorageBucket } from '@/lib/firebase';
 import { doc, setDoc, getDoc, collection } from 'firebase/firestore';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { postReviewToSns } from '@/lib/snsApi';
 import { speakGemini, stopSpeak, primeAudio } from '@/lib/tts';
 
-// 옛 CustomerPWA 'openSharbeeReview' 복원: 샤비와 대화(Q&A) → AI 리뷰 초안 → 별점 → 등록 + SNS.
+// 옛 CustomerPWA 'openSharbeeReview' 전 과정 복원:
+// 샤비와 대화(Q&A) → AI 리뷰 초안 → ⭐별점 + 📷사진 + 🎥동영상(≤15초) → Storage 업로드 → 등록 + SNS(공개 URL로 인스타까지).
+const MAX_VIDEO_SECONDS = 15;
+const MAX_VIDEO_BYTES = 60 * 1024 * 1024; // 15초 영상 상한(대략)
 type Msg = { who: 'bee' | 'me'; text: string };
 type MenuItem = { id: string; name: string };
 
@@ -37,6 +41,12 @@ export default function SharbeeReview({ storeId, storeName, menu, guidance }: { 
   const [busy, setBusy] = useState(false);
   const [snsMsg, setSnsMsg] = useState<string | null>(null);
   const [name, setName] = useState('방문자');
+  // 미디어(사진·동영상 ≤15초) — 옛 CustomerPWA 샤비 리뷰에서 이식
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
+  const [videoUrl, setVideoUrl] = useState('');
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [mediaError, setMediaError] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   // 음성 레이어 (러브레터 시뮬레이션): 브라우저 Web Speech API로 STT(말→텍스트) + TTS(샤비가 말하기).
   // 텍스트 입력은 그대로 남겨 폴백 — 미흡하면 텍스트로, 보완 후 다시 음성으로.
@@ -57,8 +67,69 @@ export default function SharbeeReview({ storeId, storeName, menu, guidance }: { 
 
   const start = () => {
     setStep('chat'); setDraft(''); setRating(5); setSnsMsg(null);
+    setPhotoUrl(''); setPhotoBlob(null); setVideoUrl(''); setVideoFile(null); setMediaError('');
     setMsgs([{ who: 'bee', text: `안녕하세요, 샤비예요 🐝\n오늘 ${storeName}에서 뭘 드셨어요? 맛이나 분위기, 편하게 말해주세요!` }]);
     setOpen(true);
+  };
+
+  // 📷 사진: 캔버스로 1080px 다운스케일 → JPEG blob(용량·인스타 종횡비 안전 방향). (옛 CustomerPWA 이식)
+  const onPickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setMediaError('');
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new window.Image();
+      img.onload = () => {
+        const maxSize = 1080;
+        let width = img.width, height = img.height;
+        if (width > height && width > maxSize) { height = Math.round(height * maxSize / width); width = maxSize; }
+        else if (height > maxSize) { width = Math.round(width * maxSize / height); height = maxSize; }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d')?.drawImage(img, 0, 0, width, height);
+        canvas.toBlob((blob) => { if (!blob) return; setPhotoBlob(blob); setPhotoUrl(URL.createObjectURL(blob)); }, 'image/jpeg', 0.72);
+      };
+      img.src = ev.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // 🎥 동영상: 15초 초과 거부(onloadedmetadata로 길이 검증). (옛 CustomerPWA 이식)
+  const onPickVideo = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    if (file.size > MAX_VIDEO_BYTES) { setMediaError('동영상 파일이 너무 커요. 15초 이내 짧은 영상으로 다시 선택해 주세요.'); e.target.value = ''; return; }
+    const objectUrl = URL.createObjectURL(file);
+    const v = document.createElement('video'); v.preload = 'metadata';
+    v.onloadedmetadata = () => {
+      const dur = Number.isFinite(v.duration) ? v.duration : 0;
+      if (dur > MAX_VIDEO_SECONDS + 0.3) {
+        URL.revokeObjectURL(objectUrl); setMediaError('15초 이내 동영상만 올릴 수 있어요.'); setVideoUrl(''); setVideoFile(null);
+      } else {
+        if (videoUrl.startsWith('blob:')) URL.revokeObjectURL(videoUrl);
+        setMediaError(''); setVideoUrl(objectUrl); setVideoFile(file);
+      }
+      e.target.value = '';
+    };
+    v.onerror = () => { URL.revokeObjectURL(objectUrl); setMediaError('동영상을 읽을 수 없어요. 다른 파일로 시도해 주세요.'); e.target.value = ''; };
+    v.src = objectUrl;
+  };
+
+  const clearPhoto = () => { if (photoUrl.startsWith('blob:')) URL.revokeObjectURL(photoUrl); setPhotoUrl(''); setPhotoBlob(null); };
+  const clearVideo = () => { if (videoUrl.startsWith('blob:')) URL.revokeObjectURL(videoUrl); setVideoUrl(''); setVideoFile(null); };
+
+  // Firebase Storage 업로드 → 공개 URL. blob/data 는 SNS(Outstand)가 못 읽으니 반드시 이 공개 URL로 게시(CLAUDE.md §5).
+  const uploadMedia = async (media: Blob | File | null, type: 'photo' | 'video', ext: string): Promise<string> => {
+    if (!media) return '';
+    try {
+      const storage = getStorageBucket();
+      const path = `reviews/${storeId}/${getDeviceId()}/${type}/${Date.now()}_${Math.random().toString(36).slice(2, 10)}.${ext}`;
+      const up = await uploadBytes(storageRef(storage, path), media, {
+        contentType: type === 'photo' ? 'image/jpeg' : (media as File).type || 'video/mp4',
+        customMetadata: { storeId, source: 'sharbee-review' },
+      });
+      return await getDownloadURL(up.ref);
+    } catch { return ''; }
   };
 
   useEffect(() => {
@@ -145,12 +216,27 @@ export default function SharbeeReview({ storeId, storeName, menu, guidance }: { 
     try {
       const db = getDb();
       const id = `r_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      await setDoc(doc(collection(db, 'stores', storeId, 'reviews'), id), { author: name, rating, comment: draft.trim(), createdAt: new Date().toISOString() });
-      try { window.dispatchEvent(new CustomEvent('ss-review-added')); } catch {} // 미니홈 리뷰 목록 즉시 갱신
+      const reviewRef = doc(collection(db, 'stores', storeId, 'reviews'), id);
+      // 리뷰는 즉시 저장(손님 대기 X). 미디어 업로드·SNS 게시는 done 화면 뒤 백그라운드로.
+      await setDoc(reviewRef, { author: name, rating, comment: draft.trim(), createdAt: new Date().toISOString() });
+      try { window.dispatchEvent(new CustomEvent('ss-review-added')); } catch {} // AI 미니홈 리뷰 목록 즉시 갱신
       await grantReviewStamp();
-      const sns = await postReviewToSns({ storeId, content: `${draft.trim()}\n\n📍 ${storeName}`, networks: [] });
-      if (sns.success && sns.postedNetworks.length) setSnsMsg(`매장 SNS(${sns.postedNetworks.join(', ')})에도 게시됐어요.`);
       setStep('done');
+
+      const content = `${draft.trim()}\n\n📍 ${storeName}`;
+      if (photoBlob || videoFile) {
+        setSnsMsg('사진·영상 올리는 중이에요… 🐝');
+        const ext = (videoFile?.name.split('.').pop() || 'mp4').toLowerCase();
+        const [pUrl, vUrl] = await Promise.all([uploadMedia(photoBlob, 'photo', 'jpg'), uploadMedia(videoFile, 'video', ext)]);
+        if (pUrl || vUrl) { try { await setDoc(reviewRef, { ...(pUrl ? { photoUrl: pUrl } : {}), ...(vUrl ? { videoUrl: vUrl } : {}) }, { merge: true }); } catch {} }
+        // 공개 URL로 게시(사진 우선). 인스타는 이미지 필수라 이 경로가 있어야 게시됨.
+        const mediaUrls = [pUrl || vUrl].filter(Boolean) as string[];
+        const sns = await postReviewToSns({ storeId, content, mediaUrls, networks: [] });
+        setSnsMsg(sns.success && sns.postedNetworks.length ? `매장 SNS(${sns.postedNetworks.join(', ')})에도 게시됐어요.` : null);
+      } else {
+        const sns = await postReviewToSns({ storeId, content, networks: [] });
+        setSnsMsg(sns.success && sns.postedNetworks.length ? `매장 SNS(${sns.postedNetworks.join(', ')})에도 게시됐어요.` : null);
+      }
     } catch { setSnsMsg('등록에 실패했어요. 잠시 후 다시 시도해 주세요.'); }
     finally { setBusy(false); }
   };
@@ -194,6 +280,34 @@ export default function SharbeeReview({ storeId, storeName, menu, guidance }: { 
               ))}
             </div>
             <textarea value={draft} onChange={(e) => setDraft(e.target.value)} className="ss-input mt-2 min-h-[88px]" />
+
+            {/* 📷 사진 + 🎥 동영상(≤15초) — 있으면 리뷰·매장 SNS(인스타 포함)에 함께 올라가요 */}
+            <div className="mt-3 flex gap-2">
+              {photoUrl ? (
+                <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={photoUrl} alt="" className="h-full w-full object-cover" />
+                  <button onClick={clearPhoto} className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/50 text-[11px] text-white">✕</button>
+                </div>
+              ) : (
+                <label className="flex h-16 w-16 shrink-0 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-honey/70 text-[11px] font-bold text-honey-ink">
+                  📷<span>사진</span>
+                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onPickPhoto} />
+                </label>
+              )}
+              {videoUrl ? (
+                <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-black">
+                  <video src={videoUrl} className="h-full w-full object-cover" muted playsInline />
+                  <button onClick={clearVideo} className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/50 text-[11px] text-white">✕</button>
+                </div>
+              ) : (
+                <label className="flex h-16 w-16 shrink-0 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-honey/70 text-[11px] font-bold text-honey-ink">
+                  🎥<span>15초</span>
+                  <input type="file" accept="video/*" capture="environment" className="hidden" onChange={onPickVideo} />
+                </label>
+              )}
+            </div>
+            {mediaError && <p className="mt-1.5 text-[11px] font-semibold text-red-500">{mediaError}</p>}
           </div>
         )}
 
