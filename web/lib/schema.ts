@@ -3,24 +3,40 @@
 import { Store, FaqItem, SITE_URL, averageRating } from './stores';
 import { menuSampleImage } from './menuImages';
 
+// 카테고리로 스키마 타입 결정. 음식점만 Restaurant(+servesCuisine/hasMenu), 그 외엔 LocalBusiness.
+// (세탁소·미용실 등에 Restaurant/servesCuisine를 찍으면 잘못된 엔티티 신호 → AI 인용 신뢰 훼손)
+const FOOD_HINTS = ['restaurant', 'pizza', 'chicken', 'cafe', 'coffee', 'food', 'korean', 'bar', 'bakery', 'dessert', 'grill', 'kitchen', 'bbq', 'noodle', 'sushi', 'ramen', 'taco', 'burger', 'deli', 'bistro', 'eatery', 'diner', 'pub', 'brunch', 'chinese', 'japanese', 'thai', 'mexican', 'pho', 'boba', 'tea'];
+function isFoodBusiness(category: string): boolean {
+  const c = (category || '').toLowerCase();
+  return FOOD_HINTS.some((h) => c.includes(h));
+}
+// sameAs 값은 절대 URL이어야 AI가 엔티티로 따라간다. 스킴 없으면 https:// 보정.
+const toAbsoluteUrl = (v: string): string => (/^https?:\/\//i.test(v) ? v : `https://${v.replace(/^\/+/, '')}`);
+
 export function buildStoreJsonLd(store: Store) {
   const url = `${SITE_URL}/store/${store.slug}`;
   const reviews = store.reviews ?? [];
   const avg = averageRating(reviews);
+  const isFood = isFoodBusiness(store.category);
 
   const json: Record<string, unknown> = {
     '@context': 'https://schema.org',
-    '@type': 'Restaurant',
+    '@type': isFood ? 'Restaurant' : 'LocalBusiness',
     '@id': url,
     name: store.name,
     description: store.description,
     url,
-    servesCuisine: store.category,
     priceRange: store.priceRange,
     telephone: store.phone,
     openingHours: store.hours,
     keywords: store.sellingPoints.join(', '),
   };
+  // servesCuisine 은 음식점에만 (LocalBusiness엔 무의미)
+  if (isFood) json.servesCuisine = store.category;
+
+  // sameAs: 미니홈 ↔ 외부 채널(SNS·Yelp·GBP·홈페이지) 링크 그래프 = 엔티티 신뢰 신호(헌터 AEO §1-B).
+  const sameAs = Object.values(store.socialLinks ?? {}).map((v) => (v || '').trim()).filter(Boolean).map(toAbsoluteUrl);
+  if (sameAs.length) json.sameAs = sameAs;
 
   if (store.thumbnailUrl || store.bannerUrl) {
     json.image = [store.bannerUrl, store.thumbnailUrl].filter(Boolean);
@@ -45,7 +61,7 @@ export function buildStoreJsonLd(store: Store) {
   json.speakable = { '@type': 'SpeakableSpecification', cssSelector: ['#tldr', 'h1'] };
 
   const menu = (store.menu ?? []).filter((m) => !m.hidden);
-  if (menu.length) {
+  if (isFood && menu.length) {
     // 6 카테고리별 MenuSection으로 분리 + 각 MenuItem에 사진(image)·다중가격(Offer) 마크업 → AI가 dish 단위로 인용
     const byCat: Record<string, typeof menu> = {};
     menu.forEach((m) => { const c = m.category || 'Menu'; (byCat[c] = byCat[c] || []).push(m); });

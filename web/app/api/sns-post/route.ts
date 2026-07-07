@@ -1,19 +1,6 @@
 // SNS 자동게시 (Next API Route, 호스트 중립). Outstand 키는 서버 env OUTSTAND_API_KEY 에서만.
-// Netlify Function(sns-post.mjs + _outstand.mjs)을 대체.
-const BASE = 'https://api.outstand.so/v1';
-
-async function outstand(path: string, opts: { method?: string; body?: unknown } = {}) {
-  const key = process.env.OUTSTAND_API_KEY;
-  if (!key) return { ok: false, status: 500, data: { error: 'OUTSTAND_API_KEY not set' } as Record<string, unknown> };
-  const res = await fetch(`${BASE}${path}`, {
-    method: opts.method || 'GET',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
-  let data: Record<string, unknown> = {};
-  try { data = await res.json(); } catch {}
-  return { ok: res.ok, status: res.status, data };
-}
+// Netlify Function(sns-post.mjs + _outstand.mjs)을 대체. outstand() 헬퍼는 @/lib/outstand 공용.
+import { outstand } from '@/lib/outstand';
 
 function guessContentType(url: string): string {
   const ext = (url.split('?')[0].split('.').pop() || '').toLowerCase();

@@ -8,9 +8,10 @@ import { collection, getDocs, getDoc, collectionGroup, doc, setDoc, deleteDoc, o
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { buildSettlementReport, resolveExpiredNpo } from '@/lib/settlement';
 import { NPOS } from '@/lib/npos';
+import { SNS_PLATFORMS, requestSnsConnectUrl, fetchSnsStatus, type SnsStatus } from '@/lib/snsApi';
 
 
-// 옛 OwnerDashboard 4탭 구성 차용(기프트카드 제외) · 태블릿/PC 레이아웃: 📊오버뷰 · 🔍고객 · 📈정산 · 🏠미니홈피.
+// 옛 OwnerDashboard 4탭 구성 차용(기프트카드 제외) · 태블릿/PC 레이아웃: 📊오버뷰 · 🔍고객 · 📈정산 · 🏠AI 미니홈.
 
 type Review = { author: string; rating: number; comment: string; createdAt: string };
 type MenuItem = { id: string; name: string; price: number; signature?: boolean; description?: string; category?: string; variants?: { label: string; price: number }[]; soldOut?: boolean; hidden?: boolean; spicy?: boolean; order?: number; imageUrl?: string; imageSample?: boolean };
@@ -29,7 +30,6 @@ type Loaded = {
   reviews: Review[]; menu: MenuItem[]; cardholders: Cardholder[]; members: Member[]; donations: Donation[]; charities: Charity[]; stampLogs: StampLog[];
 };
 
-const SNS_CHANNELS = ['facebook', 'instagram', 'google', 'tiktok', 'youtube'];
 const FAQ_TEMPLATES = [
   { q: '영업시간이 어떻게 되나요?', a: '' },
   { q: '주차 가능한가요?', a: '' },
@@ -40,7 +40,7 @@ const TABS = [
   { id: 'overview', ko: '📊 오버뷰', en: '📊 Overview' },
   { id: 'customers', ko: '🔍 고객', en: '🔍 Customers' },
   { id: 'settlement', ko: '📈 정산', en: '📈 Settlement' },
-  { id: 'minihome', ko: '🏠 미니홈피', en: '🏠 Mini-Home' },
+  { id: 'minihome', ko: '🏠 AI 미니홈', en: '🏠 AI Mini Home' },
   { id: 'chatbot', ko: '🤖 챗봇', en: '🤖 Chatbot' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
@@ -107,6 +107,11 @@ export default function OwnerDashboard() {
   const [banner, setBanner] = useState('');
   const [desc, setDesc] = useState('');
   const [sns, setSns] = useState<string[]>([]);
+  // 실제 Outstand 연결 상태(자동배포 채널 토글 `sns`와 별개 — 이건 "진짜 연결됨" 여부)
+  const [snsStatus, setSnsStatus] = useState<SnsStatus | null>(null);
+  const [snsLoading, setSnsLoading] = useState(false);
+  const [snsError, setSnsError] = useState(false);
+  const [snsConnecting, setSnsConnecting] = useState<string | null>(null);
   const [newItem, setNewItem] = useState({ name: '', price: '', signature: false, category: '' });
   const [menuQ, setMenuQ] = useState('');
   const [openCats, setOpenCats] = useState<Record<string, boolean>>({});
@@ -232,6 +237,19 @@ export default function OwnerDashboard() {
     return () => { cancelled = true; };
   }, [selMemberId]);
 
+  // 매장 로드되면 실제 SNS 연결 상태 조회(오버뷰 넛지 + 미니홈 패널 공용).
+  useEffect(() => {
+    const storeId = data?.storeId;
+    if (!storeId) { setSnsStatus(null); return; }
+    let cancelled = false;
+    setSnsLoading(true); setSnsError(false);
+    fetchSnsStatus(storeId)
+      .then((s) => { if (!cancelled) setSnsStatus(s); })
+      .catch(() => { if (!cancelled) setSnsError(true); })
+      .finally(() => { if (!cancelled) setSnsLoading(false); });
+    return () => { cancelled = true; };
+  }, [data?.storeId]);
+
   const load = async (s: string) => {
     const target = s.trim(); if (!target) return;
     setBusy(true); setError(null);
@@ -304,6 +322,44 @@ export default function OwnerDashboard() {
     if (!data) return;
     await setDoc(doc(getDb(), 'stores', data.storeId), patch, { merge: true });
     flash(t('저장됐어요 ✓', 'Saved ✓')); await load(data.slug);
+  };
+
+  // SNS 연결 상태 재조회(수동/폴링 공용).
+  const refreshSnsStatus = async () => {
+    if (!data) return;
+    setSnsLoading(true); setSnsError(false);
+    try { setSnsStatus(await fetchSnsStatus(data.storeId)); }
+    catch { setSnsError(true); }
+    finally { setSnsLoading(false); }
+  };
+
+  // 점주 채널 연결: OAuth 새 창 → 부모 창은 3초 간격 폴링(최대 60초)으로 연결 자동 감지.
+  const handleSnsConnect = async (network: string) => {
+    if (!data) return;
+    const storeId = data.storeId;
+    setSnsConnecting(network); setSnsError(false);
+    try {
+      const url = await requestSnsConnectUrl(storeId, network);
+      window.open(url, '_blank', 'width=600,height=760');
+    } catch { setSnsError(true); setSnsConnecting(null); return; }
+    const before = snsStatus?.connectedNetworks.length ?? 0;
+    let tries = 0;
+    const iv = setInterval(async () => {
+      tries++;
+      try {
+        const s = await fetchSnsStatus(storeId);
+        setSnsStatus(s);
+        if (s.connectedNetworks.length > before || tries >= 20) { clearInterval(iv); setSnsConnecting(null); }
+      } catch { if (tries >= 20) { clearInterval(iv); setSnsConnecting(null); } }
+    }, 3000);
+  };
+
+  // 자동배포 대상 채널 on/off(연결된 채널만). snsChannels 에 network enum 저장(조용히 즉시 저장).
+  const toggleAuto = async (network: string) => {
+    if (!data) return;
+    const next = sns.includes(network) ? sns.filter((x) => x !== network) : [...sns, network];
+    setSns(next);
+    try { await setDoc(doc(getDb(), 'stores', data.storeId), { snsChannels: next }, { merge: true }); } catch {}
   };
   const addMenu = async () => {
     if (!data || !newItem.name.trim()) return;
@@ -525,6 +581,7 @@ export default function OwnerDashboard() {
     : [];
   const chStatus = (s?: string) => s === 'approved' ? t('승인됨', 'Approved') : s === 'rejected' ? t('반려됨', 'Rejected') : t('승인 대기', 'Pending');
   const filteredMembers = data ? data.members.filter((m) => { const q = custQ.trim().toLowerCase(); if (!q) return true; return (m.name || '').toLowerCase().includes(q) || (m.phone || '').replace(/\D/g, '').includes(q.replace(/\D/g, '')); }) : [];
+  const connectedCount = snsStatus?.connectedNetworks.length ?? 0;
   const selMember = data && selMemberId ? data.members.find((m) => m.deviceId === selMemberId) || null : null;
 
   return (
@@ -532,7 +589,7 @@ export default function OwnerDashboard() {
       <header className="flex flex-wrap items-start justify-between gap-3 px-1 pt-7">
         <div>
           <h1 className="text-2xl font-black tracking-tight">{t('👨‍🍳 점주 대시보드', '👨‍🍳 Owner Dashboard')} <span className="text-sm font-medium text-zinc-400">{t('(태블릿·PC)', '(Tablet·PC)')}</span></h1>
-          <p className="mt-0.5 text-sm text-zinc-500">{t('매장 현황·고객·정산·미니홈피를 관리해요.', 'Manage store status, customers, settlement, and mini-home.')}</p>
+          <p className="mt-0.5 text-sm text-zinc-500">{t('매장 현황·고객·정산·AI 미니홈을 관리해요.', 'Manage store status, customers, settlement, and your AI Mini Home.')}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <button onClick={toggleLang} className="rounded-full border border-zinc-300 bg-white px-3 py-2 text-xs font-bold text-zinc-600">{lang === 'ko' ? 'EN' : '한국어'}</button>
@@ -588,6 +645,18 @@ export default function OwnerDashboard() {
                 <Stat label={t('적립 스탬프', 'Stamps')} value={data.activeStamps} accent="emerald" />
                 <Stat label={t('리뷰', 'Reviews')} value={data.reviews.length} accent="amber" />
               </div>
+
+              {/* 미연결 넛지 — 연결된 채널 0개일 때만. 첫 연결 후 사라짐. (docs/SNS-REBUILD.md §5.3) */}
+              {connectedCount === 0 && (
+                <div className="ss-card mt-4 flex items-center gap-4 border-l-4 border-honey p-5">
+                  <div className="hidden shrink-0 text-3xl sm:block">🔗</div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-base font-extrabold text-zinc-900">{t('손님 한 분이, 우리 가게 마케팅팀이 됩니다', 'Turn every guest into your marketing team')}</h3>
+                    <p className="mt-1 text-[13px] leading-relaxed text-zinc-500">{t('손님이 샤비로 리뷰를 쓰면 인스타그램·페이스북에 자동으로 올라가요. 지금 채널을 연결해 보세요.', 'When a guest writes a review with Sharbee, it auto-posts to Instagram & Facebook. Connect your channels now.')}</p>
+                  </div>
+                  <button onClick={() => setTab('minihome')} className="ss-btn-primary shrink-0 self-center px-5 py-2.5 text-sm">{t('채널 연결하기 →', 'Connect channels →')}</button>
+                </div>
+              )}
 
               <div className="mt-4">
                 <section className="ss-card p-5">
@@ -1066,7 +1135,7 @@ export default function OwnerDashboard() {
             </div>
           )}
 
-          {/* 🏠 미니홈피 */}
+          {/* 🏠 AI 미니홈 */}
           {tab === 'minihome' && (
             <div className="mt-5">
               <div className="grid gap-4 md:grid-cols-2 md:items-start">
@@ -1084,14 +1153,70 @@ export default function OwnerDashboard() {
                 </section>
 
                 <section className="ss-card p-5">
-                  <h3 className="text-base font-extrabold">{t('SNS 자동게시 채널', 'SNS Auto-post Channels')}</h3>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {SNS_CHANNELS.map((ch) => {
-                      const on = sns.includes(ch);
-                      return <button key={ch} onClick={() => setSns((p) => on ? p.filter((x) => x !== ch) : [...p, ch])} className={`rounded-full px-3 py-1.5 text-sm font-bold capitalize ${on ? 'bg-brand-600 text-white' : 'bg-zinc-100 text-zinc-500'}`}>{ch}</button>;
+                  {/* 헤더 + 실제 연결 요약 배지 (장식 토글 → 진짜 Outstand 연결 상태) */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-base font-extrabold">🔗 {t('리뷰 자동 배포', 'Auto-Posting')}</h3>
+                      <p className="mt-0.5 text-[13px] leading-relaxed text-zinc-500">{t('손님이 남긴 리뷰가 매장 SNS(인스타·페북)에 자동으로 올라가요.', 'Guest reviews get posted to your channels (Instagram, Facebook) automatically.')}</p>
+                    </div>
+                    {connectedCount > 0 ? (
+                      <span className="shrink-0 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">{t(`${connectedCount}개 연결됨`, `${connectedCount} connected`)}</span>
+                    ) : (
+                      <span className="shrink-0 rounded-full bg-zinc-100 px-3 py-1 text-xs font-bold text-zinc-500">{t('미연결', 'Not connected')}</span>
+                    )}
+                  </div>
+
+                  {snsError && (
+                    <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-600">
+                      <span>⚠ {t('연결 상태를 불러오지 못했어요.', 'Could not load connection status.')}</span>
+                      <button onClick={refreshSnsStatus} className="shrink-0 font-bold underline underline-offset-2">{t('다시 시도', 'Retry')}</button>
+                    </div>
+                  )}
+
+                  <div className="mt-4 divide-y divide-zinc-100">
+                    {SNS_PLATFORMS.map((p) => {
+                      const connected = snsStatus?.connectedNetworks.includes(p.network) ?? false;
+                      const acct = snsStatus?.accounts.find((a) => a.network === p.network);
+                      const autoOn = sns.includes(p.network);
+                      const connecting = snsConnecting === p.network;
+                      return (
+                        <div key={p.network} className="flex items-center gap-3 py-3.5">
+                          <span className={`shrink-0 text-lg ${connected ? '' : 'opacity-50'}`}>{p.icon}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className={`text-sm font-bold ${connected ? 'text-zinc-900' : 'text-zinc-500'}`}>{p.label}</div>
+                            {connected && acct?.name && <div className="truncate text-[11px] text-zinc-400">@{acct.name}</div>}
+                          </div>
+
+                          {snsLoading && !snsStatus ? (
+                            <span className="h-5 w-16 shrink-0 animate-pulse rounded-full bg-zinc-100" />
+                          ) : connected ? (
+                            <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">● {t('연결됨', 'Connected')}</span>
+                          ) : (
+                            <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-bold text-zinc-400">○ {t('미연결', 'Not connected')}</span>
+                          )}
+
+                          {connected && (
+                            <button role="switch" aria-checked={autoOn} onClick={() => toggleAuto(p.network)} title={t('자동배포', 'Auto-post')} className={`relative h-6 w-11 shrink-0 rounded-full transition ${autoOn ? 'bg-brand-600' : 'bg-zinc-200'}`}>
+                              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-all ${autoOn ? 'left-[22px]' : 'left-0.5'}`} />
+                            </button>
+                          )}
+
+                          {connecting ? (
+                            <button disabled className="ss-btn-primary shrink-0 px-4 py-1.5 text-xs opacity-70">
+                              <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white align-middle" />
+                              <span className="ml-1.5 align-middle">{t('여는 중…', 'Opening…')}</span>
+                            </button>
+                          ) : connected ? (
+                            <button onClick={() => handleSnsConnect(p.network)} className="shrink-0 text-xs font-bold text-zinc-400 hover:text-zinc-600">{t('다시 연결', 'Reconnect')}</button>
+                          ) : (
+                            <button onClick={() => handleSnsConnect(p.network)} className="ss-btn-primary shrink-0 px-4 py-1.5 text-xs">{t('연결하기', 'Connect')}</button>
+                          )}
+                        </div>
+                      );
                     })}
                   </div>
-                  <button onClick={() => saveStore({ snsChannels: sns })} className="ss-btn-soft mt-3 w-full">{t('채널 저장', 'Save Channels')}</button>
+
+                  <p className="mt-3 text-[11px] leading-relaxed text-zinc-400">{t('연결하기를 누르면 로그인 창이 열려요. 로그인하면 자동으로 연동돼요. (구글은 매장 소식용)', 'Connect opens a login window; once you log in it links automatically. (Google is for store posts)')}</p>
                 </section>
               </div>
 
@@ -1192,7 +1317,7 @@ export default function OwnerDashboard() {
                   <h3 className="text-base font-extrabold">{t('❓ FAQ 관리', '❓ FAQ')}</h3>
                   <button onClick={() => setFaqs((p) => [...p, { q: '', a: '' }])} className="ss-chip">{t('＋ 질문 추가', '＋ Add question')}</button>
                 </div>
-                <p className="mt-1 text-[11px] text-zinc-400">{t('비우면 매장 정보로 자동 생성돼요. 등록하면 미니홈·AI 검색에 그대로 노출.', 'Leave empty to auto-generate. Saved FAQs show on the mini-home & AI search.')}</p>
+                <p className="mt-1 text-[11px] text-zinc-400">{t('비우면 매장 정보로 자동 생성돼요. 등록하면 AI 미니홈·AI 검색에 그대로 노출.', 'Leave empty to auto-generate. Saved FAQs show on the AI Mini Home & AI search.')}</p>
                 <div className="mt-3 space-y-3">
                   {faqs.length === 0 && (
                     <p className="text-sm text-zinc-400">{t('등록된 FAQ가 없어요. (지금은 자동 생성 사용 중)', 'No custom FAQ yet. (auto-generated for now)')}
@@ -1214,7 +1339,7 @@ export default function OwnerDashboard() {
 
                 {faqs.some((f) => f.q.trim() && f.a.trim()) && (
                   <div className="mt-5 rounded-xl bg-zinc-50 p-4">
-                    <h4 className="text-xs font-bold text-zinc-500">{t('미리보기 — 미니홈에 이렇게 보여요', 'Preview — how it shows on the mini-home')}</h4>
+                    <h4 className="text-xs font-bold text-zinc-500">{t('미리보기 — AI 미니홈에 이렇게 보여요', 'Preview — how it shows on the AI Mini Home')}</h4>
                     <div className="mt-2 divide-y divide-zinc-100">
                       {faqs.filter((f) => f.q.trim() && f.a.trim()).map((f, i) => (
                         <div key={i} className="py-2.5">

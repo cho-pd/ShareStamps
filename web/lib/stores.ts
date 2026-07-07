@@ -15,7 +15,7 @@ export interface MenuItem {
   category?: string;          // 카테고리(그룹핑용)
   variants?: { label: string; price: number }[]; // 다중가: 예 [{label:'R',price:17.99},{label:'L',price:22.99}]
   soldOut?: boolean;          // 품절 토글
-  hidden?: boolean;           // 미니홈/샤비 노출 제외
+  hidden?: boolean;           // AI 미니홈/샤비 노출 제외
   spicy?: boolean;            // 매운맛 표시(뱃지)
   order?: number;             // 카테고리 내 정렬
   imageUrl?: string;          // 메뉴 사진(Firebase Storage 공개 URL). "말하면 사진 팝업"의 원천.
@@ -59,11 +59,14 @@ export interface Store {
   pointRewardPer7Stamps: number;
   earningIntervalMinutes?: number; // 재적립 최소 간격(분), 점주 설정. 기본 60.
   geo?: { lat: number; lng: number }; // LocalBusiness 위/경도 (AEO 지역 매칭)
+  // 매장의 외부 채널 URL(플랫폼키→URL). schema.org `sameAs`(엔티티 링크 그래프)와 손님 미니홈 "링크 허브"의 단일 진실 소스.
+  // ⚠️ snsChannels(자동배포 연결 플래그)와 별개 — 이건 "손님에게 보여줄/AI가 따라갈 URL".
+  socialLinks?: Record<string, string>; // 예: { instagram: 'instagram.com/store', yelp: '...', google: '...' }
   thumbnailUrl?: string;
   bannerUrl?: string;
   chatbotMenu?: string;    // 점주 설정: 메뉴 추천 챗봇 맞춤 안내(성격/추천 포인트)
   chatbotReview?: string;  // 점주 설정: 리뷰 챗봇 맞춤 안내(물어볼 포인트/톤)
-  faqs?: FaqItem[];        // 점주 설정: 미니홈 FAQ(있으면 자동생성 대신 사용)
+  faqs?: FaqItem[];        // 점주 설정: AI 미니홈 FAQ(있으면 자동생성 대신 사용)
   protected?: boolean;     // 기본 보호 매장(삭제 불가)
   menu: MenuItem[];
   reviews: Review[];
@@ -109,6 +112,7 @@ const SEED_STORES: Store[] = [
     },
     priceRange: '$$',
     sellingPoints: ['K-style Korean pizza', 'Korean fried chicken', 'Sweet Potato Pizza', 'Kimchi Pizza', 'chicken wings', 'soju & draft beer'],
+    socialLinks: { website: 'https://loveletterusa.com' },
     pointRewardPer7Stamps: 5,
     menu: [
       { id: 'll-sp-01', name: 'Sweet Potato Pizza', price: 17.99, category: 'PIZZA', description: '고구마 청크, 화이트소스, 햄, 양파, 소시지, 파인애플, 피망, 콘, 치즈', signature: true, variants: [{ label: 'R', price: 17.99 }, { label: 'L', price: 22.99 }] },
